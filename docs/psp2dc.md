@@ -329,7 +329,7 @@ In GAME mode, A runs the card's game on an emulated VMU (`psp/app/vmu_game.c` ov
 
 **Proof.** `scripts/dev/vmucore-compare` runs libevmu and `vmu_core` side by side on the Mac with the same buttons and compares the screen, the icons, the buzzer and the whole machine state every 1/60 s, and the flash at the end. All 127 `.vms` games of a collection matched for 60 s each with MODE pressed at 50 s; Chao Adventure, Chao Adventure 2, Metal Gear Stealth, Bounce and AlienFighter for 180 s; the nine games that saved left byte-identical flash. On the Mac `vmu_core` is 80 to 108 times faster than libevmu. One theoretical difference remains: libevmu ends a step by summing doubles, and a game on the fast CF clock could run one instruction more there at a step's very end; none of the 127 did.
 
-**On the PSP build.** Chao Adventure 2 runs in real time in PPSSPP: the VMU CPU shows 0.0 ms a frame (under 0.1 ms; libevmu took 388 ms). Its title, story text and the Chao were seen; not yet tried on hardware. The application module is 241 KB (1.8 MB with libevmu).
+**On the PSP build.** Chao Adventure 2 runs in real time in PPSSPP: the VMU CPU shows 0.0 ms a frame (under 0.1 ms; libevmu took 388 ms). Its title, story text and the Chao were seen. **On hardware (15 November 2026): Chao Adventure 2 plays on the PSP-1000 on its own, the buzzer's mail sound heard through the PSP's speaker.** The application module is 241 KB (1.8 MB with libevmu).
 
 Two traps in libevmu's API, found by running games and kept in mind by the comparison: `EvmuTicks` is documented as milliseconds but the CPU's update takes nanoseconds; `EvmuLcd_pixel` is declared `(row, col)` but takes `(x, y)`.
 
@@ -345,7 +345,7 @@ The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, 
 - **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (protocol 4, `CARD_EJECT`): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
 - A file is tested for by opening it: `sceIoGetstat` said "not there" for files that were there under PPSSPP, and a new card must never overwrite an old one.
 
-Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a card), using `ms0:/PSP2DC/dev_input.txt`, a timed list of buttons the application holds when the file is there (combinations cannot be held from the Mac's keyboard). The connected change needs the firmware of 15 November 20:23 or later and is not yet tried on hardware.
+Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a card), using `ms0:/PSP2DC/dev_input.txt`, a timed list of buttons the application holds when the file is there (combinations cannot be held from the Mac's keyboard). On hardware (15 November 2026): the old card was moved into the folder; a new card made while connected (SELECT + Start) was seen by the Dreamcast, and Sonic Adventure 2 saved onto it; a card made on the Mac (`games.bin`, Chao Adventure 2) was chosen with SELECT + R and its game played.
 
 ### 5.1 Controller Mapping
 
