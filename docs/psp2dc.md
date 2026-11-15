@@ -237,7 +237,7 @@ The message format is defined once, in `protocol/psp2dc_protocol.h`, shared by t
 - This needs the memory card emulation switched on (`CONFIG_VMU`), which on this target runs in RAM only and has Bluetooth removed to make room; about 250 KB of the RP2040's RAM is in use.
 - The PSP application draws the screen four times enlarged at the bottom right of its status page, turned half round, since the Dreamcast sends it upside down for a VMU sitting reversed in a controller. Confirmed on hardware: GDMENU's screen reads upright and unmirrored.
 
-**VMU storage — written, builds, not yet tested on hardware**
+**VMU storage — works on hardware (15 November 2026)**
 
 joypad-os's VMU code is disabled upstream because writing the image to the Pico's flash disturbs Maple timing, and its SD card option needs pins that are unavailable here. So the card is kept on the PSP's Memory Stick and the adapter writes no flash at all:
 
@@ -416,14 +416,16 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 
 ### Phase 4 — VMU Screen and Storage
 
-**Status: Screen and card working; persistent saves pending**
+**Status: Complete**
 
 - Port LCD (FT2) handling from MaplePad into joypad-os. **Written.**
 - Define the USB protocol: controller IN, VMU frame OUT. **Done.**
 - Extend the PSP application to receive and render the frame. **Written.**
 - Test on hardware. **Passed (15 November 2026):** the BIOS shows a memory card in A-1 with 200 free blocks; Crazy Taxi 2 saved to it (180 free afterwards) and stopped warning; GDMENU's VMU screen appeared on the PSP, upright (one write of 50 words to block 0, taken whole); the controller stayed solid throughout with the card enabled.
 - Crazy Taxi 2's animated screen (its logo with flames) plays on the PSP: 208 screens written, 208 taken, no errors, the controller unaffected. The game never asks for the LCD's media info; it only writes. A flickering band at the picture's top was the status text blanking it at each redraw, fixed in the application and confirmed on hardware.
-- Saves kept on the PSP's Memory Stick: written, to be tested (a save must survive switching the Dreamcast off and on).
+- Saves kept on the PSP's Memory Stick. **Passed (15 November 2026)** with firmware `psp2dc_superpico_saves_C` and protocol 3: a new card was made and all 256 blocks kept on the PSP; Crazy Taxi 2's save came as 22 more blocks (its 20 plus the FAT and the directory) and the file was written a second time; after switching the Dreamcast off and on the PSP sent the card back (`sent to the adapter`), the BIOS listed CRAZY TAXI 2 SYSTEM DATA, 20 blocks, with its icon, and the game showed 180 free blocks. The VMU screen ran throughout (432 screens written, 432 taken) and no input failed to send.
+- The application's USB restart worked on its first outing: the sync did not come at the start, the USB was restarted after 5 s and the link came up (`restarts 1`). So the deaf driver is not only a matter of many reconnections; why it happens at a fresh start is not yet known.
+- The BIOS's file menu does draw on the VMU (a picture of a VMU), contrary to what was assumed earlier.
 - More games' screens are to be tried.
 - Decide and implement VMU save storage.
 
@@ -460,7 +462,7 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 
 ## 10. Current Project Status
 
-**The first major milestone is reached (15 November 2026):** the PSP controls a real Dreamcast through the SuperPico and shows the VMU's live screen. The memory card works but is kept in the adapter's RAM, so saves do not survive power off.
+**The first major milestone is reached (15 November 2026):** the PSP controls a real Dreamcast through the SuperPico, shows the VMU's live screen, and keeps the memory card on its Memory Stick, where saves survive switching the console off.
 
 Completed:
 
@@ -472,7 +474,7 @@ Completed:
 - Found that PSPExp already provides a working kernel USB driver on the target PSP-1000.
 - Added, built and flashed the `usb2dc_superpico` firmware target.
 - Wired the Dreamcast cable and controlled a real Dreamcast from the PSP.
-- Memory card (RAM only) and the VMU's screen on the PSP, both working on hardware.
+- The VMU's screen on the PSP and the memory card kept on the PSP's Memory Stick, both working on hardware.
 - Wrote the PSP2DC protocol, the firmware's PSP host driver and a first PSP application; verified on hardware that controller data reaches the adapter and status messages come back.
 - Phase 1 passed: the RP2040 enumerates the PSP (PSPExp driver) at full speed.
 
@@ -480,7 +482,6 @@ Not yet completed:
 
 - Real-game compatibility and latency measurements.
 - Permanent (soldered) wiring.
-- Saves that survive power off (the card image kept on the PSP's Memory Stick).
 
 ## 11. First Major Milestone
 
