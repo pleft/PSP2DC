@@ -308,7 +308,7 @@ Every page is drawn whole into the frame buffer not on screen and shown at the n
 
 ### 5.0c The VMU on Its Own (standalone)
 
-With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behaves as a VMU taken out of the controller (`psp/app/vmu_sa.c`, after the Sega manual's mode settings, VMU-7). The PSP's buttons become the VMU's: d-pad, Cross = A, Circle = B, Start = MODE, Triangle = SLEEP (SELECT is still the shift key). The drawn VMU's buttons sink while held.
+With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behaves as a VMU taken out of the controller (`psp/app/vmu_sa.c`, after the Sega manual's mode settings, VMU-7). The PSP's buttons become the VMU's: d-pad, Cross = A, Circle = B, Square = SLEEP, Triangle = MODE (SLEEP and MODE sit side by side above A and B on the VMU) (SELECT is still the shift key). The drawn VMU's buttons sink while held.
 
 - **MODE** goes round GAME, TIME and FILE, lighting that mode's icon; it starts in TIME, as a VMU does on leaving the console.
 - **TIME:** year, month/day, hh:mm:ss and the weekday, from the PSP's clock.

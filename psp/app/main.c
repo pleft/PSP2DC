@@ -508,8 +508,10 @@ int main(int argc, char *argv[])
             if (b & PSP_CTRL_RIGHT) vmu_held |= SA_RIGHT;
             if (b & PSP_CTRL_CROSS) vmu_held |= SA_A;
             if (b & PSP_CTRL_CIRCLE) vmu_held |= SA_B;
-            if (b & PSP_CTRL_START) vmu_held |= SA_MODE;
-            if (b & PSP_CTRL_TRIANGLE) vmu_held |= SA_SLEEP;
+            /* SLEEP and MODE sit side by side above A and B on the VMU:
+             * Square and Triangle, the PSP's buttons nearest that */
+            if (b & PSP_CTRL_TRIANGLE) vmu_held |= SA_MODE;
+            if (b & PSP_CTRL_SQUARE) vmu_held |= SA_SLEEP;
             if (!was_standalone) sa_reset();
             sa_input(vmu_held & ~vmu_last, g_card_have ? g_card : NULL);
             vmu_icons = sa_render(sa_lcd, g_card_have ? g_card : NULL);

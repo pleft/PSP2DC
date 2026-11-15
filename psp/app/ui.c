@@ -568,7 +568,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
 
     if (h->standalone) {   /* no Dreamcast: the PSP is the VMU's buttons */
         static const char *const map[] = { "d-pad     VMU d-pad", "Cross     A", "Circle    B",
-                                           "Start     MODE", "Triangle  SLEEP" };
+                                           "Square    SLEEP", "Triangle  MODE" };
         int i;
         round_rect(x0, 46, 220, 146, 6, t->panel);
         label(x0 + 8, 52, t->text, "VMU ON ITS OWN");
