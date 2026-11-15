@@ -14,7 +14,7 @@
 
 const UiTheme ui_themes[] = {
     /*  name        bg          paper       ink         frame       text        grid body        panel */
-    { "Classic",  0xFF181818, 0xFF90B09A, 0xFF402018, 0xFF505050, 0xFFC0C0C0, 1, 0xFFD6D2CC, 0xFF2A2A2A },
+    { "Classic",  0xFF181818, 0xFFA8B898, 0xFF402018, 0xFF505050, 0xFFC0C0C0, 1, 0xFFE4E6E6, 0xFF2A2A2A },
     { "Backlit",  0xFF2A1408, 0xFFFFBE78, 0xFF3C140A, 0xFF8A5A30, 0xFFFFD8B0, 0, 0xFFB08050, 0xFF40200E },
     { "Pocket",   0xFF1E2A1E, 0xFF0FBC9B, 0xFF0F380F, 0xFF306230, 0xFF9BCC9B, 1, 0xFFB8C0B8, 0xFF2A382A },
     { "Amber",    0xFF000000, 0xFF000C14, 0xFF00B0FF, 0xFF003050, 0xFF0090D0, 0, 0xFF102028, 0xFF081018 },
@@ -308,27 +308,124 @@ static void label(int x, int y, unsigned c, const char *s)
     for (; *s; s++, x += 7) pspDebugScreenPutChar(x, y, c, (unsigned char)*s);
 }
 
+/* ---- the VMU, drawn ------------------------------------------------------
+ * As the real one looks from the front: a case with a flat top and a
+ * rounded bottom, lit from the top left (lighter above, darker below, a
+ * shadow under and to the right), the screen sunk in a dark surround, a
+ * d-pad in a dished well, round A and B, and the small MODE and SLEEP. */
+
+static unsigned mix(unsigned a, unsigned b, int k)   /* a to b, k of 16 */
+{
+    unsigned r = ((a & 0xFF) * (16 - k) + (b & 0xFF) * k) / 16;
+    unsigned g = (((a >> 8) & 0xFF) * (16 - k) + ((b >> 8) & 0xFF) * k) / 16;
+    unsigned bl = (((a >> 16) & 0xFF) * (16 - k) + ((b >> 16) & 0xFF) * k) / 16;
+    return 0xFF000000 | bl << 16 | g << 8 | r;
+}
+
+/* how far in a row of a rounded shape starts: r the corner's radius, d the
+ * row's distance into the corner (0 at the edge) */
+static int corner_inset(int r, int d)
+{
+    int x = 0;
+    if (d >= r) return 0;
+    while (x < r && (r - x) * (r - x) + (r - d) * (r - d) > r * r) x++;   /* (small: a few dozen steps) */
+    return x;
+}
+
+/* a shape with top corners of radius rt and bottom ones of rb, shaded from
+ * top to bottom between c_top and c_bottom */
+static void shape(int x0, int y0, int w, int h, int rt, int rb, unsigned c_top, unsigned c_bottom)
+{
+    int y;
+    for (y = 0; y < h; y++) {
+        int in = y < rt ? corner_inset(rt, y) : y >= h - rb ? corner_inset(rb, h - 1 - y) : 0;
+        ui_fill(x0 + in, y0 + y, w - 2 * in, 1, mix(c_top, c_bottom, y * 16 / h));
+    }
+}
+
+/* a round button: its shadow, its edge, its face lit from the top left */
+static void button(int cx, int cy, int r, unsigned face, unsigned bg)
+{
+    disc(cx + 1, cy + 2, r + 1, mix(bg, 0xFF000000, 6));
+    disc(cx, cy, r, mix(face, 0xFF000000, 5));
+    disc(cx - 1, cy - 1, r - 2, face);
+    disc(cx - r / 3, cy - r / 3, r / 3, mix(face, 0xFFFFFFFF, 6));
+}
+
 static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
 {
-    unsigned shade = darker(darker(t->body)), mark = light(t->body) ? 0xFF505050 : 0xFFB0B0B0;
-    round_rect(12, 10, 228, 252, 26, shade);          /* the case, with its edge */
-    round_rect(14, 12, 224, 248, 24, t->body);
-    round_rect(26, 24, 200, 140, 10, 0xFF282828);     /* the screen's surround */
-    ui_lcd(lcd, 30, 30, 4, t);                         /* 192x128 */
-    ui_fill(26, 24, 200, 3, 0xFF282828);               /* (ui_lcd's own frame, tidied) */
-    ui_fill(26, 161, 200, 3, 0xFF282828);
-    ui_fill(26, 24, 3, 140, 0xFF282828);
-    ui_fill(223, 24, 3, 140, 0xFF282828);
-    label(98, 168, mark, "VISUAL MEMORY");
-    /* the d-pad and A, B, as on the VMU */
-    ui_fill(52, 206, 54, 16, shade);
-    ui_fill(71, 187, 16, 54, shade);
-    disc(176, 222, 14, shade);
-    disc(208, 200, 14, shade);
-    label(173, 218, t->body, "A");
-    label(205, 196, t->body, "B");
-    round_rect(96, 244, 22, 8, 4, shade);             /* MODE and SLEEP */
-    round_rect(134, 244, 22, 8, 4, shade);
+    /* Laid out after a photograph of the real one, squeezed in height so its
+     * screen can be four times the LCD (the real one is taller for its width). */
+    const int X = 8, Y = 14, W = 236, H = 254;
+    unsigned body = t->body, lit = mix(body, 0xFFFFFFFF, 4), shade = mix(body, 0xFF000000, 2);
+    unsigned edge = mix(body, 0xFF000000, 5), seam = mix(body, 0xFF000000, 3);
+    unsigned ink = light(body) ? 0xFF5A5A5A : 0xFFB0B0B0;
+    unsigned lav = light(body) ? 0xFFCAB8AC : mix(0xFFCAB8AC, 0xFF000000, 9);   /* the buttons' lavender grey */
+    unsigned lav_lit = mix(lav, 0xFFFFFFFF, 4), lav_dark = mix(lav, 0xFF000000, 4);
+    int i;
+
+    /* the connector's tabs, behind the top */
+    shape(X + 64, Y - 10, 50, 14, 2, 0, 0xFF5A5A5A, 0xFF3A3A3A);
+    shape(X + 118, Y - 10, 50, 14, 2, 0, 0xFF5A5A5A, 0xFF3A3A3A);
+    /* the case: a shadow, its edge, the face lit from above */
+    shape(X + 3, Y + 4, W, H, 14, 42, mix(t->bg, 0xFF000000, 8), mix(t->bg, 0xFF000000, 8));
+    shape(X, Y, W, H, 14, 42, edge, edge);
+    shape(X + 1, Y + 1, W - 2, H - 3, 13, 40, lit, shade);
+    /* the front panel between two seams, and the cap with its notch at the top */
+    for (i = Y + 10; i < Y + H - 22; i++) {
+        g_back[i * LINE + X + 9] = seam;  g_back[i * LINE + X + 10] = lit;
+        g_back[i * LINE + X + W - 11] = seam; g_back[i * LINE + X + W - 10] = lit;
+    }
+    ui_fill(X + 10, Y + 18, W - 20, 1, seam);
+    disc(X + W / 2, Y + 1, 12, seam);
+    disc(X + W / 2, Y + 1, 11, mix(lit, 0xFFFFFFFF, 4));
+    ui_fill(X + W / 2 - 13, Y - 12, 27, 13, t->bg);                     /* (the notch's upper half, cut away) */
+    shape(X + 64, Y - 10, 50, 10, 2, 0, 0xFF5A5A5A, 0xFF4A4A4A);
+    shape(X + 118, Y - 10, 50, 10, 2, 0, 0xFF5A5A5A, 0xFF4A4A4A);
+    label(X + W / 2 - 45, Y + 22, ink, "VISUAL MEMORY");
+
+    /* the screen in its stepped window */
+    shape(X + 17, Y + 33, 202, 140, 4, 4, mix(body, 0xFF000000, 4), mix(body, 0xFF000000, 2));   /* the step, shaded above */
+    shape(X + 19, Y + 35, 198, 136, 3, 3, 0xFF7A8A86, 0xFF6A7A76);                            /* the glass's edge */
+    ui_lcd(lcd, X + 22, Y + 38, 4, t);                                                           /* 192x128 */
+    ui_fill(X + 18, Y + 34, 200, 4, 0xFF72827E);                                                 /* (ui_lcd's frame, as the edge) */
+    ui_fill(X + 18, Y + 166, 200, 4, 0xFF6A7A76);
+    ui_fill(X + 18, Y + 34, 4, 136, 0xFF72827E);
+    ui_fill(X + 214, Y + 34, 4, 136, 0xFF6A7A76);
+    ui_fill(X + 22, Y + 38, 192, 2, mix(t->paper, 0xFF000000, 5));                              /* the glass's inner shadow */
+    ui_fill(X + 22, Y + 38, 2, 128, mix(t->paper, 0xFF000000, 5));
+    ui_fill(X + 17, Y + 174, 202, 1, lit);                                                       /* the window's lower lip */
+    ui_fill(X + 10, Y + 180, W - 20, 1, seam);                                                   /* the seam under the screen */
+
+    /* the d-pad: a disc in a well, the cross moulded into it */
+    disc(X + 54 + 2, Y + 215 + 2, 31, mix(shade, 0xFF000000, 5));                                /* the well */
+    disc(X + 54, Y + 215, 28, lav_dark);
+    disc(X + 53, Y + 214, 27, lav);
+    /* the cross: its outline, a shadow under and right, the face lit from above */
+    shape(X + 54 - 11 + 1, Y + 215 - 25 + 2, 22, 50, 7, 7, lav_dark, lav_dark);
+    shape(X + 54 - 25 + 1, Y + 215 - 11 + 2, 50, 22, 7, 7, lav_dark, lav_dark);
+    shape(X + 54 - 11, Y + 215 - 25, 22, 50, 7, 7, mix(lav_dark, lav, 8), mix(lav_dark, lav, 8));
+    shape(X + 54 - 25, Y + 215 - 11, 50, 22, 7, 7, mix(lav_dark, lav, 8), mix(lav_dark, lav, 8));
+    shape(X + 54 - 10, Y + 215 - 24, 20, 48, 6, 6, lav_lit, lav);
+    shape(X + 54 - 24, Y + 215 - 10, 48, 20, 6, 6, mix(lav_lit, lav, 6), mix(lav_lit, lav, 10));
+    ui_fill(X + 54 - 10, Y + 215 - 10, 20, 20, mix(lav_lit, lav, 8));
+    disc(X + 54, Y + 215, 2, lav_dark);                                                          /* the dot */
+
+    /* SLEEP and MODE, small, labels above */
+    label(X + 98, Y + 184, ink, "SLEEP");
+    label(X + 142, Y + 184, ink, "MODE");
+    disc(X + 116, Y + 201, 8, mix(shade, 0xFF000000, 4));
+    disc(X + 116, Y + 201, 6, lav);
+    disc(X + 114, Y + 199, 2, lav_lit);
+    disc(X + 156, Y + 201, 8, mix(shade, 0xFF000000, 4));
+    disc(X + 156, Y + 201, 6, lav);
+    disc(X + 154, Y + 199, 2, lav_lit);
+
+    /* A and B, side by side, low and to the right, labels below */
+    button(X + 136, Y + 226, 13, lav, body);
+    button(X + 186, Y + 226, 13, lav, body);
+    label(X + 133, Y + 242, ink, "A");
+    label(X + 183, Y + 242, ink, "B");
 }
 
 static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
