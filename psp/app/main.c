@@ -46,7 +46,7 @@
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
-PSP_HEAP_SIZE_KB(-2048);   /* all but 2 MB: the emulated VMU (libevmu) lives here too */
+PSP_HEAP_SIZE_KB(2048);   /* the emulated VMU (vmu_core, ~200 KB) and the tools' buffers */
 
 #define printf pspDebugScreenPrintf
 

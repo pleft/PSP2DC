@@ -1,6 +1,6 @@
 /*
- * The VMU's GAME mode: the card's executable run on an emulated VMU CPU
- * (libevmu, the ElysianVMU core, MIT; scripts/build-evmu.sh). Its software
+ * The VMU's GAME mode: the card's executable run on an emulated VMU
+ * (vmu_core.c, derived from libevmu, the ElysianVMU core, MIT). Its software
  * BIOS stands in for Sega's: no BIOS image is needed.
  */
 #ifndef PSP2DC_VMU_GAME_H
@@ -10,6 +10,7 @@
 
 int  game_start(const unsigned char *card);      /* 0, or < 0 when it could not start */
 int  game_running(void);
+int  game_ended(void);                           /* the game handed back to the BIOS (MODE, mostly) */
 /* one step: the VMU's buttons held (vmu_sa.h's SA_*), ms of VMU time */
 void game_frame(unsigned held, unsigned ms);
 /* the screen as the Dreamcast would send it, and the lit icons */

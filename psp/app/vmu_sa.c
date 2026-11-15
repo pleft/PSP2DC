@@ -3,8 +3,8 @@
  * The modes after the Sega VMU manual (VMU-7): GAME starts the executable
  * on the card (not yet: it needs an emulated VMU CPU), TIME shows the clock,
  * FILE shows the card's files. GAME runs the card's game on an emulated VMU
- * (vmu_game.c): A starts it, holding MODE 2 s leaves it (on a real VMU the
- * game itself hands back to the BIOS; this works whatever the game does).
+ * (vmu_game.c): A starts it; it is left when the game hands back to the
+ * BIOS (MODE, in most games), or with MODE held 2 s whatever the game does.
  * The screens' layout follows photographs of a
  * real VMU (FILE: "#001/001", the name over two lines, the date), in an 8x4
  * text grid of 6x8 cells; the font is drawn here, not Sega's. */
@@ -58,7 +58,9 @@ int sa_input(unsigned pressed, unsigned held, unsigned char *card, unsigned ms)
     int n;
     if (game_running()) {
         g_mode_held_ms = held & SA_MODE ? g_mode_held_ms + ms : 0;
-        if (g_mode_held_ms >= LEAVE_GAME_MS) {           /* back to the VMU's own GAME screen */
+        /* back to the VMU's own GAME screen: when the game hands back to the
+         * BIOS (MODE, in most games), or MODE held 2 s whatever the game does */
+        if (game_ended() || g_mode_held_ms >= LEAVE_GAME_MS) {
             g_mode_held_ms = 0;
             return card ? game_stop(card) : 0;
         }
