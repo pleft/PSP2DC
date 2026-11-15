@@ -281,9 +281,9 @@ Demo mode plays every recording in `capture/` in turn at its recorded pace, or a
 
 ### 5.0a Pages and Themes
 
-Three pages, changed with SELECT + Left/Right; the page, the theme and the stick's source are kept in `ms0:/PSP2DC/settings.txt`.
+Three pages (home, saves, status), changed with SELECT + Left/Right; the page, the theme and the stick's source are kept in `ms0:/PSP2DC/settings.txt`.
 
-- **VMU:** the screen eight times its size (384x256), a status line above (link, the card's state, the theme's name; for two seconds after a change, what changed) and the keys below. SELECT + Up/Down changes the theme.
+- **Home:** a drawing of the VMU with its screen four times its size (192x128), and beside it three panels: the link (a coloured dot: green connected, yellow waiting, orange demo, red nothing; the theme's name), the controller as the Dreamcast sees it right now (L and R filling, the stick moving in its ring, d-pad, Start, and A B X Y lit in the Dreamcast's colours when pressed, the stick's source), and the memory card (saves, blocks free, the first save's animated icon, its state or, for two seconds, what just changed). SELECT + Up/Down changes the theme. (The first version drew the VMU eight times its size across the whole screen; on hardware that was too much.)
 - **Saves:** the memory card's files as the BIOS shows them: the game's icon (animated), the long and short descriptions, file name, date, size, and the blocks free. SELECT + Up/Down scrolls, three files at a time. It reads the card the application holds, so it is up to date with what the adapter has sent.
 - **Status:** the diagnostic page, with the VMU small.
 

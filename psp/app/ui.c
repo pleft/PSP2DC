@@ -13,13 +13,13 @@
 #define FB_PIXELS (LINE * 272)
 
 const UiTheme ui_themes[] = {
-    /*  name        bg          paper       ink         frame       text        grid */
-    { "Classic",  0xFF181818, 0xFF90B09A, 0xFF402018, 0xFF505050, 0xFFC0C0C0, 1 },
-    { "Backlit",  0xFF2A1408, 0xFFFFBE78, 0xFF3C140A, 0xFF8A5A30, 0xFFFFD8B0, 0 },
-    { "Pocket",   0xFF1E2A1E, 0xFF0FBC9B, 0xFF0F380F, 0xFF306230, 0xFF9BCC9B, 1 },
-    { "Amber",    0xFF000000, 0xFF000C14, 0xFF00B0FF, 0xFF003050, 0xFF0090D0, 0 },
-    { "Phosphor", 0xFF000000, 0xFF051405, 0xFF78FF50, 0xFF205020, 0xFF60C040, 0 },
-    { "Paper",    0xFFD0D8D8, 0xFFE1EBEB, 0xFF141414, 0xFF606868, 0xFF303030, 0 },
+    /*  name        bg          paper       ink         frame       text        grid body        panel */
+    { "Classic",  0xFF181818, 0xFF90B09A, 0xFF402018, 0xFF505050, 0xFFC0C0C0, 1, 0xFFD6D2CC, 0xFF2A2A2A },
+    { "Backlit",  0xFF2A1408, 0xFFFFBE78, 0xFF3C140A, 0xFF8A5A30, 0xFFFFD8B0, 0, 0xFFB08050, 0xFF40200E },
+    { "Pocket",   0xFF1E2A1E, 0xFF0FBC9B, 0xFF0F380F, 0xFF306230, 0xFF9BCC9B, 1, 0xFFB8C0B8, 0xFF2A382A },
+    { "Amber",    0xFF000000, 0xFF000C14, 0xFF00B0FF, 0xFF003050, 0xFF0090D0, 0, 0xFF102028, 0xFF081018 },
+    { "Phosphor", 0xFF000000, 0xFF051405, 0xFF78FF50, 0xFF205020, 0xFF60C040, 0, 0xFF102010, 0xFF081408 },
+    { "Paper",    0xFFD0D8D8, 0xFFE1EBEB, 0xFF141414, 0xFF606868, 0xFF303030, 0, 0xFFF4F8F8, 0xFFC0C8C8 },
 };
 const int ui_theme_count = sizeof(ui_themes) / sizeof(ui_themes[0]);
 
@@ -243,4 +243,179 @@ int ui_page_saves(const unsigned char *card, int have, int first, const UiTheme 
     else ui_text(0, 33, t->text, "SELECT+Left/Right: page");
     ui_end();
     return n;
+}
+
+
+/* ---- the home page --------------------------------------------------------
+ * Left, a drawing of the VMU (240x260) with its screen four times its size;
+ * right, the controller as the Dreamcast sees it now, and the memory card. */
+
+static void disc(int cx, int cy, int r, unsigned c)
+{
+    int x, y;
+    for (y = -r; y <= r; y++)
+        for (x = -r; x <= r; x++)
+            if (x * x + y * y <= r * r + r) {
+                int px = cx + x, py = cy + y;
+                if (px >= 0 && px < 480 && py >= 0 && py < 272) g_back[py * LINE + px] = c;
+            }
+}
+
+static void ring(int cx, int cy, int r, int w, unsigned c)
+{
+    int x, y;
+    for (y = -r; y <= r; y++)
+        for (x = -r; x <= r; x++) {
+            int d = x * x + y * y;
+            if (d <= r * r + r && d >= (r - w) * (r - w)) {
+                int px = cx + x, py = cy + y;
+                if (px >= 0 && px < 480 && py >= 0 && py < 272) g_back[py * LINE + px] = c;
+            }
+        }
+}
+
+/* a rectangle with its corners rounded by r */
+static void round_rect(int x0, int y0, int w, int h, int r, unsigned c)
+{
+    ui_fill(x0 + r, y0, w - 2 * r, h, c);
+    ui_fill(x0, y0 + r, r, h - 2 * r, c);
+    ui_fill(x0 + w - r, y0 + r, r, h - 2 * r, c);
+    disc(x0 + r, y0 + r, r, c);
+    disc(x0 + w - r - 1, y0 + r, r, c);
+    disc(x0 + r, y0 + h - r - 1, r, c);
+    disc(x0 + w - r - 1, y0 + h - r - 1, r, c);
+}
+
+/* a colour at a quarter of its brightness, for what is not pressed */
+static unsigned dim(unsigned c)
+{
+    unsigned r = (c & 0xFF) / 4, g = ((c >> 8) & 0xFF) / 4, b = ((c >> 16) & 0xFF) / 4;
+    return 0xFF000000 | b << 16 | g << 8 | r;
+}
+
+/* half its brightness, for the lesser lines of text */
+static unsigned half(unsigned c)
+{
+    unsigned r = (c & 0xFF) * 5 / 8, g = ((c >> 8) & 0xFF) * 5 / 8, b = ((c >> 16) & 0xFF) * 5 / 8;
+    return 0xFF000000 | b << 16 | g << 8 | r;
+}
+
+/* is the colour light (for text on it)? */
+static int light(unsigned c) { return ((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF)) > 3 * 140; }
+
+static void label(int x, int y, unsigned c, const char *s)
+{
+    for (; *s; s++, x += 7) pspDebugScreenPutChar(x, y, c, (unsigned char)*s);
+}
+
+static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
+{
+    unsigned shade = darker(darker(t->body)), mark = light(t->body) ? 0xFF505050 : 0xFFB0B0B0;
+    round_rect(12, 10, 228, 252, 26, shade);          /* the case, with its edge */
+    round_rect(14, 12, 224, 248, 24, t->body);
+    round_rect(26, 24, 200, 140, 10, 0xFF282828);     /* the screen's surround */
+    ui_lcd(lcd, 30, 30, 4, t);                         /* 192x128 */
+    ui_fill(26, 24, 200, 3, 0xFF282828);               /* (ui_lcd's own frame, tidied) */
+    ui_fill(26, 161, 200, 3, 0xFF282828);
+    ui_fill(26, 24, 3, 140, 0xFF282828);
+    ui_fill(223, 24, 3, 140, 0xFF282828);
+    label(98, 168, mark, "VISUAL MEMORY");
+    /* the d-pad and A, B, as on the VMU */
+    ui_fill(52, 206, 54, 16, shade);
+    ui_fill(71, 187, 16, 54, shade);
+    disc(176, 222, 14, shade);
+    disc(208, 200, 14, shade);
+    label(173, 218, t->body, "A");
+    label(205, 196, t->body, "B");
+    round_rect(96, 244, 22, 8, 4, shade);             /* MODE and SLEEP */
+    round_rect(134, 244, 22, 8, 4, shade);
+}
+
+static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
+{
+    const Psp2dcInput *in = h->in;
+    unsigned b = in ? in->buttons : 0, base = t->text;
+    int sx = in ? in->stick_x : 128, sy = in ? in->stick_y : 128, l = in ? in->trigger_l : 0, r = in ? in->trigger_r : 0;
+    /* L and R: bars that fill */
+    ui_fill(x0 + 8, y0 + 22, 80, 8, dim(base));
+    ui_fill(x0 + 8, y0 + 22, l * 80 / 255, 8, base);
+    ui_fill(x0 + 122, y0 + 22, 80, 8, dim(base));
+    ui_fill(x0 + 122 + 80 - r * 80 / 255, y0 + 22, r * 80 / 255, 8, base);
+    label(x0 + 8, y0 + 12, base, "L");
+    label(x0 + 196, y0 + 12, base, "R");
+    /* the stick: a ring and where it is */
+    ring(x0 + 40, y0 + 64, 24, 2, dim(base) | 0xFF000000);
+    ring(x0 + 40, y0 + 64, 24, 1, base);
+    disc(x0 + 40 + (sx - 128) * 18 / 128, y0 + 64 + (sy - 128) * 18 / 128, 7, base);
+    /* the d-pad */
+    ui_fill(x0 + 28, y0 + 108, 26, 8, dim(base));
+    ui_fill(x0 + 37, y0 + 99, 8, 26, dim(base));
+    if (b & PSP2DC_BTN_UP)    ui_fill(x0 + 37, y0 + 99, 8, 9, base);
+    if (b & PSP2DC_BTN_DOWN)  ui_fill(x0 + 37, y0 + 116, 8, 9, base);
+    if (b & PSP2DC_BTN_LEFT)  ui_fill(x0 + 28, y0 + 108, 9, 8, base);
+    if (b & PSP2DC_BTN_RIGHT) ui_fill(x0 + 45, y0 + 108, 9, 8, base);
+    /* Start */
+    round_rect(x0 + 92, y0 + 100, 26, 10, 5, b & PSP2DC_BTN_START ? base : dim(base));
+    label(x0 + 87, y0 + 114, base, "START");
+    /* A B X Y in the Dreamcast's colours */
+    {
+        static const struct { int bit, dx, dy; unsigned c; char ch; } k[] = {
+            { PSP2DC_BTN_Y, 0, -18, 0xFF30C030, 'Y' }, { PSP2DC_BTN_X, -18, 0, 0xFF20C8F0, 'X' },
+            { PSP2DC_BTN_B, 18, 0, 0xFFE06020, 'B' },  { PSP2DC_BTN_A, 0, 18, 0xFF2020E0, 'A' },
+        };
+        int i;
+        for (i = 0; i < 4; i++) {
+            int cx = x0 + 170 + k[i].dx, cy = y0 + 76 + k[i].dy, on = (b & k[i].bit) != 0;
+            char s[2] = { k[i].ch, 0 };
+            disc(cx, cy, 9, on ? k[i].c : dim(k[i].c));
+            label(cx - 3, cy - 4, on ? 0xFF000000 : k[i].c, s);
+        }
+    }
+}
+
+void ui_page_home(const UiHome *h, const UiTheme *t)
+{
+    static SaveFile files[200];
+    /* (ABGR) green connected, orange demo, yellow waiting, red nothing */
+    unsigned dot = h->link == UI_LINK_UP ? 0xFF40D040 : h->link == UI_LINK_DEMO ? 0xFF288CF0
+                 : h->link == UI_LINK_WAITING ? 0xFF28C8F0 : 0xFF3232DC;
+    int x0 = 252, n = 0, free_blocks = 0;
+
+    ui_begin(t->bg);
+    draw_vmu(h->lcd, t);
+
+    /* the link */
+    round_rect(x0, 10, 220, 30, 6, t->panel);
+    disc(x0 + 16, 25, 6, dot);
+    label(x0 + 30, 15, t->text, "PSP2DC");
+    label(x0 + 30, 26, t->text, h->link_text);
+    label(x0 + 212 - 7 * (int)strlen(t->name), 15, half(t->text), t->name);
+
+    /* the controller */
+    round_rect(x0, 46, 220, 146, 6, t->panel);
+    label(x0 + 8, 52, t->text, "CONTROLLER");
+    label(x0 + 212 - 7 * (int)strlen(h->stick_source), 52, half(t->text), h->stick_source);
+    draw_pad(h, t, x0 + 4, 50);
+
+    /* the memory card */
+    round_rect(x0, 198, 220, 50, 6, t->panel);
+    label(x0 + 8, 204, t->text, "MEMORY CARD");
+    if (h->card_have) {
+        char s[40];
+        n = card_files(h->card, files, 200, &free_blocks);
+        snprintf(s, sizeof(s), "%d save%s, %d blocks free", n, n == 1 ? "" : "s", free_blocks);
+        label(x0 + 8, 218, t->text, s);
+        if (n && files[0].icons) {     /* the first save's icon, animated */
+            int step = (files[0].speed > 0 ? files[0].speed : 8) * 1000 / 15;
+            draw_icon(h->card, &files[0], (h->now_ms / step) % files[0].icons, x0 + 186, 206, 1);
+        }
+    } else {
+        label(x0 + 8, 218, t->text, "none yet");
+    }
+    label(x0 + 8, 232, half(t->text), h->notice ? "" : h->card_note);
+    if (h->notice) label(x0 + 8, 232, t->text, h->notice);
+
+    /* the keys */
+    label(x0 + 4, 256, half(t->text), "SELECT + <> page   ^v theme");
+    ui_end();
 }

@@ -546,10 +546,26 @@ int main(int argc, char *argv[])
                 g_saves_count = ui_page_saves(g_card, g_card_have, g_saves_first, &ui_themes[g_theme],
                                               now_us() / 1000, top_line());
             }
-        } else if (frame % 30 == 0 || g_lcd_count != lcd_shown) {
+        } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
+            static const char *sources[STICK_MODES] = { "stick: nub", "stick: d-pad", "stick: off" };
+            UiHome h;
+            int up = !g_no_usb && pspexpUsbConnected();
             lcd_shown = g_lcd_count;
-            ui_page_vmu(g_lcd, &ui_themes[g_theme], top_line(),
-                        "SELECT+ Left/Right page  Up/Down theme  Triangle shot");
+            memset(&h, 0, sizeof(h));
+            h.lcd = g_lcd;
+            h.link = demo_on() ? UI_LINK_DEMO : up ? UI_LINK_UP
+                   : (!g_no_usb && pspexpUsbAttached()) ? UI_LINK_WAITING : UI_LINK_NONE;
+            h.link_text = demo_on() ? "demo, no adapter" : up ? "connected to the adapter"
+                        : g_no_usb ? "no USB driver" : h.link == UI_LINK_WAITING ? "cable in, waiting"
+                        : "connect the adapter";
+            h.in = &in;
+            h.stick_source = sources[g_stick_mode];
+            h.card = g_card;
+            h.card_have = g_card_have;
+            h.card_note = g_card_note;
+            h.notice = g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
+            h.now_ms = now_us() / 1000;
+            ui_page_home(&h, &ui_themes[g_theme]);
         }
         if (autoshot) {   /* 3, 6 and 10 s after the start */
             unsigned t = (now_us() - start_us) / 1000000;
