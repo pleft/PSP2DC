@@ -57,8 +57,20 @@ typedef struct {
 /* The VMU four times its size in a drawing of the VMU, the controller's
  * state and the memory card beside it. */
 void ui_page_home(const UiHome *h, const UiTheme *t);
-/* The memory card's saves, from 'first' on. Returns how many there are. */
-int  ui_page_saves(const unsigned char *card, int have, int first, const UiTheme *t, unsigned now_ms,
+/* The Saves page's state: where it is, what is chosen, and a box over it */
+enum { UI_KEYS_VIEW, UI_KEYS_BROWSE, UI_KEYS_MENU, UI_KEYS_OK };
+typedef struct {
+    int first;                         /* the first save shown */
+    int sel;                           /* the chosen save, or -1 (connected: view only) */
+    const char *title;                 /* a box over the page: its title, or NULL */
+    const char *lines[3];              /* its lines of text, NULL-ended */
+    const char *items[10];             /* its choices */
+    int nitems, item;                  /* how many, and the one chosen */
+    unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
+    int keys;                          /* UI_KEYS_*: the line of keys at the bottom */
+} UiSaves;
+/* The memory card's saves. Returns how many there are. */
+int  ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
                    const char *top);
 
 #endif

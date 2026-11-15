@@ -8,6 +8,7 @@
 #include <string.h>
 #include "ui.h"
 #include "vmu_game.h"
+#include "cardfs.h"
 
 #define LINE 512                       /* pixels a buffer line */
 /* the debug screen's text: 8 lines tall, but 7 pixels a column (68 columns) */
@@ -183,35 +184,30 @@ static unsigned rd16(const unsigned char *p) { return p[0] | p[1] << 8; }
 
 static void trim(char *s) { int n = strlen(s); while (n && (s[n - 1] == ' ' || !s[n - 1])) s[--n] = 0; }
 
+/* The saves as cardfs lists them (the order the Saves page's actions use),
+ * with what their headers say: descriptions, icons. */
 static int card_files(const unsigned char *card, SaveFile *out, int max, int *free_blocks)
 {
-    const unsigned char *fat = card + 254 * BLK;
-    int blk, i, n = 0, b;
-    *free_blocks = 0;
-    for (b = 0; b < 200; b++) if (rd16(fat + b * 2) == 0xFFFC) (*free_blocks)++;
-    for (blk = 253; blk >= 241 && n < max; blk--) {
-        for (i = 0; i < 16 && n < max; i++) {
-            const unsigned char *e = card + blk * BLK + i * 32;
-            SaveFile *f = &out[n];
-            int k, hb;
-            if (e[0] != 0x33 && e[0] != 0xCC) continue;
-            f->type = e[0];
-            memcpy(f->file, e + 4, 12); f->file[12] = 0; trim(f->file);
-            memcpy(f->date, e + 0x10, 8);
-            f->size = rd16(e + 0x18);
-            hb = rd16(e + 2);
-            for (k = rd16(e + 0x1A); k > 0 && hb < 256; k--) hb = rd16(fat + hb * 2);   /* the header's block */
-            if (hb >= 256) continue;
-            f->header_block = hb;
-            {
-                const unsigned char *h = card + hb * BLK;
-                memcpy(f->short_desc, h, 16); f->short_desc[16] = 0; trim(f->short_desc);
-                memcpy(f->long_desc, h + 16, 32); f->long_desc[32] = 0; trim(f->long_desc);
-                f->icons = rd16(h + 0x40);
-                f->speed = rd16(h + 0x42);
-                if (f->icons < 1 || f->icons > 3) f->icons = 0;
-            }
-            n++;
+    static CardFile cf[200];
+    int n = cardfs_list(card, cf, max < 200 ? max : 200), i;
+    *free_blocks = cardfs_free(card);
+    for (i = 0; i < n; i++) {
+        SaveFile *f = &out[i];
+        int blocks[200];
+        memset(f, 0, sizeof(*f));
+        f->type = cf[i].type;
+        memcpy(f->file, cf[i].name, 13); trim(f->file);
+        memcpy(f->date, cf[i].date, 8);
+        f->size = cf[i].size;
+        f->header_block = -1;
+        if (cardfs_chain(card, &cf[i], blocks) >= 0 && cf[i].hdr < cf[i].size) {
+            const unsigned char *h = card + blocks[cf[i].hdr] * BLK;
+            f->header_block = blocks[cf[i].hdr];
+            memcpy(f->short_desc, h, 16); f->short_desc[16] = 0; trim(f->short_desc);
+            memcpy(f->long_desc, h + 16, 32); f->long_desc[32] = 0; trim(f->long_desc);
+            f->icons = rd16(h + 0x40);
+            f->speed = rd16(h + 0x42);
+            if (f->icons < 1 || f->icons > 3) f->icons = 0;
         }
     }
     return n;
@@ -249,46 +245,6 @@ static void draw_icon(const unsigned char *card, const SaveFile *f, int frame, i
         }
 }
 
-int ui_page_saves(const unsigned char *card, int have, int first, const UiTheme *t, unsigned now_ms,
-                  const char *top)
-{
-    static SaveFile files[200];
-    int n = 0, free_blocks = 0, i, row;
-    ui_begin(t->bg);
-    ui_text(0, 0, t->text, "%s", top);
-    if (!have) {
-        ui_text(2, 4, t->text, "No memory card yet: it comes from ms0:/PSP2DC/card1.bin");
-        ui_text(2, 5, t->text, "or from the adapter once connected.");
-        ui_end();
-        return 0;
-    }
-    n = card_files(card, files, 200, &free_blocks);
-    ui_text(0, 2, t->text, "MEMORY CARD   %d save%s   %d of 200 blocks free",
-            n, n == 1 ? "" : "s", free_blocks);
-    if (!n) ui_text(2, 5, t->text, "The card is empty.");
-    for (i = first, row = 0; i < n && row < 3; i++, row++) {
-        const SaveFile *f = &files[i];
-        int y = 32 + row * 76, line = y / 8;
-        int frame = 0;
-        ui_fill(4, y - 2, 472, 72, t->frame);
-        ui_fill(8, y + 2, 64, 64, t->paper);
-        if (f->icons) {
-            int step = (f->speed > 0 ? f->speed : 8) * 1000 / 30;   /* n/30 s (Sega VMU manual, VMT-18) */
-            frame = (now_ms / step) % f->icons;
-            draw_icon(card, f, frame, 8, y + 2, 2);
-        }
-        ui_text(12, line + 1, 0xFFFFFFFF, "%s", f->long_desc[0] ? f->long_desc : f->file);
-        ui_text(12, line + 3, t->text, "%-12s  %s", f->file, f->short_desc);
-        ui_text(12, line + 5, t->text, "%02d/%02d/%02d%02d %02d:%02d   %d block%s   %s",
-                bcd(f->date[3]), bcd(f->date[2]), bcd(f->date[0]), bcd(f->date[1]),
-                bcd(f->date[4]), bcd(f->date[5]), f->size, f->size == 1 ? "" : "s",
-                f->type == 0xCC ? "GAME" : "DATA");
-    }
-    if (n > 3) ui_text(0, 33, t->text, "SELECT+Up/Down: more (%d-%d of %d)", first + 1, first + row, n);
-    else ui_text(0, 33, t->text, "SELECT+Left/Right: page");
-    ui_end();
-    return n;
-}
 
 
 /* ---- the home page --------------------------------------------------------
@@ -736,4 +692,98 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
         label(x, 256, c, "L/R card");
     }
     ui_end();
+}
+
+/* ---- the saves page ------------------------------------------------------
+ * Three saves a screen, each with its icon twice its size (64x64), its
+ * descriptions, file name, date, size and kind. Standalone the chosen one is
+ * framed, and a box over the page offers what can be done with it. */
+int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
+                  const char *top)
+{
+    static SaveFile files[200];
+    const unsigned hi = 0xFF28C8F0;    /* (ABGR) the yellow of the chosen */
+    int n = 0, free_blocks = 0, i, row;
+    ui_begin(t->bg);
+    ui_text(0, 0, t->text, "%s", top);
+    if (!have) {
+        ui_text(2, 4, t->text, "No memory card yet: it comes from ms0:/PSP2DC/cards");
+        ui_text(2, 5, t->text, "or from the adapter once connected.");
+        ui_end();
+        return 0;
+    }
+    n = card_files(card, files, 200, &free_blocks);
+    ui_text(0, 2, t->text, "MEMORY CARD   %d save%s   %d of 200 blocks free",
+            n, n == 1 ? "" : "s", free_blocks);
+    if (!n) ui_text(2, 5, t->text, "The card is empty.");
+    for (i = v->first, row = 0; i < n && row < 3; i++, row++) {
+        const SaveFile *f = &files[i];
+        int y = 32 + row * 76, line = y / 8;
+        ui_fill(4, y - 2, 472, 72, t->frame);
+        if (i == v->sel) {             /* the chosen one: a frame round it */
+            ui_fill(2, y - 4, 476, 2, hi); ui_fill(2, y + 70, 476, 2, hi);
+            ui_fill(2, y - 4, 2, 76, hi);  ui_fill(476, y - 4, 2, 76, hi);
+        }
+        ui_fill(8, y + 2, 64, 64, t->paper);
+        if (f->icons) {
+            int step = (f->speed > 0 ? f->speed : 8) * 1000 / 30;   /* n/30 s (Sega VMU manual, VMT-18) */
+            draw_icon(card, f, (now_ms / step) % f->icons, 8, y + 2, 2);
+        }
+        ui_text(12, line + 1, 0xFFFFFFFF, "%s", f->long_desc[0] ? f->long_desc : f->file);
+        ui_text(12, line + 3, t->text, "%-12s  %s", f->file, f->short_desc);
+        ui_text(12, line + 5, t->text, "%02d/%02d/%02d%02d %02d:%02d   %d block%s   %s",
+                bcd(f->date[3]), bcd(f->date[2]), bcd(f->date[0]), bcd(f->date[1]),
+                bcd(f->date[4]), bcd(f->date[5]), f->size, f->size == 1 ? "" : "s",
+                f->type == 0xCC ? "GAME" : "DATA");
+    }
+
+    /* the box: a list to choose from, or lines to read */
+    if (v->title) {
+        int lines = v->nitems ? v->nitems : 0, h, y0, x0 = 80, w = 320, k;
+        for (k = 0; k < 3 && v->lines[k]; k++) lines++;
+        h = 30 + lines * 16 + 6;
+        y0 = (272 - h) / 2;
+        round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, hi);
+        round_rect(x0, y0, w, h, 6, t->panel);
+        label_fit(x0 + 10, y0 + 8, t->text, v->title, w - 20);
+        y0 += 26;
+        for (k = 0; k < 3 && v->lines[k]; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, v->lines[k], w - 28);
+        for (k = 0; k < v->nitems; k++, y0 += 16) {
+            int off = (v->off_items >> k) & 1;
+            if (k == v->item) ui_fill(x0 + 6, y0, w - 12, 15, dim(hi) | 0xFF000000);
+            label_fit(x0 + 14, y0 + 4, off ? half(half(t->text)) : k == v->item ? hi : t->text, v->items[k], w - 28);
+        }
+    }
+
+    /* the keys */
+    {
+        unsigned c = half(t->text);
+        int x = 4, y = 262;
+        if (v->keys == UI_KEYS_VIEW) {
+            label(x, y, c, "view only: the Dreamcast has the card    SELECT+");  x += 48 * 7 + 3;
+            arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
+            label(x, y, c, "page");
+        } else {
+            if (v->keys != UI_KEYS_OK) {
+                arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);   x += 20;
+                label(x, y, c, "choose");               x += 6 * 7 + 12;
+            }
+            sym(SYM_X, x, y - 2, 0, 0, 0);              x += 14;
+            label(x, y, c, v->keys == UI_KEYS_BROWSE ? "actions" : v->keys == UI_KEYS_MENU ? "do it" : "OK");
+            x += 8 * 7;
+            if (v->keys == UI_KEYS_MENU) { sym(SYM_O, x, y - 2, 0, 0, 0); label(x + 14, y, c, "back"); }
+            if (v->keys == UI_KEYS_BROWSE) {
+                label(x, y, c, "SELECT+");              x += 7 * 7 + 3;
+                arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
+                label(x, y, c, "page");
+            }
+            if (n > 3) {
+                char more[16];
+                snprintf(more, sizeof(more), "%d-%d of %d", v->first + 1, v->first + (n - v->first < 3 ? n - v->first : 3), n);
+                label(476 - 7 * (int)strlen(more), y, c, more);
+            }
+        }
+    }
+    ui_end();
+    return n;
 }

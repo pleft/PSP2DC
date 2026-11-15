@@ -25,6 +25,7 @@
 #include "vmu_sa.h"
 #include "vmu_game.h"
 #include "cards.h"
+#include "cardfs.h"
 #include <strings.h>
 
 enum { MODE_GAME, MODE_TIME, MODE_FILE, MODES };
@@ -59,179 +60,6 @@ int sa_stop(unsigned char *card)
 }
 const char *sa_mode_name(void) { return game_running() ? "PLAYING" : g_sleep ? "SLEEP" : g_names[g_mode]; }
 
-/* ---- the card's files (mc.pp.se/dc/vms/flashmem.html; dmitry.gr "VMU
- * Hacking": the FAT and directory are where the root block says) ---- */
-typedef struct {
-    char name[13]; unsigned char date[8];
-    int type, prot, first, size, hdr, off;  /* off: the entry's byte offset */
-} SaFile;
-
-#define BLK 512
-#define USER_BLOCKS 200
-#define FAT_FREE 0xFFFC
-#define FAT_LAST 0xFFFA
-#define GAME_MAX 128                       /* 64 KB, bank 0 (Sega VMU manual) */
-
-static int rd16(const unsigned char *p) { return p[0] | p[1] << 8; }
-/* Where the FAT and directory are: the root block's fields (FAT 0x46, its
- * size 0x48, directory 0x4a, its size 0x4c: mc.pp.se, dmitry.gr, libevmu's
- * EvmuRootBlock) when they make sense together, else the usual places
- * (254; 253 down to 241). The adapter's preformat, and cards_format after
- * it, write those fields 4 bytes late; the Dreamcast does not read them. */
-static void layout(const unsigned char *c, int *fat_at, int *dir_at, int *dir_len)
-{
-    const unsigned char *r = c + 255 * BLK;
-    int f = rd16(r + 0x46), fl = rd16(r + 0x48), d = rd16(r + 0x4a), dl = rd16(r + 0x4c);
-    if (f >= USER_BLOCKS && f < 255 && fl == 1 && d >= USER_BLOCKS && d < f && dl >= 1 && d - dl + 1 >= USER_BLOCKS) {
-        *fat_at = f; *dir_at = d; *dir_len = dl;
-    } else { *fat_at = 254; *dir_at = 253; *dir_len = 13; }
-}
-static int fat_blk(const unsigned char *c) { int f, d, l; layout(c, &f, &d, &l); return f; }
-static int fat(const unsigned char *c, int b) { return rd16(c + fat_blk(c) * BLK + b * 2); }
-static void fat_set(unsigned char *c, int b, int v)
-{
-    unsigned char *p = c + fat_blk(c) * BLK + b * 2;
-    p[0] = v & 255; p[1] = v >> 8;
-}
-static int formatted(const unsigned char *c)
-{
-    int i;
-    for (i = 0; i < 16; i++) if (c[255 * BLK + i] != 0x55) return 0;
-    return 1;
-}
-/* the directory's entries in the BIOS's order: its last block first */
-static int dir_entries(const unsigned char *c, int *first_off)
-{
-    int f, at, len;
-    layout(c, &f, &at, &len);
-    *first_off = at * BLK;
-    return len * 16;
-}
-static int entry_off(const unsigned char *c, int k)
-{
-    int top, n = dir_entries(c, &top);
-    return k < n ? top - (k / 16) * BLK + (k % 16) * 32 : -1;
-}
-
-static int files(const unsigned char *card, SaFile *out, int max)
-{
-    int k, n = 0, off;
-    if (!card) return 0;
-    for (k = 0; n < max && (off = entry_off(card, k)) >= 0; k++) {
-        const unsigned char *e = card + off;
-        if (e[0] != 0x33 && e[0] != 0xCC) continue;
-        out[n].type = e[0];
-        out[n].prot = e[1] == 0xFF;
-        out[n].first = rd16(e + 2);
-        memcpy(out[n].name, e + 4, 12);
-        out[n].name[12] = 0;
-        memcpy(out[n].date, e + 0x10, 8);
-        out[n].size = rd16(e + 0x18);
-        out[n].hdr = rd16(e + 0x1a);
-        out[n].off = off;
-        n++;
-    }
-    return n;
-}
-
-/* a file's blocks, following the FAT: how many, or -1 when the chain is
- * not the size the directory says */
-static int chain(const unsigned char *c, const SaFile *f, int *blocks)
-{
-    int b = f->first, n = 0;
-    while (n < f->size) {
-        if (b < 0 || b >= USER_BLOCKS) return -1;
-        blocks[n++] = b;
-        b = fat(c, b);
-        if (b == FAT_LAST) break;
-    }
-    return n == f->size && b == FAT_LAST ? n : -1;
-}
-
-static int free_blocks(const unsigned char *c)
-{
-    int b, n = 0;
-    for (b = 0; b < USER_BLOCKS; b++) n += fat(c, b) == FAT_FREE;
-    return n;
-}
-
-static int has_game(const unsigned char *card);
-/* room for a mini-game: one to a card, from block 0 up, unbroken, at most
- * 128 blocks (Sega VMU manual: "contiguous blocks starting at block 00H",
- * "maximum size ... 64 KB (= 128 blocks)") */
-static int game_room(const unsigned char *c)
-{
-    int b = 0;
-    if (has_game(c)) return 0;
-    while (b < GAME_MAX && fat(c, b) == FAT_FREE) b++;
-    return b;
-}
-
-/* the 16-character comment ("Description of file (shown in VMS file
- * menu)", mc.pp.se/dc/vms/fileheader.html), in the file's header block */
-static void comment(const unsigned char *c, const SaFile *f, char out[17])
-{
-    int blocks[USER_BLOCKS], i;
-    memset(out, ' ', 16); out[16] = 0;
-    if (chain(c, f, blocks) < 0 || f->hdr >= f->size) return;
-    for (i = 0; i < 16; i++) {
-        unsigned char ch = c[blocks[f->hdr] * BLK + i];
-        out[i] = ch >= 32 && ch < 127 ? ch : ' ';
-    }
-}
-
-/* ---- copy and delete ---- */
-enum { CP_OK, CP_SAME, CP_ROOM, CP_FAIL };
-
-/* f from card src into dst, as the BIOS places files: a game from block 0
- * up, data in the highest free blocks (mc.pp.se) */
-static int copy_file(const unsigned char *src, const SaFile *f, unsigned char *dst)
-{
-    int from[USER_BLOCKS], to[USER_BLOCKS], n, i, k, off, slot = -1, b;
-    SaFile there[200];
-    if (f->prot || !formatted(dst) || (n = chain(src, f, from)) < 0) return CP_FAIL;
-    k = files(dst, there, 200);
-    for (i = 0; i < k; i++) if (!memcmp(there[i].name, f->name, 12)) return CP_SAME;
-    for (k = 0; (off = entry_off(dst, k)) >= 0; k++) if (dst[off] == 0) { slot = off; break; }
-    if (slot < 0) return CP_ROOM;
-    if (f->type == 0xCC) {
-        if (has_game(dst) || n > GAME_MAX) return CP_ROOM;
-        for (i = 0; i < n; i++) { if (fat(dst, i) != FAT_FREE) return CP_ROOM; to[i] = i; }
-    } else {
-        for (i = 0, b = USER_BLOCKS - 1; i < n && b >= 0; b--) if (fat(dst, b) == FAT_FREE) to[i++] = b;
-        if (i < n) return CP_ROOM;
-    }
-    for (i = 0; i < n; i++) {
-        memcpy(dst + to[i] * BLK, src + from[i] * BLK, BLK);
-        fat_set(dst, to[i], i < n - 1 ? to[i + 1] : FAT_LAST);
-    }
-    memcpy(dst + slot, src + f->off, 32);
-    dst[slot + 2] = to[0] & 255; dst[slot + 3] = to[0] >> 8;
-    return CP_OK;
-}
-
-/* f off the card: its blocks freed in the FAT, its entry cleared */
-static void delete_file(unsigned char *c, const SaFile *f)
-{
-    int b = f->first, n = 0, next;
-    while (b >= 0 && b < USER_BLOCKS && n++ < USER_BLOCKS) {
-        next = fat(c, b);
-        if (next == FAT_FREE) break;
-        fat_set(c, b, FAT_FREE);
-        if (next == FAT_LAST) break;
-        b = next;
-    }
-    memset(c + f->off, 0, 32);
-}
-
-static int has_game(const unsigned char *card)
-{
-    SaFile f[200];
-    int n = files(card, f, 200), i;
-    for (i = 0; i < n; i++) if (f[i].type == 0xCC) return 1;
-    return 0;
-}
-
 static void done(const char *a, const char *b, const char *c, const char *d)
 {
     g_result[0] = a; g_result[1] = b; g_result[2] = c; g_result[3] = d;
@@ -242,8 +70,8 @@ static void done(const char *a, const char *b, const char *c, const char *d)
 /* FILE's buttons. 1 when the card was changed (a file deleted). */
 static int file_input(unsigned pressed, unsigned char *card)
 {
-    SaFile f[200];
-    int n = files(card, f, 200), back = pressed & (SA_B | SA_LEFT), i, k;
+    CardFile f[200];
+    int n = cardfs_list(card, f, 200), back = pressed & (SA_B | SA_LEFT), i, k;
     if (g_file >= n) g_file = n ? n - 1 : 0;
     if (!n && g_fs != FS_DONE) g_fs = FS_FREE;
     switch (g_fs) {
@@ -285,7 +113,7 @@ static int file_input(unsigned pressed, unsigned char *card)
         if (pressed & SA_A) {
             if (!g_yes) g_fs = g_act ? FS_ACTION : FS_TARGET;   /* "No": the previous screen */
             else if (g_act) {
-                delete_file(card, &f[g_file]);
+                cardfs_delete(card, &f[g_file]);
                 done(NULL, NULL, "Deleted", NULL);
                 memcpy(g_done_name, f[g_file].name, 13);
                 return 1;
@@ -303,15 +131,15 @@ static int file_input(unsigned pressed, unsigned char *card)
  * file added, the card written back (cards_write: .new, then renamed). */
 static void file_copy(const unsigned char *card)
 {
-    SaFile f[200];
-    int n = files(card, f, 200), rc;
+    CardFile f[200];
+    int n = cardfs_list(card, f, 200), rc;
     if (g_file >= n || g_target >= g_ntargets) { done("Copy", "failed", NULL, NULL); return; }
     if (!cards_read(g_targets[g_target], g_other)) { done("Copy", "failed", NULL, NULL); return; }
-    rc = copy_file(card, &f[g_file], g_other);
-    if (rc == CP_OK && cards_write(g_targets[g_target], g_other) < 0) rc = CP_FAIL;
-    if (rc == CP_OK) { done(NULL, NULL, "Copied", NULL); memcpy(g_done_name, f[g_file].name, 13); }
-    else if (rc == CP_SAME) done("Same", "file", "exist", NULL);
-    else if (rc == CP_ROOM) done("Not", "enough", "free", "memory");
+    rc = cardfs_copy(card, &f[g_file], g_other);
+    if (rc == CARDFS_OK && cards_write(g_targets[g_target], g_other) < 0) rc = CARDFS_FAIL;
+    if (rc == CARDFS_OK) { done(NULL, NULL, "Copied", NULL); memcpy(g_done_name, f[g_file].name, 13); }
+    else if (rc == CARDFS_SAME) done("Same", "file", "exist", NULL);
+    else if (rc == CARDFS_ROOM) done("Not", "enough", "free", "memory");
     else done("Copy", "failed", NULL, NULL);
 }
 
@@ -345,7 +173,7 @@ int sa_input(unsigned pressed, unsigned held, unsigned char *card, unsigned ms)
         return 0;
     }
     if (pressed & SA_MODE) { g_mode = (g_mode + 1) % MODES; g_file = 0; g_fs = FS_FREE; return 0; }
-    if (g_mode == MODE_GAME && (pressed & SA_A) && card && has_game(card)) {
+    if (g_mode == MODE_GAME && (pressed & SA_A) && card && cardfs_has_game(card)) {
         snprintf(g_game_card, sizeof(g_game_card), "%s", g_card_name);
         game_start(card);
         return 0;
@@ -423,7 +251,7 @@ static void text(unsigned char *lcd, int col, int row, const char *s) { text_at(
 static int bcd(unsigned char v) { return (v >> 4) * 10 + (v & 15); }
 
 /* the file's name over two lines, inverted when it may not be copied */
-static void name_lines(unsigned char *lcd, int row, const SaFile *f, int inv)
+static void name_lines(unsigned char *lcd, int row, const CardFile *f, int inv)
 {
     char line[9];
     memcpy(line, f->name, 8); line[8] = 0;     text_at(lcd, 0, row, line, inv);
@@ -432,17 +260,17 @@ static void name_lines(unsigned char *lcd, int row, const SaFile *f, int inv)
 
 static unsigned file_render(unsigned char *lcd, const unsigned char *card)
 {
-    SaFile f[200];
+    CardFile f[200];
     char line[40];
-    int n = files(card, f, 200), i;
-    const SaFile *e;
+    int n = cardfs_list(card, f, 200), i;
+    const CardFile *e;
     if (!card) { text(lcd, 0, 1, "No card"); return SA_ICON_FILE; }
     if (g_file >= n) g_file = n ? n - 1 : 0;
     e = &f[g_file];
     switch (n || g_fs == FS_DONE ? g_fs : FS_FREE) {
     case FS_FREE:                          /* "Free 200" / "Game 128" */
-        snprintf(line, sizeof(line), "Free %3d", free_blocks(card)); text(lcd, 0, 0, line);
-        snprintf(line, sizeof(line), "Game %3d", game_room(card));   text(lcd, 0, 1, line);
+        snprintf(line, sizeof(line), "Free %3d", cardfs_free(card)); text(lcd, 0, 0, line);
+        snprintf(line, sizeof(line), "Game %3d", cardfs_game_room(card));   text(lcd, 0, 1, line);
         return SA_ICON_FILE;
     case FS_LIST:                          /* number/total, name, date (month/day/year) */
         snprintf(line, sizeof(line), "#%03d/%03d", g_file + 1, n);    text(lcd, 0, 0, line);
@@ -452,7 +280,7 @@ static unsigned file_render(unsigned char *lcd, const unsigned char *card)
         return SA_ICON_FILE;
     case FS_COMMENT: {                     /* comment, blocks used, type */
         char c[17];
-        comment(card, e, c);
+        cardfs_comment(card, e, c);
         memcpy(line, c, 8); line[8] = 0;     text(lcd, 0, 0, line);
         memcpy(line, c + 8, 8); line[8] = 0; text(lcd, 0, 1, line);
         snprintf(line, sizeof(line), "%8d", e->size);                text(lcd, 0, 2, line);
@@ -489,7 +317,7 @@ static unsigned file_render(unsigned char *lcd, const unsigned char *card)
         return SA_ICON_FILE | SA_ICON_ATTENTION;
     case FS_DONE:
         if (g_done_name[0]) {              /* "Copied" under the file's name */
-            SaFile d;
+            CardFile d;
             memcpy(d.name, g_done_name, 13);
             name_lines(lcd, 0, &d, 0);
         }
@@ -520,8 +348,8 @@ unsigned sa_render(unsigned char lcd[PSP2DC_LCD_BYTES], const unsigned char *car
     if (g_mode == MODE_FILE) return file_render(lcd, card);
     /* GAME: the card's executable, which cannot run yet */
     {
-        SaFile f[200];
-        int n = files(card, f, 200), i;
+        CardFile f[200];
+        int n = cardfs_list(card, f, 200), i;
         for (i = 0; i < n && f[i].type != 0xCC; i++) ;
         text(lcd, 0, 0, "  GAME");
         if (i < n) { memcpy(line, f[i].name, 8); line[8] = 0; text(lcd, 0, 2, line); text(lcd, 0, 3, " A: PLAY"); }

@@ -44,6 +44,7 @@
 #include "vmu_game.h"
 #include "cards.h"
 #include "card_sync.h"
+#include "cardfs.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
@@ -97,6 +98,7 @@ static char g_return_to[CARD_NAME_MAX];    /* connected: the card to change back
 static unsigned g_dump_from;               /* g_card_blocks_in when the adapter's whole card was asked for */
 static unsigned g_return_after_us;         /* not before (a refused change is tried again a moment later) */
 static int g_switch_auto;                  /* g_switch_to is ours (card_decide), not the player's */
+static void saves_reset(void);             /* the Saves page's choice, forgotten when the card changes */
 static const char *g_card_note = "no file yet";
 
 static unsigned now_us(void) { return (unsigned)sceKernelGetSystemTimeLow(); }
@@ -155,6 +157,7 @@ static int card_change(const char *name)
         memcpy(g_card, img, sizeof(img));
         snprintf(g_card_name, sizeof(g_card_name), "%s", name);
         sa_reset();                        /* another card, another VMU: nothing of the last one stays */
+        saves_reset();
         g_card_have = 1;
         g_card_note = "changed";
         rc = 0;
@@ -508,6 +511,157 @@ static unsigned dev_input(unsigned ms_since_start)
     return bits & ~DEV_SHOT;
 }
 
+/* ---- the Saves page, standalone: a save chosen, and a box of what to do
+ * with it (copy to another card, export to the Memory Stick, delete). Not
+ * connected: the Dreamcast has the card then. Not while a VMU game runs: it
+ * holds its own copy of the card, which it writes back when it ends. */
+enum { SB_NONE, SB_ACTIONS, SB_CARDS, SB_DELETE, SB_RESULT };
+enum { ACT_COPY, ACT_EXPORT, ACT_DELETE, ACTS };
+static int g_sv_sel, g_sv_box, g_sv_item;
+static char g_sv_title[48], g_sv_line[3][64];
+static char g_sv_cards[CARDS_MAX][CARD_NAME_MAX];
+static int g_sv_ncards;
+static CardFile g_sv_file;                 /* the save the box is about */
+
+static void saves_reset(void) { g_sv_sel = g_sv_box = g_sv_item = 0; g_saves_first = 0; }
+
+static void saves_result(const char *title, const char *a, const char *b, const char *c)
+{
+    snprintf(g_sv_title, sizeof(g_sv_title), "%s", title);
+    snprintf(g_sv_line[0], sizeof(g_sv_line[0]), "%s", a ? a : "");
+    snprintf(g_sv_line[1], sizeof(g_sv_line[1]), "%s", b ? b : "");
+    snprintf(g_sv_line[2], sizeof(g_sv_line[2]), "%s", c ? c : "");
+    g_sv_box = SB_RESULT;
+}
+
+/* the save the box is about, as the card now has it (0: gone) */
+static int saves_file(CardFile *f)
+{
+    return g_card_have && cardfs_find(g_card, g_sv_file.off, f) && !strcmp(f->name, g_sv_file.name);
+}
+
+static void saves_copy(const char *to)
+{
+    static unsigned char other[PSP2DC_CARD_BYTES];
+    char line[64];
+    CardFile f;
+    int rc;
+    if (!saves_file(&f) || !cards_read(to, other)) { saves_result("Copy failed", "The card could not be read.", NULL, NULL); return; }
+    rc = cardfs_copy(g_card, &f, other);
+    if (rc == CARDFS_OK && cards_write(to, other) < 0) rc = CARDFS_FAIL;
+    snprintf(line, sizeof(line), "%s to %s", f.name, to);
+    if (rc == CARDFS_OK) saves_result("Copied", line, NULL, NULL);
+    else if (rc == CARDFS_SAME) saves_result("Same file exist", line, "That card has a save of this name.", NULL);
+    else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other))
+        saves_result("Not copied", line, "That card has a game already:", "a card holds one game.");
+    else if (rc == CARDFS_ROOM) saves_result("Not enough free memory", line, "Not enough free blocks there.", NULL);
+    else saves_result("Copy failed", line, NULL, NULL);
+}
+
+static void saves_input(unsigned pressed)
+{
+    static CardFile f[200];
+    int n = g_card_have ? cardfs_list(g_card, f, 200) : 0, k;
+    if (g_sv_sel >= n) g_sv_sel = n ? n - 1 : 0;
+    switch (g_sv_box) {
+    case SB_NONE:
+        if ((pressed & PSP_CTRL_DOWN) && g_sv_sel < n - 1) g_sv_sel++;
+        if ((pressed & PSP_CTRL_UP) && g_sv_sel > 0) g_sv_sel--;
+        if (g_sv_sel < g_saves_first) g_saves_first = g_sv_sel;
+        if (g_sv_sel > g_saves_first + 2) g_saves_first = g_sv_sel - 2;
+        if ((pressed & PSP_CTRL_CROSS) && n) {
+            if (game_running()) { saves_result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL); break; }
+            g_sv_file = f[g_sv_sel];
+            snprintf(g_sv_title, sizeof(g_sv_title), "%s", g_sv_file.name);
+            g_sv_box = SB_ACTIONS;
+            g_sv_item = g_sv_file.prot ? ACT_EXPORT : ACT_COPY;
+        }
+        break;
+    case SB_ACTIONS:                       /* a copy-protected save cannot be copied, as on the VMU */
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+            do g_sv_item = (g_sv_item + (pressed & PSP_CTRL_DOWN ? 1 : ACTS - 1)) % ACTS;
+            while (g_sv_item == ACT_COPY && g_sv_file.prot);
+        }
+        if (pressed & PSP_CTRL_CIRCLE) g_sv_box = SB_NONE;
+        else if (pressed & PSP_CTRL_CROSS) {
+            if (g_sv_item == ACT_COPY) {
+                char names[CARDS_MAX][CARD_NAME_MAX];
+                int m = cards_list(names);
+                for (k = g_sv_ncards = 0; k < m; k++)
+                    if (strcasecmp(names[k], g_card_name)) memcpy(g_sv_cards[g_sv_ncards++], names[k], CARD_NAME_MAX);
+                if (!g_sv_ncards) saves_result("No other card", "SELECT+START on the VMU page", "makes a new one.", NULL);
+                else { g_sv_box = SB_CARDS; g_sv_item = 0; }
+            } else if (g_sv_item == ACT_EXPORT) {
+                CardFile cf;
+                char base[9], a[64], b[64];
+                if (saves_file(&cf) && cards_export(g_card, &cf, base) == 0) {
+                    snprintf(a, sizeof(a), "ms0:/PSP2DC/saves/%s.DCI", base);
+                    snprintf(b, sizeof(b), "and %s.VMS with %s.VMI", base, base);
+                    saves_result("Exported", a, b, NULL);
+                } else saves_result("Export failed", "The files could not be written.", NULL, NULL);
+            } else { g_sv_box = SB_DELETE; g_sv_item = 0; }
+        }
+        break;
+    case SB_CARDS:
+        if (pressed & PSP_CTRL_DOWN) g_sv_item = (g_sv_item + 1) % g_sv_ncards;
+        if (pressed & PSP_CTRL_UP) g_sv_item = (g_sv_item + g_sv_ncards - 1) % g_sv_ncards;
+        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_COPY; }
+        else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_sv_item]);
+        break;
+    case SB_DELETE:                        /* No first */
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_sv_item = !g_sv_item;
+        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_DELETE; }
+        else if (pressed & PSP_CTRL_CROSS) {
+            CardFile cf;
+            if (!g_sv_item) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_DELETE; break; }
+            if (!saves_file(&cf)) { saves_result("Delete failed", "The save is not there any more.", NULL, NULL); break; }
+            card_lock();
+            cardfs_delete(g_card, &cf);
+            g_card_dirty = 1;
+            g_card_last_us = now_us();
+            g_card_note = "save deleted";
+            card_unlock();
+            saves_result("Deleted", cf.name, NULL, NULL);
+        }
+        break;
+    case SB_RESULT:
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_sv_box = SB_NONE;
+        break;
+    }
+}
+
+static void saves_view(UiSaves *v, int standalone)
+{
+    static const char *const acts[ACTS] = { "Copy to another card", "Export to the Memory Stick", "Delete" };
+    int k;
+    memset(v, 0, sizeof(*v));
+    v->first = g_saves_first;
+    v->sel = -1;
+    v->keys = UI_KEYS_VIEW;
+    if (!standalone) return;
+    v->sel = g_sv_sel;
+    v->keys = g_sv_box == SB_NONE ? UI_KEYS_BROWSE : g_sv_box == SB_RESULT ? UI_KEYS_OK : UI_KEYS_MENU;
+    if (g_sv_box == SB_NONE) return;
+    v->title = g_sv_title;
+    v->item = g_sv_item;
+    if (g_sv_box == SB_ACTIONS) {
+        for (k = 0; k < ACTS; k++) v->items[k] = acts[k];
+        v->nitems = ACTS;
+        if (g_sv_file.prot) { v->off_items = 1u << ACT_COPY; v->lines[0] = "Copy-protected: it cannot be copied."; }
+    } else if (g_sv_box == SB_CARDS) {
+        v->lines[0] = "Copy to:";
+        for (k = 0; k < g_sv_ncards && k < 10; k++) v->items[k] = g_sv_cards[k];
+        v->nitems = k;
+    } else if (g_sv_box == SB_DELETE) {
+        v->lines[0] = "Delete it from this card?";
+        v->items[0] = "No, keep it";
+        v->items[1] = "Yes, delete it";
+        v->nitems = 2;
+    } else {
+        for (k = 0; k < 3 && g_sv_line[k][0]; k++) v->lines[k] = g_sv_line[k];
+    }
+}
+
 /* The adapter is to let go of its card so the PSP's goes in (the answer,
  * CARD_STATE, is handled in the main loop: EMPTY, then the upload). auto: ours,
  * tried again when refused; discard: the adapter's blocks not yet sent are
@@ -628,7 +782,8 @@ int main(int argc, char *argv[])
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
-    int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0;
+    int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
+    unsigned page_last = 0;                /* the buttons last seen by a page that is not the VMU's */
     int standalone = 0, was_standalone = 0;
     unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
@@ -753,6 +908,12 @@ int main(int argc, char *argv[])
         vmu_held = 0;
         if (standalone) {
             unsigned b = pad.Buttons;
+            /* the Saves and Status pages take the buttons; the VMU is not shown */
+            if (g_page != PAGE_VMU) {
+                if (g_page == PAGE_SAVES && (b & ~page_last)) { saves_input(b & ~page_last); saves_due = 1; }
+                page_last = b;
+                b = 0;
+            } else page_last = b;
             if (b & PSP_CTRL_UP) vmu_held |= SA_UP;
             if (b & PSP_CTRL_DOWN) vmu_held |= SA_DOWN;
             if (b & PSP_CTRL_LEFT) vmu_held |= SA_LEFT;
@@ -889,8 +1050,11 @@ int main(int argc, char *argv[])
         if (g_page == PAGE_STATUS) {
             if (frame % 6 == 0 || g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; show(usb_rc, &in, sent, errors); }
         } else if (g_page == PAGE_SAVES) {
-            if (frame % 4 == 0) {          /* (the icons animate) */
-                g_saves_count = ui_page_saves(g_card, g_card_have, g_saves_first, &ui_themes[g_theme],
+            if (frame % 4 == 0 || saves_due) {   /* (the icons animate) */
+                UiSaves v;
+                saves_view(&v, standalone);
+                saves_due = 0;
+                g_saves_count = ui_page_saves(g_card, g_card_have, &v, &ui_themes[g_theme],
                                               now_us() / 1000, top_line());
             }
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */

@@ -7,6 +7,7 @@
 #define PSP2DC_CARDS_H
 
 #define CARDS_DIR  "ms0:/PSP2DC/cards"
+#define SAVES_DIR  "ms0:/PSP2DC/saves"   /* saves exported from a card */
 #define CARDS_MAX  32
 #define CARD_NAME_MAX 32
 
@@ -30,5 +31,12 @@ int  cards_unique(const char *base, const char *suffix, char out[CARD_NAME_MAX])
 /* A formatted empty card, as a Dreamcast formats one (and the adapter's
  * preformat). */
 void cards_format(unsigned char *img);
+
+/* One save out of a card into SAVES_DIR, in the two formats other tools load:
+ * BASE.DCI (Nexus), and BASE.VMS with BASE.VMI (as the Dreamcast's browser
+ * downloaded them); BASE from the save's file name, numbered rather than
+ * written over anything. 0 or < 0; the name in base. */
+struct CardFileTag;
+int  cards_export(const unsigned char *card, const struct CardFileTag *f, char base[9]);
 
 #endif

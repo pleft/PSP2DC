@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "cards.h"
+#include "cardfs.h"
 #include "../../protocol/psp2dc_protocol.h"
 
 /* Whether a file is there, by opening it: sceIoGetstat failed for files that
@@ -161,4 +162,55 @@ int cards_new(char out[CARD_NAME_MAX])
     if (i == 100) return -1;
     cards_format(img);
     return cards_write(out, img);
+}
+
+/* ---- a save, out of the card ---- */
+
+static int write_file(const char *path, const unsigned char *data, int len)
+{
+    SceUID fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    int n;
+    if (fd < 0) return -1;
+    n = sceIoWrite(fd, data, len);
+    sceIoClose(fd);
+    return n == len ? 0 : -1;
+}
+
+int cards_export(const unsigned char *card, const CardFile *f, char base[9])
+{
+    static unsigned char buf[32 + 200 * 512];
+    unsigned char vmi[108];
+    char path[96], stem[9];
+    int i, n, len, k;
+    /* the name: the save's file name in letters, digits and _, 8 at most (the
+     * VMI's resource name), then numbered while any of the three is there */
+    for (i = n = 0; f->name[i] && n < 8; i++) {
+        char c = f->name[i];
+        if (c == ' ') continue;
+        stem[n++] = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ? c : '_';
+    }
+    if (!n) stem[n++] = 'S';
+    stem[n] = 0;
+    for (k = 0; k < 100; k++) {
+        static const char *const ext[3] = { "DCI", "VMS", "VMI" };
+        int e, taken = 0;
+        if (k) snprintf(base, 9, "%.*s%02d", n > 6 ? 6 : n, stem, k);
+        else snprintf(base, 9, "%s", stem);
+        for (e = 0; e < 3; e++) {
+            snprintf(path, sizeof(path), "%s/%s.%s", SAVES_DIR, base, ext[e]);
+            if (exists(path)) taken = 1;
+        }
+        if (!taken) break;
+    }
+    if (k == 100) return -1;
+    sceIoMkdir(SAVES_DIR, 0777);
+    if ((len = cardfs_export_dci(card, f, buf)) < 0) return -1;
+    snprintf(path, sizeof(path), "%s/%s.DCI", SAVES_DIR, base);
+    if (write_file(path, buf, len) < 0) return -1;
+    if ((len = cardfs_export_vms(card, f, buf)) < 0) return -1;
+    snprintf(path, sizeof(path), "%s/%s.VMS", SAVES_DIR, base);
+    if (write_file(path, buf, len) < 0) return -1;
+    cardfs_vmi(card, f, base, len, vmi);
+    snprintf(path, sizeof(path), "%s/%s.VMI", SAVES_DIR, base);
+    return write_file(path, vmi, sizeof(vmi));
 }

@@ -357,7 +357,19 @@ The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, 
 
 Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a card), using `ms0:/PSP2DC/dev_input.txt`, a timed list of buttons the application holds when the file is there (combinations cannot be held from the Mac's keyboard). On hardware (15 November 2026): the old card was moved into the folder; a new card made while connected (SELECT + Start) was seen by the Dreamcast, and Sonic Adventure 2 saved onto it; a card made on the Mac (`games.bin`, Chao Adventure 2) was chosen with SELECT + R and its game played.
 
-### 5.0f Which Copy of a Card Counts (protocol 5)
+### 5.0e2 The Saves Page: Copy, Export, Delete
+
+Standalone, the Saves page (SELECT + ◀▶) has a chosen save, framed in yellow; ▲▼ choose and ✕ opens a box of what can be done with it, ○ going back:
+
+- **Copy to another card:** the other cards are listed; the copy is placed as the VMU's BIOS places files, with its errors (`Same file exist`, not enough free blocks, a game where the card already has one). A copy-protected save cannot be copied, as on the VMU (greyed).
+- **Export to the Memory Stick:** the save as files other tools load, in `ms0:/PSP2DC/saves/`: `NAME.DCI` (Nexus: the 32-byte directory entry, then the blocks with every 4-byte word reversed, as libevmu's `EvmuNexus_applyByteOrdering`), and `NAME.VMS` with `NAME.VMI` (the save's blocks as they are, and the 108-byte description of mc.pp.se's `vmi.html`: checksum the first four characters of the name ANDed with "SEGA", the save's long description and date, game and protect bits, size). NAME is the save's file name in 8 characters, numbered rather than written over anything. Copy-protected saves can be exported (the VMI keeps the bit).
+- **Delete:** asks first, "No, keep it" chosen; then the card is written.
+
+Connected the page only shows (the Dreamcast has the card then), and no action is taken while a VMU game runs (it holds its own copy of the card and writes it back when it ends). While the Saves or Status page is shown standalone, the buttons are theirs, not the hidden VMU's.
+
+The file system code is now one module, `psp/app/cardfs.c` (list, copy, delete, exports), used by FILE mode and the Saves page alike, and the page lists saves through it so its order is the actions'. `scripts/dev/cardfs-test.c` checks it on the Mac against a .VMS, .DCI and .VMI of the same game from the web (Chao Adventure): the VMS export is the .vms byte for byte, the DCI's blocks the .dci's byte for byte, the VMI's checksum, mode, size and file number the .vmi's; copy, "Same file exist", one game a card, delete: 21 of 21. In PPSSPP the page copied the Sonic Adventure 2 save to another card (the same bytes there), exported it (the three files checked byte for byte against the card) and deleted it.
+
+
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
 
