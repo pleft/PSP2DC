@@ -29,6 +29,7 @@
 #include <pspctrl.h>
 #include <pspusb.h>
 #include <pspge.h>
+#include <psppower.h>
 #include <pspiofilemgr.h>
 #include <pspthreadman.h>
 #include <stdio.h>
@@ -332,6 +333,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            (g_status.flags & PSP2DC_STATUS_CARD) ? "in the Dreamcast; " : "not shown yet; ", g_status.card_pending);
     printf("         %u blocks kept, file written %u times, %u errors      \n",
            g_card_blocks_in, g_card_writes, g_card_write_err);
+    printf("draw     %u.%u ms a frame, longest %u.%u ms      \n", ui_draw_us() / 1000, ui_draw_us() / 100 % 10,
+           ui_draw_max_us() / 1000, ui_draw_max_us() / 100 % 10);
     printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens" : rec_note());
     printf("         %-44s\n", rec_on() ? "" : shot_note());
     if (rec_on()) { pspDebugScreenSetXY(37, pspDebugScreenGetY() - 1); printf("%4u", rec_count()); pspDebugScreenSetXY(0, pspDebugScreenGetY() + 1); }
@@ -428,6 +431,9 @@ int main(int argc, char *argv[])
     /* Every page is drawn whole into the frame not on screen and shown at the
      * next vblank (ui.c): the status text once blanked the VMU picture's top
      * rows at each redraw, a flickering band (Crazy Taxi 2, 2026-11-15). */
+    /* the full speed: the shaded VMU and its panels are redrawn many times a
+     * second (PSPExp's runtime runs at 333 MHz too) */
+    scePowerSetClockFrequency(333, 333, 166);
     ui_init();
     settings_load();
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);

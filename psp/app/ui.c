@@ -24,8 +24,14 @@ const UiTheme ui_themes[] = {
 const int ui_theme_count = sizeof(ui_themes) / sizeof(ui_themes[0]);
 
 static unsigned *g_fb[2];              /* uncached addresses */
-static int g_shown;                    /* the buffer on screen */
+static int g_shown;                    /* the buffer on screen, or about to be */
 static unsigned *g_back;
+static int g_swap_vcount = -1;         /* the vblank count when the last swap was asked for */
+static unsigned g_draw_us, g_draw_max_us;   /* how long the last frame took to draw, and the longest */
+static unsigned g_t0;
+
+unsigned ui_draw_us(void) { return g_draw_us; }
+unsigned ui_draw_max_us(void) { return g_draw_max_us; }
 
 void ui_init(void)
 {
@@ -41,6 +47,11 @@ void ui_init(void)
 void ui_begin(unsigned bg)
 {
     int i;
+    /* The swap asked for at the last ui_end happens at the next vblank. Until
+     * then the other buffer is still on screen: drawing into it would show,
+     * half drawn (a flicker on hardware, not in PPSSPP). Wait for it. */
+    if (g_swap_vcount >= 0 && (int)sceDisplayGetVcount() == g_swap_vcount) sceDisplayWaitVblankStart();
+    g_t0 = (unsigned)sceKernelGetSystemTimeLow();
     g_back = g_fb[g_shown ^ 1];
     for (i = 0; i < FB_PIXELS; i++) g_back[i] = bg;
     pspDebugScreenSetBase((u32 *)g_back);
@@ -48,8 +59,12 @@ void ui_begin(unsigned bg)
 
 void ui_end(void)
 {
+    g_draw_us = (unsigned)sceKernelGetSystemTimeLow() - g_t0;
+    if (g_draw_us > g_draw_max_us) g_draw_max_us = g_draw_us;
+    sceKernelDcacheWritebackAll();   /* (all drawing is to uncached VRAM; this is cheap insurance) */
     sceDisplaySetFrameBuf((void *)((unsigned)g_back & 0x0FFFFFFF), LINE, PSP_DISPLAY_PIXEL_FORMAT_8888,
                           PSP_DISPLAY_SETBUF_NEXTFRAME);
+    g_swap_vcount = (int)sceDisplayGetVcount();
     g_shown ^= 1;
 }
 

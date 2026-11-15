@@ -10,7 +10,7 @@ CFLAGS = -O2 -G0 -Wall
 ASFLAGS = $(CFLAGS)
 LIBDIR = $(PSPEXP_USB)
 LDFLAGS =
-LIBS = -lpspexpusb -lpspusb -lpspdisplay -lpsprtc
+LIBS = -lpspexpusb -lpspusb -lpspdisplay -lpsprtc -lpsppower
 
 BUILD_PRX = 1
 

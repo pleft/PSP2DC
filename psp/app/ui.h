@@ -26,6 +26,8 @@ extern const int ui_theme_count;
 void ui_init(void);
 void ui_begin(unsigned bg);          /* a frame: the back buffer, filled with bg; text goes there */
 void ui_end(void);                   /* shown from the next vblank */
+unsigned ui_draw_us(void);           /* the last frame's drawing time, and the longest so far */
+unsigned ui_draw_max_us(void);
 void ui_fill(int x, int y, int w, int h, unsigned colour);
 void ui_text(int col, int row, unsigned colour, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 /* the VMU's screen, as the Dreamcast sends it (turned half round here) */
