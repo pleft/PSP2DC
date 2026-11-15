@@ -382,24 +382,25 @@ static void button(int cx, int cy, int r, unsigned face, unsigned bg)
 
 /* The LCD's four icons under the dots, after the Sega VMU manual's drawing
  * (Specifications, VMU-12: "File management", "Executable file initiation",
- * "Clock display", "Writing in progress"): a lined page under a folded sheet,
+ * "Clock display", "Writing in progress"): a lined page with a sheet folded
+ * over its top, slanting off to the left (the page's edge and shadow on the right),
  * two cards with a spade, a clock, a burst with "!". Drawn twice their size.
  * The System-BIOS drives them (the manual: their use by a program is
  * prohibited); the Dreamcast cannot, so they are drawn unlit: a faint ghost,
  * as unlit segments show on the real screen. */
-static const char *const vmu_icons[4][13] = {
-    { "..XXXXXX.....", ".X.....X.....", "X.....X......", "XXXXXXXXXXX..", "....X......X.",
-      "....X.XXXX.X.", "....X......X.", "....X.XXXX.X.", "....X......X.", "....X.XXXX.X.",
-      "....X......X.", "....XXXXXXXX.", "............." },
-    { "XXXXXXXXX....", "X.......X....", "X...X...XXX..", "X..XXX..X.X..", "X.XXXXX.X.X..",
-      "X.XXXXX.X.X..", "X..X.X..X.X..", "X...X...X.X..", "X..XXX..X.X..", "X.......X.X..",
-      "XXXXXXXXX.X..", "..XXXXXXXXX..", "............." },
-    { "....XXXXX....", "..XX.....XX..", ".X....X....X.", ".X....X....X.", "X.....X.....X",
-      "X.....X.....X", "X.....XXXXX.X", "X...........X", "X...........X", ".X.........X.",
-      ".X.........X.", "..XX.....XX..", "....XXXXX...." },
-    { "......X......", "...X.XXX.X...", "...XXXXXXX...", ".XXXXX.XXXXX.", "..XXXX.XXXX..",
-      ".XXXXX.XXXXX.", "XXXXXX.XXXXXX", ".XXXXX.XXXXX.", "..XXXXXXXXX..", ".XXXXX.XXXXX.",
-      "...XXXXXXX...", "...X.XXX.X...", "......X......" },
+static const char *const vmu_icons[4][13] = {   /* 15 wide, 13 tall */
+    { "......XXXXXXXX.", ".....X......XXX", "....X......X.XX", "...X......X..XX", "..X......XXX.XX",
+      ".X......X....XX", "XXXXXXXX.....XX", "......X..XXX.XX", "......X......XX", "......X..XXX.XX",
+      "......X......XX", "......X......XX", "......XXXXXXXXX" },
+    { ".XXXXXXXXX.....", ".X.......X.....", ".X...X...XXX...", ".X..XXX..X.X...", ".X.XXXXX.X.X...",
+      ".X.XXXXX.X.X...", ".X..X.X..X.X...", ".X...X...X.X...", ".X..XXX..X.X...", ".X.......X.X...",
+      ".XXXXXXXXX.X...", "...XXXXXXXXX...", "..............." },
+    { ".....XXXXX.....", "...XX.....XX...", "..X....X....X..", "..X....X....X..", ".X.....X.....X.",
+      ".X.....X.....X.", ".X.....XXXXX.X.", ".X...........X.", ".X...........X.", "..X.........X..",
+      "..X.........X..", "...XX.....XX...", ".....XXXXX....." },
+    { ".......X.......", "....X.XXX.X....", "....XXXXXXX....", "..XXXXX.XXXXX..", "...XXXX.XXXX...",
+      "..XXXXX.XXXXX..", ".XXXXXX.XXXXXX.", "..XXXXX.XXXXX..", "...XXXXXXXXX...", "..XXXXX.XXXXX..",
+      "....XXXXXXX....", "....X.XXX.X....", ".......X......." },
 };
 
 static void draw_icon_row(int x0, int y0, int w, const UiTheme *t)
@@ -407,9 +408,9 @@ static void draw_icon_row(int x0, int y0, int w, const UiTheme *t)
     unsigned ghost = mix(t->paper, t->ink, 3);
     int k, r, c;
     for (k = 0; k < 4; k++) {
-        int cx = x0 + w * (2 * k + 1) / 8 - 13;
+        int cx = x0 + w * (2 * k + 1) / 8 - 15;
         for (r = 0; r < 13; r++)
-            for (c = 0; c < 13; c++)
+            for (c = 0; c < 15; c++)
                 if (vmu_icons[k][r][c] == 'X') ui_fill(cx + c * 2, y0 + r * 2, 2, 2, ghost);
     }
 }
