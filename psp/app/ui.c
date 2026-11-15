@@ -14,7 +14,7 @@
 
 const UiTheme ui_themes[] = {
     /*  name        bg          paper       ink         frame       text        grid body        panel */
-    { "Classic",  0xFF181818, 0xFFA8B898, 0xFF402018, 0xFF505050, 0xFFC0C0C0, 1, 0xFFE4E6E6, 0xFF2A2A2A },
+    { "Classic",  0xFF181818, 0xFFC0D4A8, 0xFFB43C3C, 0xFF505050, 0xFFC0C0C0, 1, 0xFFE4E6E6, 0xFF2A2A2A },
     { "Backlit",  0xFF2A1408, 0xFFFFBE78, 0xFF3C140A, 0xFF8A5A30, 0xFFFFD8B0, 0, 0xFFB08050, 0xFF40200E },
     { "Pocket",   0xFF1E2A1E, 0xFF0FBC9B, 0xFF0F380F, 0xFF306230, 0xFF9BCC9B, 1, 0xFFB8C0B8, 0xFF2A382A },
     { "Amber",    0xFF000000, 0xFF000C14, 0xFF00B0FF, 0xFF003050, 0xFF0090D0, 0, 0xFF102028, 0xFF081018 },
@@ -380,6 +380,34 @@ static void button(int cx, int cy, int r, unsigned face, unsigned bg)
     disc(cx - r / 3, cy - r / 3, r / 3, mix(face, 0xFFFFFFFF, 6));
 }
 
+/* The LCD's four icons under the dots, as on the real one (photographs of
+ * lit VMUs): FILE (a notepad), GAME (a card with a spade), CLOCK, FLASH (a
+ * burst). 11x11, drawn twice their size. The VMU drives them itself; the
+ * Dreamcast cannot, so they are drawn unlit: a faint ghost, as unlit segments
+ * show on the real screen. */
+static const char *const vmu_icons[4][11] = {
+    { "..XXXXXXX..", ".X.X.X.X.X.", ".XXXXXXXXX.", ".X.......X.", ".X.XXXXX.X.", ".X.......X.",
+      ".X.XXXXX.X.", ".X.......X.", ".X.XXXX..X.", ".X.......X.", ".XXXXXXXXX." },
+    { ".XXXXXXXXX.", ".X.......X.", ".X...X...X.", ".X..XXX..X.", ".X.XXXXX.X.", ".X.XXXXX.X.",
+      ".X..X.X..X.", ".X...X...X.", ".X..XXX..X.", ".X.......X.", ".XXXXXXXXX." },
+    { "...XXXXX...", "..X.....X..", ".X...X...X.", "X....X....X", "X....X....X", "X....XXX..X",
+      "X.........X", "X.........X", ".X.......X.", "..X.....X..", "...XXXXX..." },
+    { ".....X.....", ".X..XXX..X.", "..XXXXXXX..", "..XX...XX..", ".XX..X..XX.", "XXX.XX..XXX",
+      ".XX..X..XX.", "..XX.X.XX..", "..XXXXXXX..", ".X..XXX..X.", ".....X....." },
+};
+
+static void draw_icon_row(int x0, int y0, int w, const UiTheme *t)
+{
+    unsigned ghost = mix(t->paper, t->ink, 3);
+    int k, r, c;
+    for (k = 0; k < 4; k++) {
+        int cx = x0 + w * (2 * k + 1) / 8 - 11;
+        for (r = 0; r < 11; r++)
+            for (c = 0; c < 11; c++)
+                if (vmu_icons[k][r][c] == 'X') ui_fill(cx + c * 2, y0 + r * 2, 2, 2, ghost);
+    }
+}
+
 static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
 {
     /* Laid out after photographs of the real one, without its connector and
@@ -389,7 +417,7 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
      * the 48x32 dots, which the VMU drives itself (libElysianVMU, XRAM bank 2).
      * So: the dots at the top, square, 192x128 (the dot area is given as
      * 37 x 26 mm, its dots very nearly square), and the icon row under them
-     * left blank, as unlit segments are on the real thing. */
+     * drawn unlit (draw_icon_row). */
     const int X = 8, Y = 4, W = 236, H = 264, WY = Y + 19;   /* WY: the screen window's top */
     unsigned body = t->body, lit = mix(body, 0xFFFFFFFF, 4), shade = mix(body, 0xFF000000, 2);
     unsigned edge = mix(body, 0xFF000000, 5), seam = mix(body, 0xFF000000, 3);
@@ -419,6 +447,7 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
     ui_fill(X + 18, WY + 136, 200, 32, t->paper);                                             /* the icon row under them, */
     ui_fill(X + 18, WY + 3, 4, 165, t->paper);                                                /* and the sides */
     ui_fill(X + 214, WY + 3, 4, 165, t->paper);
+    draw_icon_row(X + 22, WY + 142, 192, t);
     ui_fill(X + 18, WY + 3, 200, 2, mix(t->paper, 0xFF000000, 5));                           /* the glass's inner shadow */
     ui_fill(X + 18, WY + 3, 2, 165, mix(t->paper, 0xFF000000, 5));
     ui_fill(X + 15, WY + 172, 206, 1, lit);                                                   /* the window's lower lip */
