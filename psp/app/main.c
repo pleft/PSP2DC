@@ -5,7 +5,13 @@
  * controller state and sends that to the adapter over PSPExp's USB link
  * (protocol/psp2dc_protocol.h). A second thread reads what the adapter sends
  * back: a status message once a second and the VMU's screen each time the
- * Dreamcast draws one, shown enlarged at the bottom right of a text status page.
+ * Dreamcast draws one, shown enlarged at the bottom right of a text status page,
+ * and the blocks of the memory card to keep.
+ *
+ * The memory card is a file on the Memory Stick (CARD_FILE, a plain 128 KB
+ * image). The adapter answers the Dreamcast from a copy in its RAM; this side
+ * sends the file up when the adapter has none and writes back what a game
+ * saves. The order of things is in the protocol header.
  *
  * User mode; the kernel USB driver (pspexp_usb.prx) was loaded by the boot
  * module and is reached through its exported library (libpspexpusb.a).
@@ -16,6 +22,8 @@
 #include <pspctrl.h>
 #include <pspusb.h>
 #include <pspge.h>
+#include <pspiofilemgr.h>
+#include <pspthreadman.h>
 #include <stdio.h>
 #include <string.h>
 #include "pspexp_usb_driver.h"
@@ -38,6 +46,71 @@ static volatile int g_running = 1;
 static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
 static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
+
+/* The memory card: outside the application's own folder, which an update
+ * replaces as a whole. Written as CARD_NEW first and renamed, so a write cut
+ * short (the battery, the switch) leaves the last good file in place. */
+#define CARD_DIR   "ms0:/PSP2DC"
+#define CARD_FILE  CARD_DIR "/card1.bin"
+#define CARD_NEW   CARD_DIR "/card1.new"
+#define CARD_QUIET_US 700000   /* this long with no block coming before the file is written */
+
+static unsigned char g_card[PSP2DC_CARD_BYTES] __attribute__((aligned(64)));
+static int g_card_have;                    /* g_card holds a card (from the file, or from the adapter) */
+static volatile int g_card_dirty;          /* blocks came since the file was written */
+static volatile unsigned g_card_last_us;   /* when the last one came */
+static volatile unsigned g_card_blocks_in, g_card_writes, g_card_write_err;
+static volatile int g_card_state = -1;     /* the adapter's CARD_STATE, -1: none yet */
+static volatile unsigned g_card_state_seq; /* +1 each CARD_STATE */
+static const char *g_card_note = "no file yet";
+
+static unsigned now_us(void) { return (unsigned)sceKernelGetSystemTimeLow(); }
+
+static int card_read(const char *path)
+{
+    SceUID fd = sceIoOpen(path, PSP_O_RDONLY, 0);
+    int n;
+    if (fd < 0) return 0;
+    n = sceIoRead(fd, g_card, sizeof(g_card));
+    sceIoClose(fd);
+    return n == (int)sizeof(g_card);
+}
+
+/* The file at the start; a write that was cut after its last byte but before
+ * the rename left CARD_NEW whole, and that is the newer one. */
+static void card_load(void)
+{
+    sceIoMkdir(CARD_DIR, 0777);
+    if (card_read(CARD_FILE)) { g_card_have = 1; g_card_note = "from the file"; }
+    else if (card_read(CARD_NEW)) { g_card_have = 1; g_card_note = "from the file (.new)"; }
+}
+
+static int card_write(void)
+{
+    SceUID fd = sceIoOpen(CARD_NEW, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    int n;
+    if (fd < 0) return -1;
+    n = sceIoWrite(fd, g_card, sizeof(g_card));
+    sceIoClose(fd);
+    if (n != (int)sizeof(g_card)) return -1;
+    sceIoRemove(CARD_FILE);
+    return sceIoRename(CARD_NEW, CARD_FILE) < 0 ? -1 : 0;
+}
+
+/* Writes the file a moment after the adapter's blocks stop coming: a game's
+ * save is a run of them, and the whole card after a reconnection. */
+static int saver_thread(SceSize args, void *argp)
+{
+    while (g_running) {
+        sceKernelDelayThread(200000);
+        if (g_card_dirty && now_us() - g_card_last_us > CARD_QUIET_US) {
+            g_card_dirty = 0;   /* before the write: a block coming during it sets it again */
+            if (card_write() < 0) { g_card_write_err++; g_card_dirty = 1; g_card_last_us = now_us(); }
+            else { g_card_writes++; g_card_note = "saved to the file"; }
+        }
+    }
+    return 0;
+}
 
 /* The VMU's screen as the adapter last sent it, and how many came. */
 static unsigned char g_lcd[PSP2DC_LCD_BYTES];
@@ -195,6 +268,19 @@ static int reader_thread(SceSize args, void *argp)
                 g_adapter_uptime_ms = st.uptime_ms;
                 g_adapter_version = st.version;
                 g_status_count++;
+            } else if (p[2] == PSP2DC_MSG_CARD_STATE && p[3] == sizeof(Psp2dcCardState)) {
+                g_card_state = p[PSP2DC_HEADER_LEN];
+                g_card_state_seq++;
+            } else if (p[2] == PSP2DC_MSG_CARD_SAVE && p[3] == sizeof(Psp2dcCardPart)) {
+                const Psp2dcCardPart *part = (const Psp2dcCardPart *)(p + PSP2DC_HEADER_LEN);
+                if (part->part < PSP2DC_CARD_PARTS) {
+                    memcpy(g_card + part->block * PSP2DC_CARD_BLOCK_SIZE + part->part * PSP2DC_CARD_PART_SIZE,
+                           part->data, PSP2DC_CARD_PART_SIZE);
+                    g_card_have = 1;
+                    g_card_last_us = now_us();
+                    g_card_dirty = 1;
+                    if (part->part == PSP2DC_CARD_PARTS - 1) g_card_blocks_in++;
+                }
             } else if (p[2] == PSP2DC_MSG_LCD && p[3] == PSP2DC_LCD_BYTES) {
                 memcpy(g_lcd, p + PSP2DC_HEADER_LEN, PSP2DC_LCD_BYTES);
                 g_lcd_count++;
@@ -204,6 +290,29 @@ static int reader_thread(SceSize args, void *argp)
         memmove(stream, stream + pos, have - pos);
         have -= pos;
         if (have == (int)sizeof(stream)) have = 0;   /* a message never is this long */
+    }
+    return 0;
+}
+
+/* The card file to the adapter: a block a transfer (its four parts), then the
+ * end. Nothing else is sent meanwhile; a second or two at full speed. */
+static int card_upload(void)
+{
+    static unsigned char buf[PSP2DC_CARD_BLOCK_XFER] __attribute__((aligned(64)));
+    int block, part;
+    for (block = 0; block < PSP2DC_CARD_BLOCKS; block++) {
+        unsigned char *m = buf;
+        for (part = 0; part < PSP2DC_CARD_PARTS; part++) {
+            m[0] = PSP2DC_MAGIC0; m[1] = PSP2DC_MAGIC1; m[2] = PSP2DC_MSG_CARD_PART; m[3] = sizeof(Psp2dcCardPart);
+            m[4] = (unsigned char)block; m[5] = (unsigned char)part;
+            memcpy(m + 6, g_card + block * PSP2DC_CARD_BLOCK_SIZE + part * PSP2DC_CARD_PART_SIZE, PSP2DC_CARD_PART_SIZE);
+            m += PSP2DC_HEADER_LEN + sizeof(Psp2dcCardPart);
+        }
+        if (pspexpUsbWrite(buf, sizeof(buf)) < 0) return -1;
+        if ((block & 31) == 0) {
+            pspDebugScreenSetXY(0, 9);
+            printf("card     sending to the adapter: block %3d of 256      ", block);
+        }
     }
     return 0;
 }
@@ -233,8 +342,10 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            g_status_count, g_adapter_uptime_ms / 1000, g_adapter_version, g_rx_bad);
     printf("vmu      %u screens here; adapter: asked %u wrote %u took %u\n", g_lcd_count,
            g_status.lcd_media, g_status.lcd_writes, g_status.lcd_screens);
-    printf("         last write %u words, block %08X      \n", g_status.lcd_last_words,
-           (unsigned)g_status.lcd_last_addr);
+    printf("card     %s; %s%u to come      \n", g_card_note,
+           (g_status.flags & PSP2DC_STATUS_CARD) ? "in the Dreamcast; " : "not shown yet; ", g_status.card_pending);
+    printf("         %u blocks kept, file written %u times, %u errors      \n",
+           g_card_blocks_in, g_card_writes, g_card_write_err);
     printf("Dreamcast controller state\n");
     printf("  buttons  %c %c %c %c  %s   dpad %c%c%c%c      \n",
            in->buttons & PSP2DC_BTN_A ? 'A' : '.', in->buttons & PSP2DC_BTN_B ? 'B' : '.',
@@ -257,6 +368,7 @@ int main(int argc, char *argv[])
     SceCtrlData pad;
     Psp2dcInput in;
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
+    unsigned state_seen = 0;
     unsigned char seq = 0;
     int usb_rc, connected = 0;
     SceUID thid;
@@ -273,7 +385,10 @@ int main(int argc, char *argv[])
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
+    card_load();
     usb_rc = usb_start();
+    thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
+    if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
 
@@ -289,10 +404,22 @@ int main(int argc, char *argv[])
         if (pspexpUsbConnected()) {
             unsigned gen = pspexpUsbGeneration();
             if (!connected || gen != generation) {   /* a new link: say who we are */
-                Psp2dcHello hello = { PSP2DC_PROTOCOL_VERSION, {0, 0, 0} };
+                Psp2dcHello hello = { PSP2DC_PROTOCOL_VERSION, g_card_have ? PSP2DC_HELLO_HAS_CARD : 0, {0, 0} };
                 generation = gen;
                 connected = 1;
+                state_seen = g_card_state_seq;   /* the answer to this hello is the next one */
                 send_msg(PSP2DC_MSG_HELLO, &hello, sizeof(hello));
+            }
+            if (g_card_state_seq != state_seen) {   /* the adapter said whether it holds a card */
+                state_seen = g_card_state_seq;
+                if (g_card_state == PSP2DC_CARD_EMPTY) {
+                    Psp2dcCardDone done = { 0, {0, 0, 0} };
+                    if (g_card_have && card_upload() == 0) { done.sent = 1; g_card_note = "sent to the adapter"; }
+                    else if (!g_card_have) g_card_note = "new, from the adapter";
+                    send_msg(PSP2DC_MSG_CARD_DONE, &done, sizeof(done));
+                } else {
+                    g_card_note = "the adapter's, kept here";   /* its copy is the newer one: it sends it all */
+                }
             }
             in.seq = seq++;
             if (send_msg(PSP2DC_MSG_INPUT, &in, sizeof(in)) < 0) errors++;
