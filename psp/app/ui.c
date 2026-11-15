@@ -635,6 +635,11 @@ static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
     }
 }
 
+/* the card panel's place, the same connected or not (the middle panel is
+ * centred above it) */
+#define CARD_Y 136
+#define CARD_H 114
+
 /* Standalone: which PSP button is which VMU button, in a panel 56 high */
 #define MAP_H 56
 static void draw_map(const UiHome *h, const UiTheme *t, int x0, int y0)
@@ -656,7 +661,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     /* (ABGR) green connected, orange demo, yellow waiting, red nothing */
     unsigned dot = h->link == UI_LINK_UP ? 0xFF40D040 : h->link == UI_LINK_DEMO ? 0xFF288CF0
                  : h->link == UI_LINK_WAITING ? 0xFF28C8F0 : 0xFF3232DC;
-    int x0 = 252, n = 0, free_blocks = 0, text_w = 204;
+    int x0 = 252, n = 0, free_blocks = 0;
 
     ui_begin(t->bg);
     draw_vmu(h->lcd, t, h->icons, h->vmu_pressed);
@@ -671,7 +676,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     /* the middle panel, centred between the link and the card: the button
      * map standalone, the controller connected */
     {
-        int ph = h->standalone ? MAP_H : PAD_H, py = 46 + (146 - ph) / 2;
+        int ph = h->standalone ? MAP_H : PAD_H, py = 46 + (CARD_Y - 6 - 46 - ph) / 2;
         round_rect(x0, py, 220, ph, 6, t->panel);
         label(x0 + 8, py + 6, t->text, h->standalone ? "STANDALONE" : "CONTROLLER");
         if (h->standalone) {
@@ -680,29 +685,46 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
         } else draw_pad(h, t, x0, py);
     }
 
-    /* the memory card: the save's icon, when there is one, at the right */
-    round_rect(x0, 198, 220, 50, 6, t->panel);
-    label(x0 + 8, 204, t->text, "CARD");
+    /* the memory card, in the same place either way: its name and free
+     * blocks, its saves' icons (five a row, two rows, each animated at its
+     * own speed; the Saves page has the rest), what is happening to it */
+    round_rect(x0, CARD_Y, 220, CARD_H, 6, t->panel);
+    label(x0 + 8, CARD_Y + 6, t->text, "CARD");
     if (h->card_have) {
+        char s[16];
+        int i, cells = 10, shown;
         n = card_files(h->card, files, 200, &free_blocks);
-        if (n && files[0].icons) {     /* the first save's icon, animated */
-            int step = (files[0].speed > 0 ? files[0].speed : 8) * 1000 / 30;   /* n/30 s */
-            draw_icon(h->card, &files[0], (h->now_ms / step) % files[0].icons, x0 + 184, 207, 1);
-            text_w = 172;
+        snprintf(s, sizeof(s), "%d free", free_blocks);
+        label(x0 + 212 - 7 * (int)strlen(s), CARD_Y + 6, half(t->text), s);
+        if (h->card_name) label_fit(x0 + 8 + 5 * 7, CARD_Y + 6, 0xFF28C8F0, h->card_name, 204 - 5 * 7 - 7 * (int)strlen(s) - 7);
+        shown = n > cells ? cells - 1 : n;     /* (more than fit: the last cell counts the rest) */
+        for (i = 0; i < shown; i++) {
+            int x = x0 + 8 + (i % 5) * 42, y = CARD_Y + 20 + (i / 5) * 36;
+            if (files[i].icons) {
+                int step = (files[i].speed > 0 ? files[i].speed : 8) * 1000 / 30;   /* n/30 s */
+                draw_icon(h->card, &files[i], (h->now_ms / step) % files[i].icons, x, y, 1);
+            } else {                           /* no icon: a tile with the file's name begun */
+                char nm[5];
+                snprintf(nm, sizeof(nm), "%.4s", files[i].file);
+                round_rect(x, y, 32, 32, 3, dim(t->text));
+                label(x + 2, y + 12, half(t->text), nm);
+            }
         }
-    }
-    if (h->card_name) label_fit(x0 + 8 + 5 * 7, 204, 0xFF28C8F0, h->card_name, text_w - 5 * 7);
-    if (h->card_have) {
-        char s[40];
-        snprintf(s, sizeof(s), "%d save%s, %d blocks free", n, n == 1 ? "" : "s", free_blocks);
-        label_fit(x0 + 8, 218, t->text, s, text_w);
+        if (n > cells) {
+            char more[8];
+            int x = x0 + 8 + 4 * 42, y = CARD_Y + 20 + 36;
+            snprintf(more, sizeof(more), "+%d", n - shown);
+            round_rect(x, y, 32, 32, 3, dim(t->text));
+            label(x + 16 - 7 * (int)strlen(more) / 2, y + 12, t->text, more);
+        }
+        if (!n) label(x0 + 8, CARD_Y + 48, half(t->text), "no saves");
     } else {
-        label(x0 + 8, 218, t->text, "none yet");
+        if (h->card_name) label_fit(x0 + 8 + 5 * 7, CARD_Y + 6, 0xFF28C8F0, h->card_name, 204 - 5 * 7);
+        label(x0 + 8, CARD_Y + 48, half(t->text), "none yet");
     }
-    if (h->notice) label_fit(x0 + 8, 232, t->text, h->notice, text_w);
-    else label_fit(x0 + 8, 232, half(t->text), h->card_note, text_w);
+    if (h->notice) label_fit(x0 + 8, CARD_Y + 96, t->text, h->notice, 204);
+    else label_fit(x0 + 8, CARD_Y + 96, half(t->text), h->card_note, 204);
 
-    /* the keys */
     {   /* SELECT +: left/right the page, up/down the theme, L/R the card */
         unsigned c = half(t->text);
         int x = x0 + 4;
