@@ -13,3 +13,5 @@ psp/*/PARAM.SFO
 /firmware/joypad-os/
 # real memory card images (game saves and their artwork): local test data only
 /testdata/
+# the Sega VMU developer manual (41 MB, Sega's document): kept locally only
+/docs/VMU.pdf

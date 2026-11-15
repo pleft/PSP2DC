@@ -289,7 +289,22 @@ Three pages (home, saves, status), changed with SELECT + Left/Right; the page, t
 
 Themes: Classic (the VMU's grey-green, dots drawn apart like the real LCD), Backlit, Pocket (handheld green, dots apart), Amber, Phosphor, Paper.
 
-Every page is drawn whole into the frame buffer not on screen and shown at the next vblank, so nothing is seen half drawn. Verified in PPSSPP on 15 November 2026 with the real card (Crazy Taxi 2 and Sonic Adventure 2 saves, both icons correct); not yet on hardware. The icons' animation speed unit is not confirmed (taken as 1/15 s).
+Every page is drawn whole into the frame buffer not on screen and shown at the next vblank, so nothing is seen half drawn. Verified in PPSSPP on 15 November 2026 with the real card (Crazy Taxi 2 and Sonic Adventure 2 saves, both icons correct); not yet on hardware. The icons animate at n/30 s per frame, as the Sega VMU manual specifies (VMT-18).
+
+### 5.0b Facts from the Sega VMU Manual
+
+`docs/VMU.pdf` (778 pages: tutorial, specifications, hardware, programming, BIOS, sound, simulator; not kept in git) settles several points that were guesses before:
+
+| Fact | Where | Used for |
+|---|---|---|
+| The LCD is a 48x32 dot matrix plus four icons below it: File management, Executable file initiation (game), Clock display, Writing in progress (also listed as File, Game, Time, Attention) | Specifications VMU-11/12, VMU-2 | The drawn VMU's icon row and the icons' shapes |
+| "The System-BIOS uses the icons; use by an executable file is prohibited"; connected to a game machine, the BIOS puts the game's drawing data straight on the dot matrix | VMU-11/12 | The icons are drawn unlit |
+| LCD: no backlight, no contrast or brightness control; recommended refresh 4 Hz when connected to a game machine (1 Hz standalone) | VMU-12 | (background: games that animate faster ghost on the real LCD) |
+| A save's animated icon switches frames every n/30 seconds (n = the header's animation speed, 1 to 65535); 1 to 3 frames | Tutorial VMT-18 | The save browser's icon animation (it had assumed n/15) |
+| The visual comment (eyecatch) is 72x56 dots, type A direct ARGB4444, B 256 colours, C 16 colours | VMT-18, VMT-20 | A later eyecatch view |
+| A card's volume icon is the file ICONDATA_VMS: a 16-byte comment, a 32x32 monochrome icon and an optional colour icon | VMT-13 | A later card icon in the saves page |
+| Clock and alarm are Maple FT3 (Timer); the game machine can set the date and time; the alarm sounds the voltage buzzer, 300 Hz to 4 kHz with a settable duty ("planned") | VMU-16/17 | VMU beeps through the PSP |
+| Maple at 2 Mbps; all of it handled by the VMU's System-BIOS | VMU-15 | (background) |
 
 ### 5.1 Controller Mapping
 

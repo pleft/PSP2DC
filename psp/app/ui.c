@@ -256,7 +256,7 @@ int ui_page_saves(const unsigned char *card, int have, int first, const UiTheme 
         ui_fill(4, y - 2, 472, 72, t->frame);
         ui_fill(8, y + 2, 64, 64, t->paper);
         if (f->icons) {
-            int step = (f->speed > 0 ? f->speed : 8) * 1000 / 15;   /* (the speed's unit is not confirmed) */
+            int step = (f->speed > 0 ? f->speed : 8) * 1000 / 30;   /* n/30 s (Sega VMU manual, VMT-18) */
             frame = (now_ms / step) % f->icons;
             draw_icon(card, f, frame, 8, y + 2, 2);
         }
@@ -380,20 +380,26 @@ static void button(int cx, int cy, int r, unsigned face, unsigned bg)
     disc(cx - r / 3, cy - r / 3, r / 3, mix(face, 0xFFFFFFFF, 6));
 }
 
-/* The LCD's four icons under the dots, as on the real one (photographs of
- * lit VMUs): FILE (a notepad), GAME (a card with a spade), CLOCK, FLASH (a
- * burst). 11x11, drawn twice their size. The VMU drives them itself; the
- * Dreamcast cannot, so they are drawn unlit: a faint ghost, as unlit segments
- * show on the real screen. */
-static const char *const vmu_icons[4][11] = {
-    { "..XXXXXXX..", ".X.X.X.X.X.", ".XXXXXXXXX.", ".X.......X.", ".X.XXXXX.X.", ".X.......X.",
-      ".X.XXXXX.X.", ".X.......X.", ".X.XXXX..X.", ".X.......X.", ".XXXXXXXXX." },
-    { ".XXXXXXXXX.", ".X.......X.", ".X...X...X.", ".X..XXX..X.", ".X.XXXXX.X.", ".X.XXXXX.X.",
-      ".X..X.X..X.", ".X...X...X.", ".X..XXX..X.", ".X.......X.", ".XXXXXXXXX." },
-    { "...XXXXX...", "..X.....X..", ".X...X...X.", "X....X....X", "X....X....X", "X....XXX..X",
-      "X.........X", "X.........X", ".X.......X.", "..X.....X..", "...XXXXX..." },
-    { ".....X.....", ".X..XXX..X.", "..XXXXXXX..", "..XX...XX..", ".XX..X..XX.", "XXX.XX..XXX",
-      ".XX..X..XX.", "..XX.X.XX..", "..XXXXXXX..", ".X..XXX..X.", ".....X....." },
+/* The LCD's four icons under the dots, after the Sega VMU manual's drawing
+ * (Specifications, VMU-12: "File management", "Executable file initiation",
+ * "Clock display", "Writing in progress"): a lined page under a folded sheet,
+ * two cards with a spade, a clock, a burst with "!". Drawn twice their size.
+ * The System-BIOS drives them (the manual: their use by a program is
+ * prohibited); the Dreamcast cannot, so they are drawn unlit: a faint ghost,
+ * as unlit segments show on the real screen. */
+static const char *const vmu_icons[4][13] = {
+    { "..XXXXXX.....", ".X.....X.....", "X.....X......", "XXXXXXXXXXX..", "....X......X.",
+      "....X.XXXX.X.", "....X......X.", "....X.XXXX.X.", "....X......X.", "....X.XXXX.X.",
+      "....X......X.", "....XXXXXXXX.", "............." },
+    { "XXXXXXXXX....", "X.......X....", "X...X...XXX..", "X..XXX..X.X..", "X.XXXXX.X.X..",
+      "X.XXXXX.X.X..", "X..X.X..X.X..", "X...X...X.X..", "X..XXX..X.X..", "X.......X.X..",
+      "XXXXXXXXX.X..", "..XXXXXXXXX..", "............." },
+    { "....XXXXX....", "..XX.....XX..", ".X....X....X.", ".X....X....X.", "X.....X.....X",
+      "X.....X.....X", "X.....XXXXX.X", "X...........X", "X...........X", ".X.........X.",
+      ".X.........X.", "..XX.....XX..", "....XXXXX...." },
+    { "......X......", "...X.XXX.X...", "...XXXXXXX...", ".XXXXX.XXXXX.", "..XXXX.XXXX..",
+      ".XXXXX.XXXXX.", "XXXXXX.XXXXXX", ".XXXXX.XXXXX.", "..XXXXXXXXX..", ".XXXXX.XXXXX.",
+      "...XXXXXXX...", "...X.XXX.X...", "......X......" },
 };
 
 static void draw_icon_row(int x0, int y0, int w, const UiTheme *t)
@@ -401,9 +407,9 @@ static void draw_icon_row(int x0, int y0, int w, const UiTheme *t)
     unsigned ghost = mix(t->paper, t->ink, 3);
     int k, r, c;
     for (k = 0; k < 4; k++) {
-        int cx = x0 + w * (2 * k + 1) / 8 - 11;
-        for (r = 0; r < 11; r++)
-            for (c = 0; c < 11; c++)
+        int cx = x0 + w * (2 * k + 1) / 8 - 13;
+        for (r = 0; r < 13; r++)
+            for (c = 0; c < 13; c++)
                 if (vmu_icons[k][r][c] == 'X') ui_fill(cx + c * 2, y0 + r * 2, 2, 2, ghost);
     }
 }
@@ -447,7 +453,7 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
     ui_fill(X + 18, WY + 136, 200, 32, t->paper);                                             /* the icon row under them, */
     ui_fill(X + 18, WY + 3, 4, 165, t->paper);                                                /* and the sides */
     ui_fill(X + 214, WY + 3, 4, 165, t->paper);
-    draw_icon_row(X + 22, WY + 142, 192, t);
+    draw_icon_row(X + 22, WY + 140, 192, t);
     ui_fill(X + 18, WY + 3, 200, 2, mix(t->paper, 0xFF000000, 5));                           /* the glass's inner shadow */
     ui_fill(X + 18, WY + 3, 2, 165, mix(t->paper, 0xFF000000, 5));
     ui_fill(X + 15, WY + 172, 206, 1, lit);                                                   /* the window's lower lip */
@@ -564,7 +570,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
         snprintf(s, sizeof(s), "%d save%s, %d blocks free", n, n == 1 ? "" : "s", free_blocks);
         label(x0 + 8, 218, t->text, s);
         if (n && files[0].icons) {     /* the first save's icon, animated */
-            int step = (files[0].speed > 0 ? files[0].speed : 8) * 1000 / 15;
+            int step = (files[0].speed > 0 ? files[0].speed : 8) * 1000 / 30;   /* n/30 s */
             draw_icon(h->card, &files[0], (h->now_ms / step) % files[0].icons, x0 + 186, 206, 1);
         }
     } else {
