@@ -1,0 +1,59 @@
+From ca3f3e38bec1b1d3ae3c387f308cc71092b743e0 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 17:56:22 +0200
+Subject: [PATCH 6/6] PSP2DC host: single-packet reads again; a newly found PSP
+ replaces a held one
+
+Reads go back to one full-speed packet, the size proven on hardware, and a
+card block is put together from the stream. open() no longer refuses a PSP
+while one is held: with one port and no hub a new one means the old is gone.
+
+Neither was the cause of the failure they were written for (the PSP's USB
+driver had gone deaf after many attach/detach rounds; a cold boot cured it),
+but both are the safer behaviour. Not yet tested on hardware.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/usb/usbh/psp2dc/psp2dc_host.c | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index cc769b58..7246a7f8 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -41,7 +41,11 @@ _Static_assert(VMU_CARD_PART_SIZE == PSP2DC_CARD_PART_SIZE && VMU_CARD_PARTS ==
+ #endif
+ 
+ enum {
+-    PSP2DC_RX_SIZE     = 576,    // a whole card block (536 bytes) in one read; ends on a short packet
++    // One full-speed packet a read, and no more: asking for 576 bytes (a whole
++    // card block) left the link's sync unanswered on the RP2040 host, the read
++    // never completing on the 16-byte echo (2026-11-15). A card block arrives
++    // as nine reads and is put together from the stream.
++    PSP2DC_RX_SIZE     = PSP2DC_USB_PACKET_FS,
+     PSP2DC_TX_SIZE     = 576,
+     PSP2DC_STREAM_SIZE = 1024,
+     PSP2DC_SYNC_RETRY_MS = 1000,
+@@ -312,8 +316,18 @@ static bool psp2dc_open(uint8_t rhport, uint8_t addr, const tusb_desc_interface_
+     (void)rhport;
+     uint16_t vid, pid;
+     psp2dc_dev_t *d = &the_dev;
+-    if (d->state != ST_CLOSED || !tuh_vid_pid_get(addr, &vid, &pid)) return false;   // (one PSP at a time)
++    if (!tuh_vid_pid_get(addr, &vid, &pid)) return false;
+     if (vid != PSP2DC_USB_VID || pid != PSP2DC_USB_PID) return false;
++    // A PSP found while one is still held: the held one is gone, whatever its
++    // state says. There is one port and no hub, and the host does not always
++    // call close for a device that left in the middle of its enumeration (the
++    // PSP comes and goes once as its USB starts). Refusing here on "one PSP at
++    // a time" left the driver holding a PSP that no longer existed and turned
++    // every later one away: attached, never synchronised (2026-11-15).
++    if (d->state != ST_CLOSED) {
++        if (d->submitted) router_device_disconnected(d->addr, 0);
++        memset(d, 0, sizeof(*d));
++    }
+     if (itf->bInterfaceClass != TUSB_CLASS_VENDOR_SPECIFIC || itf->bNumEndpoints < 2) return false;
+ 
+     uint8_t ep_in = 0, ep_out = 0;
+-- 
+2.54.0 (Apple Git-157)
+

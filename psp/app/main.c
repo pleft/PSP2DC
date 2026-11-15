@@ -156,6 +156,7 @@ static void lcd_draw(void)
 #define PSPEXP_DRIVER_NAME "PSPExpUSBDriver"
 #define PSPEXP_DRIVER_PID  0x1CA
 static int g_usb_kernel, g_usb_bus, g_usb_drv, g_usb_act, g_usb_tries;
+static unsigned g_usb_restarts;   /* times the USB was started afresh for an adapter that did not sync */
 
 /* The driver's start does its three steps in one go and stops at the first
  * error, "already done" included. When that fails, the steps one by one, with
@@ -335,8 +336,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
                (unsigned)g_usb_drv, (unsigned)g_usb_act, (unsigned)sceUsbGetState());
     }
     printf("link     %s\n", link);
-    printf("usb      packet %u  attach %u  detach %u  sync %u      \n",
-           (unsigned)st.packet_size, (unsigned)st.attaches, (unsigned)st.detaches, (unsigned)st.resyncs);
+    printf("usb      packet %u  attach %u  detach %u  sync %u  restarts %u    \n",
+           (unsigned)st.packet_size, (unsigned)st.attaches, (unsigned)st.detaches, (unsigned)st.resyncs,
+           g_usb_restarts);
     printf("sent     %u inputs  %u errors  tx timeouts %u      \n", sent, errors, (unsigned)st.tx_timeouts);
     printf("adapter  %u status msgs  up %u s  protocol %u  bad %u      \n",
            g_status_count, g_adapter_uptime_ms / 1000, g_adapter_version, g_rx_bad);
@@ -368,7 +370,7 @@ int main(int argc, char *argv[])
     SceCtrlData pad;
     Psp2dcInput in;
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
-    unsigned state_seen = 0;
+    unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
     int usb_rc, connected = 0;
     SceUID thid;
@@ -426,7 +428,21 @@ int main(int argc, char *argv[])
             else sent++;
         } else {
             connected = 0;
+            /* Cable in and configured, but the adapter's sync does not come (or
+             * is not taken): the PSP's USB is started afresh. PSPExp's runtime
+             * does the same when a board's syncs go unanswered; here it was a
+             * driver left deaf after many attach/detach rounds (2026-11-15). */
+            if (!pspexpUsbAttached()) waiting_since = 0;
+            else if (!waiting_since) waiting_since = now_us() | 1;
+            else if (now_us() - waiting_since > 5000000) {
+                pspexpUsbStop();
+                sceKernelDelayThread(500000);
+                usb_rc = usb_start();
+                usb_restarts++;
+                waiting_since = 0;
+            }
         }
+        g_usb_restarts = usb_restarts;
         if ((frame++ % 6) == 0) { show(usb_rc, &in, sent, errors); lcd_shown = ~0u; }
         if (g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; lcd_draw(); }
     }
