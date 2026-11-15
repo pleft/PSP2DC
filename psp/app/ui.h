@@ -44,7 +44,6 @@ typedef struct {
     int link;                          /* UI_LINK_* */
     const char *link_text;
     const Psp2dcInput *in;             /* what goes to the Dreamcast now */
-    const char *stick_source;
     const unsigned char *card;         /* the memory card, when card_have */
     int card_have;
     const char *card_note;

@@ -535,9 +535,6 @@ static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
     ring(x0 + 40, y0 + 64, 24, 2, dim(base) | 0xFF000000);
     ring(x0 + 40, y0 + 64, 24, 1, base);
     disc(x0 + 40 + (sx - 128) * 18 / 128, y0 + 64 + (sy - 128) * 18 / 128, 7, base);
-    /* where the stick comes from, under it, when it is not the nub */
-    if (strstr(h->stick_source, "d-pad")) label(x0 + 5, y0 + 91, base, "from d-pad");
-    else if (strstr(h->stick_source, "off")) label(x0 + 26, y0 + 92, half(base), "off");
     /* the d-pad */
     ui_fill(x0 + 28, y0 + 108, 26, 8, dim(base));
     ui_fill(x0 + 37, y0 + 99, 8, 26, dim(base));
@@ -605,9 +602,6 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     /* the controller */
     round_rect(x0, 46, 220, 146, 6, t->panel);
     label(x0 + 8, 52, t->text, "CONTROLLER");
-    /* the stick's source: bright when it is not the nub, which is easy to miss */
-    label(x0 + 212 - 7 * (int)strlen(h->stick_source), 52,
-          strstr(h->stick_source, "nub") ? half(t->text) : 0xFF28C8F0, h->stick_source);
     draw_pad(h, t, x0 + 4, 50);
 
 card_panel:

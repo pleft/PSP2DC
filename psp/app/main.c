@@ -239,14 +239,6 @@ static int callback_thread(SceSize args, void *argp)
     return 0;
 }
 
-/* Where the stick's values come from; SELECT goes round them. A worn nub that
- * sticks to one side is why there is a choice at all. Its resting position is
- * not measured: on the PSP-1000 this was written on, the nub's true centre is
- * 128,128 and it is the stuck position that is wrong (it frees itself when
- * turned once round), so a measurement taken while stuck would spoil the
- * centre for as long as it was kept (2026-11-15). */
-enum { STICK_NUB, STICK_DPAD, STICK_OFF, STICK_MODES };
-static int g_stick_mode = STICK_NUB;
 
 static unsigned char nub(unsigned char raw)
 {
@@ -272,17 +264,8 @@ static void map_input(const SceCtrlData *pad, Psp2dcInput *in)
     if (b & PSP_CTRL_DOWN)     in->buttons |= PSP2DC_BTN_DOWN;
     if (b & PSP_CTRL_LEFT)     in->buttons |= PSP2DC_BTN_LEFT;
     if (b & PSP_CTRL_RIGHT)    in->buttons |= PSP2DC_BTN_RIGHT;
-    in->stick_x = in->stick_y = 128;
-    if (g_stick_mode == STICK_NUB) {
-        in->stick_x = nub(pad->Lx);
-        in->stick_y = nub(pad->Ly);
-    } else if (g_stick_mode == STICK_DPAD) {   /* the d-pad pushes the stick all the way, and is no d-pad */
-        if (b & PSP_CTRL_LEFT)  in->stick_x = 0;
-        if (b & PSP_CTRL_RIGHT) in->stick_x = 255;
-        if (b & PSP_CTRL_UP)    in->stick_y = 0;
-        if (b & PSP_CTRL_DOWN)  in->stick_y = 255;
-        in->buttons &= ~(PSP2DC_BTN_UP | PSP2DC_BTN_DOWN | PSP2DC_BTN_LEFT | PSP2DC_BTN_RIGHT);
-    }
+    in->stick_x = nub(pad->Lx);
+    in->stick_y = nub(pad->Ly);
     in->trigger_l = (b & PSP_CTRL_LTRIGGER) ? 255 : 0;
     in->trigger_r = (b & PSP_CTRL_RTRIGGER) ? 255 : 0;
     in->reserved = 0;
@@ -419,11 +402,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            in->buttons & PSP2DC_BTN_LEFT ? 'L' : '.', in->buttons & PSP2DC_BTN_RIGHT ? 'R' : '.');
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
-    if (g_stick_mode == STICK_NUB)       printf("stick from: the nub                           \n");
-    else if (g_stick_mode == STICK_DPAD) printf("stick from: the d-pad (the nub is ignored)    \n");
-    else                                 printf("stick from: nothing (centred, nub ignored)    \n");
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
-    printf("SELECT tap: stick source\n");
     printf("SELECT+Left/Right page  +Triangle shot\n");
     printf("SELECT+L/R card  +Start new card\n");
     printf("SELECT+Circle demo   HOME quit");
@@ -444,7 +423,6 @@ static void settings_load(void)
     buf[n] = 0;
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
-    if ((p = strstr(buf, "stick="))) g_stick_mode = atoi(p + 6) % STICK_MODES;
     if ((p = strstr(buf, "card="))) {
         int i;
         for (i = 0; i < CARD_NAME_MAX - 1 && p[5 + i] && p[5 + i] != '\n' && p[5 + i] != '\r'; i++) g_card_name[i] = p[5 + i];
@@ -462,8 +440,7 @@ static void settings_save(void)
 {
     char buf[200];
     SceUID fd;
-    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\nstick=%d\ncard=%s\n", g_page, g_theme, g_stick_mode,
-                     g_card_name);
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\ncard=%s\n", g_page, g_theme, g_card_name);
     if (g_base_name[0]) n += snprintf(buf + n, sizeof(buf) - n, "base=%08x %s\n", g_base_crc, g_base_name);
     sceIoMkdir(CARD_DIR, 0777);
     if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
@@ -650,7 +627,7 @@ int main(int argc, char *argv[])
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
-    int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0;
+    int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0;
     int standalone = 0, was_standalone = 0;
     unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
@@ -707,12 +684,11 @@ int main(int argc, char *argv[])
         if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
         if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
             unsigned pressed = pad.Buttons & ~last_buttons;
-            if (!(last_buttons & PSP_CTRL_SELECT)) sel_used = 0;
-            if (pressed & PSP_CTRL_SQUARE) { if (rec_on()) rec_stop(); else rec_start(); sel_used = 1; }
-            if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; sel_used = 1; }
+            if (pressed & PSP_CTRL_SQUARE) { if (rec_on()) rec_stop(); else rec_start(); }
+            if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; }
             if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
                 g_page = (g_page + (pressed & PSP_CTRL_RIGHT ? 1 : PAGES - 1)) % PAGES;
-                settings_due = 1; sel_used = 1;
+                settings_due = 1;
             }
             if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
                 int d = pressed & PSP_CTRL_DOWN ? 1 : -1;
@@ -724,13 +700,13 @@ int main(int argc, char *argv[])
                     g_theme = (g_theme + d + ui_theme_count) % ui_theme_count;
                     settings_due = 1;
                 }
-                sel_used = 1;
+               
             }
             if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_START)) {
                 char names[CARDS_MAX][CARD_NAME_MAX], made[CARD_NAME_MAX], msg[48];
                 int n = cards_list(names), cur = 0, k;
                 const char *to = NULL;
-                sel_used = 1;
+               
                 if (pressed & PSP_CTRL_START) {          /* a new, empty card, and changed to it */
                     if (cards_new(made) == 0) { to = made; n = cards_list(names); }
                     else notice("could not make a card");
@@ -762,20 +738,12 @@ int main(int argc, char *argv[])
             if (pressed & PSP_CTRL_CIRCLE) {
                 if (demo_on()) demo_stop();
                 else if (!connected) demo_start();
-                sel_used = 1;
+               
             }
             last_buttons = pad.Buttons;
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
-        } else {
-            if ((last_buttons & PSP_CTRL_SELECT) && !sel_used) {
-                static const char *names[STICK_MODES] = { "stick: the nub", "stick: the d-pad", "stick: none" };
-                g_stick_mode = (g_stick_mode + 1) % STICK_MODES;
-                notice(names[g_stick_mode]);
-                settings_due = 1;
-            }
-            last_buttons = pad.Buttons;
-        }
+        } else last_buttons = pad.Buttons;
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU on its own (vmu_sa.c), its buttons
@@ -928,7 +896,6 @@ int main(int argc, char *argv[])
                                               now_us() / 1000, top_line());
             }
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
-            static const char *sources[STICK_MODES] = { "stick: nub", "stick: d-pad", "stick: off" };
             UiHome h;
             int up = !g_no_usb && pspexpUsbConnected();
             lcd_shown = g_lcd_count;
@@ -940,7 +907,6 @@ int main(int argc, char *argv[])
                         : g_no_usb ? "no USB: VMU on its own" : h.link == UI_LINK_WAITING ? "cable in, waiting"
                         : "VMU on its own";
             h.in = &in;
-            h.stick_source = sources[g_stick_mode];
             h.card = g_card;
             h.card_have = g_card_have;
             h.card_note = g_card_note;
