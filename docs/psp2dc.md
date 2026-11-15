@@ -211,7 +211,7 @@ Target `usb2dc_superpico` (CMake target `joypad_dc_superpico`) on branch `superp
 
 A source audit found no remaining code path that drives GP0–GP16 or GP28. This has not been confirmed on hardware.
 
-Build (the Homebrew `arm-none-eabi-gcc` lacks newlib, so the Arm GNU toolchain is used):
+Build with `scripts/build-firmware.sh`, which copies the fresh output to `build/` under a name carrying the build time. Never take the file from joypad-os's `releases/` folder: its names carry the commit, and after a commit an older file there was twice mistaken for the new build. By hand (the Homebrew `arm-none-eabi-gcc` lacks newlib, so the Arm GNU toolchain is used):
 
 ```sh
 cd firmware/joypad-os
@@ -230,12 +230,12 @@ The RP2040 host controller runs one non-interrupt transfer at a time, so the dri
 
 The message format is defined once, in `protocol/psp2dc_protocol.h`, shared by the firmware and the PSP application.
 
-**VMU screen forwarding — written, builds, not yet tested on hardware**
+**VMU screen forwarding — works on hardware (15 November 2026)**
 
 - joypad-os's VMU already advertised the LCD function (FT2) but did not answer for it. `vmu.c` now answers a media info request for the LCD and keeps each block write to it as the current screen, following MaplePad.
 - The PSP2DC host driver takes each new screen on Core 0 and sends it to the PSP as an `LCD` message (192 bytes) over the bulk OUT endpoint. The Maple core only copies the 192 bytes.
 - This needs the memory card emulation switched on (`CONFIG_VMU`), which on this target runs in RAM only and has Bluetooth removed to make room; about 250 KB of the RP2040's RAM is in use.
-- The PSP application draws the screen four times enlarged at the bottom right of its status page, turned half round, since the Dreamcast sends it upside down for a VMU sitting reversed in a controller. That orientation is from memory of how the VMU works and is to be confirmed on hardware.
+- The PSP application draws the screen four times enlarged at the bottom right of its status page, turned half round, since the Dreamcast sends it upside down for a VMU sitting reversed in a controller. Confirmed on hardware: GDMENU's screen reads upright and unmirrored.
 
 **VMU storage**
 
@@ -407,12 +407,13 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 
 ### Phase 4 — VMU Screen and Storage
 
-**Status: Pending**
+**Status: Screen and card working; persistent saves pending**
 
 - Port LCD (FT2) handling from MaplePad into joypad-os. **Written.**
 - Define the USB protocol: controller IN, VMU frame OUT. **Done.**
 - Extend the PSP application to receive and render the frame. **Written.**
-- Test on hardware: memory card seen by the console, screen shown on the PSP, controller still solid.
+- Test on hardware. **Passed (15 November 2026):** the BIOS shows a memory card in A-1 with 200 free blocks; Crazy Taxi 2 saved to it (180 free afterwards) and stopped warning; GDMENU's VMU screen appeared on the PSP, upright (one write of 50 words to block 0, taken whole); the controller stayed solid throughout with the card enabled.
+- Still open in this phase: saves are lost at power off (the card is in the adapter's RAM), and more games' screens are to be tried.
 - Decide and implement VMU save storage.
 
 **Go/no-go:** the first major milestone (section 11).
@@ -448,7 +449,7 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 
 ## 10. Current Project Status
 
-The controller half of the first milestone works on real hardware: the PSP controls a real Dreamcast through the SuperPico. The VMU half (screen and saves) is not started.
+**The first major milestone is reached (15 November 2026):** the PSP controls a real Dreamcast through the SuperPico and shows the VMU's live screen. The memory card works but is kept in the adapter's RAM, so saves do not survive power off.
 
 Completed:
 
@@ -460,6 +461,7 @@ Completed:
 - Found that PSPExp already provides a working kernel USB driver on the target PSP-1000.
 - Added, built and flashed the `usb2dc_superpico` firmware target.
 - Wired the Dreamcast cable and controlled a real Dreamcast from the PSP.
+- Memory card (RAM only) and the VMU's screen on the PSP, both working on hardware.
 - Wrote the PSP2DC protocol, the firmware's PSP host driver and a first PSP application; verified on hardware that controller data reaches the adapter and status messages come back.
 - Phase 1 passed: the RP2040 enumerates the PSP (PSPExp driver) at full speed.
 
@@ -467,7 +469,7 @@ Not yet completed:
 
 - Real-game compatibility and latency measurements.
 - Permanent (soldered) wiring.
-- VMU screen forwarding and PSP application.
+- Saves that survive power off (the card image kept on the PSP's Memory Stick).
 
 ## 11. First Major Milestone
 

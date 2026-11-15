@@ -37,6 +37,7 @@ static volatile int g_running = 1;
 /* what the adapter last told us (reader thread writes, main thread shows) */
 static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
+static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
 
 /* The VMU's screen as the adapter last sent it, and how many came. */
 static unsigned char g_lcd[PSP2DC_LCD_BYTES];
@@ -190,6 +191,7 @@ static int reader_thread(SceSize args, void *argp)
             if (p[2] == PSP2DC_MSG_STATUS && p[3] == sizeof(Psp2dcStatus)) {
                 Psp2dcStatus st;
                 memcpy(&st, p + PSP2DC_HEADER_LEN, sizeof(st));
+                g_status = st;
                 g_adapter_uptime_ms = st.uptime_ms;
                 g_adapter_version = st.version;
                 g_status_count++;
@@ -229,7 +231,10 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("sent     %u inputs  %u errors  tx timeouts %u      \n", sent, errors, (unsigned)st.tx_timeouts);
     printf("adapter  %u status msgs  up %u s  protocol %u  bad %u      \n",
            g_status_count, g_adapter_uptime_ms / 1000, g_adapter_version, g_rx_bad);
-    printf("vmu      %u screens      \n\n", g_lcd_count);
+    printf("vmu      %u screens here; adapter: asked %u wrote %u took %u\n", g_lcd_count,
+           g_status.lcd_media, g_status.lcd_writes, g_status.lcd_screens);
+    printf("         last write %u words, block %08X      \n", g_status.lcd_last_words,
+           (unsigned)g_status.lcd_last_addr);
     printf("Dreamcast controller state\n");
     printf("  buttons  %c %c %c %c  %s   dpad %c%c%c%c      \n",
            in->buttons & PSP2DC_BTN_A ? 'A' : '.', in->buttons & PSP2DC_BTN_B ? 'B' : '.',
@@ -242,7 +247,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     if (g_stick_mode == STICK_NUB)       printf("stick from: the nub                           \n");
     else if (g_stick_mode == STICK_DPAD) printf("stick from: the d-pad (the nub is ignored)    \n");
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
-    printf("\nCross=A Circle=B Square=X Triangle=Y\n");
+    printf("Cross=A Circle=B Square=X Triangle=Y\n");
     printf("L/R = triggers   SELECT = stick\n");
     printf("HOME = quit\n");
 }

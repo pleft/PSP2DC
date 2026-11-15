@@ -1,0 +1,93 @@
+From 71902cf954c52871efc6bc28318b26f5f4e94ea5 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 16:51:01 +0200
+Subject: [PATCH 4/4] Dreamcast VMU: counters for the screen, carried to the
+ PSP in the status message
+
+How many times the Dreamcast asked about the LCD, wrote to it, and how many
+writes were taken as a screen, with the last write's length and block. They
+found nothing wrong with the capture: the first screen (GDMENU's, 50 words,
+block 0) arrived whole and upright on the PSP.
+
+Tested on hardware.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/native/device/dreamcast/vmu.c | 14 +++++++++++++-
+ src/native/device/dreamcast/vmu.h |  3 +++
+ src/usb/usbh/psp2dc/psp2dc_host.c |  9 +++++++++
+ 3 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 6c4af2c5..a99deaac 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -99,6 +99,7 @@ static volatile bool   vmu_media_is_lcd;          // Core 1 only: what SEND_VMU_
+ static uint8_t         vmu_lcd[VMU_LCD_BYTES] __attribute__((aligned(4)));
+ static volatile uint32_t vmu_lcd_seq;             // +1 a screen written (Core 1)
+ static uint32_t        vmu_lcd_taken;             // the last one Core 0 took
++static volatile uint32_t vmu_lcd_media, vmu_lcd_writes, vmu_lcd_last_words, vmu_lcd_last_addr;
+ 
+ static VmuInfoPkt      vmu_info_pkt;
+ static VmuAllInfoPkt   vmu_all_info_pkt;
+@@ -270,11 +271,22 @@ const void* __not_in_flash_func(vmu_get_media_info_packet)(uint32_t *sz) {
+     *sz=sizeof(vmu_media_pkt)/4; return &vmu_media_pkt;
+ }
+ 
+-void __not_in_flash_func(vmu_select_media_info)(uint32_t func) { vmu_media_is_lcd = func == FUNC_LCD; }
++void __not_in_flash_func(vmu_select_media_info)(uint32_t func) {
++    vmu_media_is_lcd = func == FUNC_LCD;
++    if (vmu_media_is_lcd) vmu_lcd_media++;
++}
++
++void vmu_lcd_stats(vmu_lcd_stats_t *out) {
++    out->media = vmu_lcd_media; out->writes = vmu_lcd_writes; out->screens = vmu_lcd_seq;
++    out->last_words = vmu_lcd_last_words; out->last_addr = vmu_lcd_last_addr;
++}
+ 
+ // A block write to the LCD: function, block number, then the 192 bytes of the
+ // screen (block 0; MaplePad's "block 0x10" test mode is not taken).
+ bool __not_in_flash_func(vmu_handle_lcd_write)(const uint32_t *pkt, uint32_t num_words) {
++    vmu_lcd_writes++;
++    vmu_lcd_last_words = num_words;
++    vmu_lcd_last_addr = pkt[1];
+     if (num_words != 2 + VMU_LCD_BYTES / 4 || pkt[1] != 0) return false;
+     vmu_ram_copy(vmu_lcd, &pkt[2], VMU_LCD_BYTES);
+     vmu_lcd_seq++;
+diff --git a/src/native/device/dreamcast/vmu.h b/src/native/device/dreamcast/vmu.h
+index 10a821eb..18dbd46f 100644
+--- a/src/native/device/dreamcast/vmu.h
++++ b/src/native/device/dreamcast/vmu.h
+@@ -74,6 +74,9 @@ void        vmu_handle_write_complete(void);
+ void vmu_select_media_info(uint32_t func);
+ // Core 1: a block write to the LCD. True when it was a screen.
+ bool vmu_handle_lcd_write(const uint32_t *packet_data, uint32_t num_words);
++// What the Dreamcast asked of the screen so far (counters, for diagnosis)
++typedef struct { uint32_t media, writes, screens, last_words, last_addr; } vmu_lcd_stats_t;
++void vmu_lcd_stats(vmu_lcd_stats_t *out);
+ // Core 0: the screen, when it changed since the last call. True when copied.
+ bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]);
+ 
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index e795e7e4..b8a9537e 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -148,6 +148,15 @@ static void received(uint8_t addr, psp2dc_dev_t *d, uint32_t len)
+ static uint16_t build_status(psp2dc_dev_t *d)
+ {
+     Psp2dcStatus st = { .uptime_ms = platform_time_ms(), .version = PSP2DC_PROTOCOL_VERSION };
++#ifdef CONFIG_VMU
++    vmu_lcd_stats_t lcd;
++    vmu_lcd_stats(&lcd);
++    st.lcd_media = (uint8_t)lcd.media;
++    st.lcd_last_words = (uint8_t)lcd.last_words;
++    st.lcd_writes = (uint16_t)lcd.writes;
++    st.lcd_screens = (uint16_t)lcd.screens;
++    st.lcd_last_addr = lcd.last_addr;
++#endif
+     d->tx[0] = PSP2DC_MAGIC0; d->tx[1] = PSP2DC_MAGIC1;
+     d->tx[2] = PSP2DC_MSG_STATUS; d->tx[3] = sizeof(st);
+     memcpy(d->tx + PSP2DC_HEADER_LEN, &st, sizeof(st));
+-- 
+2.54.0 (Apple Git-157)
+

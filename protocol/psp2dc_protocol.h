@@ -32,7 +32,7 @@
 
 #include <stdint.h>
 
-#define PSP2DC_PROTOCOL_VERSION 1
+#define PSP2DC_PROTOCOL_VERSION 2
 
 /* the PSPExp link under it */
 #define PSP2DC_USB_VID      0x054Cu
@@ -88,7 +88,12 @@ typedef struct {
     uint32_t uptime_ms;   /* adapter's clock, little endian */
     uint8_t  version;     /* PSP2DC_PROTOCOL_VERSION */
     uint8_t  flags;       /* reserved */
-    uint8_t  reserved[2];
+    /* what the Dreamcast asked of the VMU's screen, for the status page */
+    uint8_t  lcd_media;       /* media info requests for the LCD (wraps) */
+    uint8_t  lcd_last_words;  /* the last LCD write's length in words (50 = a screen) */
+    uint16_t lcd_writes;      /* block writes to the LCD */
+    uint16_t lcd_screens;     /* of those, taken as a screen */
+    uint32_t lcd_last_addr;   /* the last LCD write's block word (0 = the screen) */
 } __attribute__((packed)) Psp2dcStatus;
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot
