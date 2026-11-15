@@ -237,9 +237,17 @@ The message format is defined once, in `protocol/psp2dc_protocol.h`, shared by t
 - This needs the memory card emulation switched on (`CONFIG_VMU`), which on this target runs in RAM only and has Bluetooth removed to make room; about 250 KB of the RP2040's RAM is in use.
 - The PSP application draws the screen four times enlarged at the bottom right of its status page, turned half round, since the Dreamcast sends it upside down for a VMU sitting reversed in a controller. Confirmed on hardware: GDMENU's screen reads upright and unmirrored.
 
-**VMU storage**
+**VMU storage — written, builds, not yet tested on hardware**
 
-joypad-os's VMU code is disabled upstream because writing the image to the Pico's flash disturbs Maple timing, and its SD card option needs pins that are unavailable here. Storing the image on the PSP's Memory Stick over USB avoids flash writes entirely and is the preferred option; the 128 KB image stays in RP2040 RAM and changed blocks are sent to the PSP. To be confirmed in Phase 4.
+joypad-os's VMU code is disabled upstream because writing the image to the Pico's flash disturbs Maple timing, and its SD card option needs pins that are unavailable here. So the card is kept on the PSP's Memory Stick and the adapter writes no flash at all:
+
+- The adapter answers the Dreamcast from the 128 KB image in its RAM, as before.
+- The PSP keeps the card as `ms0:/PSP2DC/card1.bin`, a plain 128 KB image (the usual VMU dump). It is outside the application's folder so that copying a new version of the application cannot remove it, and it is written to a second name and renamed, so an interrupted write leaves the last good file.
+- When the link comes up, the PSP says whether it has a file and the adapter says whether it already holds a card. A freshly powered adapter takes the PSP's file (256 blocks), and only then shows the Dreamcast a memory card; with no file on the PSP, the adapter's freshly formatted card is used and sent to the PSP to keep. An adapter that already holds a card (the PSP was unplugged or restarted mid-session) keeps its own and sends all of it to the PSP.
+- Each block a game writes is marked in the adapter and sent to the PSP, one block a transfer, taking turns with the VMU screen; the PSP writes the file 0.7 s after the blocks stop.
+- A consequence: with no PSP connected the Dreamcast sees no memory card, only a controller with nothing in its slots.
+
+Limiting the USB host on this target to one device and no hub freed about 30 KB of RAM (static data 249.7 KB to 219.2 KB), ending the earlier shortage.
 
 ## 5. PSP Homebrew Application
 
@@ -414,7 +422,8 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 - Extend the PSP application to receive and render the frame. **Written.**
 - Test on hardware. **Passed (15 November 2026):** the BIOS shows a memory card in A-1 with 200 free blocks; Crazy Taxi 2 saved to it (180 free afterwards) and stopped warning; GDMENU's VMU screen appeared on the PSP, upright (one write of 50 words to block 0, taken whole); the controller stayed solid throughout with the card enabled.
 - Crazy Taxi 2's animated screen (its logo with flames) plays on the PSP: 208 screens written, 208 taken, no errors, the controller unaffected. The game never asks for the LCD's media info; it only writes. A flickering band at the picture's top was the status text blanking it at each redraw, fixed in the application and confirmed on hardware.
-- Still open in this phase: saves are lost at power off (the card is in the adapter's RAM), and more games' screens are to be tried.
+- Saves kept on the PSP's Memory Stick: written, to be tested (a save must survive switching the Dreamcast off and on).
+- More games' screens are to be tried.
 - Decide and implement VMU save storage.
 
 **Go/no-go:** the first major milestone (section 11).
