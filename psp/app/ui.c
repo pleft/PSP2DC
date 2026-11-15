@@ -484,11 +484,12 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t)
     disc(X + 156, Y + 215, 6, lav);
     disc(X + 154, Y + 213, 2, lav_lit);
 
-    /* A and B, side by side, low and to the right, labels below */
+    /* A and B, low and to the right, labels below; B sits higher than A, by
+     * about three quarters of a button's radius (photographs of real VMUs) */
     button(X + 136, Y + 238, 13, lav, body);
-    button(X + 186, Y + 238, 13, lav, body);
+    button(X + 186, Y + 228, 13, lav, body);
     label(X + 133, Y + 254, ink, "A");
-    label(X + 183, Y + 254, ink, "B");
+    label(X + 183, Y + 244, ink, "B");
 }
 
 static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
