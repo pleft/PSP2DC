@@ -552,6 +552,8 @@ static char g_edit[CARD_NAME_MAX];
 static int g_edit_cursor;
 static int g_box_back;                     /* the page the box returns to: 0 Saves, 1 Cards */
 static int g_restore;                      /* the backup chosen */
+static unsigned short g_picture[72 * 56];  /* the save's large picture (Info), when it has one */
+static int g_has_picture;
 
 static void saves_reset(void) { g_sv_sel = g_box = g_box_item = 0; g_saves_first = 0; g_cd_due = 1; }
 
@@ -665,6 +667,7 @@ static void saves_info(void)
     static const char *const pic[4] = { "none", "16-bit colour", "256 colours", "16 colours" };
     char a[64], b[64], c[64], d[64], e[64], g[64];
     if (!saves_file(&f) || !cardfs_info(g_card, &f, &in)) { result("No information", "Its header cannot be read.", NULL, NULL); return; }
+    g_has_picture = cardfs_eyecatch(g_card, &f, g_picture) > 0;
     snprintf(g_box_title, sizeof(g_box_title), "%s", f.name);
     snprintf(a, sizeof(a), "%s", in.dc_desc[0] ? in.dc_desc : "(no description)");
     snprintf(b, sizeof(b), "On the VMU: %s", in.vms_desc);
@@ -894,6 +897,9 @@ static void box_view(UiBox *b)
         b->items[0] = "Repair it";
         b->items[1] = "Leave it";
         b->nitems = 2;
+        break;
+    case BOX_INFO:
+        if (g_has_picture) b->picture = g_picture;
         break;
     case BOX_RENAME:
         b->edit = g_edit;

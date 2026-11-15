@@ -372,6 +372,24 @@ The file system code is now one module, `psp/app/cardfs.c` (list, copy, delete, 
 
 
 
+### 5.0e3 The Cards Page, Imports, Backups, Info, Check and Repair
+
+**The Cards page** (SELECT + ◀▶, between Saves and Status), standalone: **New card** first, in its own colour so it is easy to find (made, formatted as a Dreamcast formats one, and put in use; SELECT + Start still does the same anywhere), then each card with its saves, free blocks and game, the one in use marked. ✕ on a card opens its actions:
+
+- *Use this card*; *Import a save into it*; *Rename* (▲▼ change the letter, ◀▶ move; letters, digits, - and _); *Duplicate* (as NAME-copy); *Back up now*; *Restore a backup* (any backup, newest first, asked first, the card backed up before); *Defragment*; *Check and repair*; *Delete this card* (not the one in use, not the last; asked first; a backup is kept).
+
+**The Saves page** gains *Info* (first in a save's actions) and △ to import a save into the card.
+
+- **Import** reads `ms0:/PSP2DC/saves/`: `.DCI` files, and `.VMS` files with their `.VMI` when there is one (its name, date, game and protect bits). A `.VMS` without one is a save when it starts with a save's header and a game otherwise (a game's block 0 is code): all 127 games of a collection were taken for games, 12 of them only once Japanese half-width katakana and NUL padding were allowed in a header's description, and one homebrew has no header at all. Errors as for a copy (name taken, no room, one game a card).
+- **Info:** both descriptions, the application that made it, kind, size, protection, date, icons, the large picture's kind, and a **check**: data saves carry a CRC-16 (polynomial 0x1021, from 0, over the header with its CRC field zeroed, the icons, the picture and the data: mc.pp.se's fileheader.html, libevmu's `EvmuVms_computeCrc`), which matched on both real saves tried (Crazy Taxi 2, Sonic Adventure 2); games carry none. The large picture (72x56, 16-bit colour or a 256- or 16-colour palette, after the icons) is decoded after libevmu's `EvmuVms_createEyecatchArgb4444` and tested only with a picture made for the test: no save or game at hand has one. Info shows it twice its size beside the text.
+- **Backups** go to `ms0:/PSP2DC/backups/NAME@YYYYMMDD-HHMMSS.bin`. Automatic ones (`-auto`, the newest ten a card kept) are made before anything takes something off a card (a delete or move, FILE mode's delete, a restore, defragmenting, a repair, a card deleted) and once a session (the application's start, each link) before the card in use is first written, so a Dreamcast session that goes wrong can be undone.
+- **Defragment:** a game from block 0 up and the saves packed from block 199 down, every byte unchanged: the room for a game (one unbroken run from block 0) is then as large as the free blocks allow.
+- **Check and repair:** reports what is wrong in words: a misplaced root layout, the system blocks' FAT entries, lost blocks (marked used, of no save), saves whose blocks are broken or shared with another, saves whose CRC is wrong. Repair puts right only what loses nothing (the root layout, the system entries, lost blocks freed); broken saves are left to be deleted. A delete never frees a block another save also uses.
+
+The logic is in `psp/app/cardfs.c` and `cards.c`; `scripts/dev/cardfs-test2.c` tests it on the Mac with real cards and VMU files (imports from a .DCI and a .VMS+.VMI byte for byte, every .vms taken for a game, the CRC on real saves, the picture, defragmenting a card filled and thinned out (room for a game 40 to 120 blocks, every save's bytes the same), the old root layout, lost blocks, a damaged save and shared blocks found, repair leaving the saves untouched): 31 of 31. In PPSSPP a scripted session made a card, renamed, checked and repaired, defragmented, duplicated, imported a .DCI and a .VMS with its .VMI, restored a backup, deleted a card and showed a save's Info; the files were then compared byte for byte (the backup before the repair the card as it was, the repaired card's saves unchanged, the restored card the backup chosen, the imported game the .vms).
+
+### 5.0f Which Copy of a Card Counts (protocol 5)
+
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
 
 **What went wrong (15 November 2026).** Connected with `games.bin` in use, the PSP was unplugged, changed to `card1` standalone and plugged in again: the adapter's copy of `games` went into `card1` and was saved there; the same again with `card2`. Both lost their saves and became byte-for-byte the games card (a copy of the Memory Stick taken before anything else was changed confirmed it). `card1` was restored from a copy taken earlier that day; `card2`'s save had no copy. The adapter never knew which card it held, and the PSP never asked.

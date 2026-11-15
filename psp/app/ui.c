@@ -699,8 +699,10 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
 static void draw_box(const UiBox *b, const UiTheme *t)
 {
     const unsigned hi = 0xFF28C8F0;
-    int lines = 0, h, y0, x0 = 70, w = 340, k, shown = b->nitems, top = 0;
+    int lines = 0, h, y0, x0 = 70, w = 340, k, shown = b->nitems, top = 0, tw;
     if (!b->title) return;
+    if (b->picture) { x0 = 10; w = 460; }  /* (wide: the picture beside the text) */
+    tw = b->picture ? w - 28 - 154 : w - 28;
     for (k = 0; k < 8 && b->lines[k]; k++) lines++;
     if (shown > 9) {                       /* a long list: nine at a time, round the chosen one */
         top = b->item - 4;
@@ -709,12 +711,23 @@ static void draw_box(const UiBox *b, const UiTheme *t)
         shown = 9;
     }
     h = 30 + (lines + shown + (b->edit ? 2 : 0)) * 16 + 6;
+    if (b->picture && h < 30 + 116 + 10) h = 30 + 116 + 10;
     y0 = (272 - h) / 2;
     round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, hi);
     round_rect(x0, y0, w, h, 6, t->panel);
     label_fit(x0 + 10, y0 + 8, t->text, b->title, w - 20);
     y0 += 26;
-    for (k = 0; k < lines; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, b->lines[k], w - 28);
+    if (b->picture) {                      /* twice its size, on black; alpha 0 left black */
+        int px = x0 + w - 10 - 144, x, y;
+        ui_fill(px - 2, y0 - 2, 148, 116, 0xFF000000);
+        for (y = 0; y < 56; y++)
+            for (x = 0; x < 72; x++) {
+                unsigned c = b->picture[y * 72 + x];
+                unsigned a = (c >> 12) & 15, r = (c >> 8) & 15, g = (c >> 4) & 15, bl = c & 15;
+                if (a) ui_fill(px + 2 * x, y0 + 2 * y, 2, 2, 0xFF000000 | (bl * 17) << 16 | (g * 17) << 8 | (r * 17));
+            }
+    }
+    for (k = 0; k < lines; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, b->lines[k], tw);
     if (b->edit) {                         /* the name, its chosen character lit */
         int len = (int)strlen(b->edit), x = x0 + 14;
         for (k = 0; k < len || k == b->cursor; k++, x += 9) {

@@ -65,6 +65,7 @@ typedef struct {
     const char *items[12];
     int nitems, item;
     unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
+    const unsigned short *picture;     /* a save's large picture, 72x56 ARGB4444, or NULL */
     const char *edit;                  /* a name being edited, or NULL */
     int cursor;                        /* the character being changed */
 } UiBox;
