@@ -289,7 +289,7 @@ Three pages (home, saves, status), changed with SELECT + Left/Right; the page, t
 
 Themes: Classic (the VMU's grey-green, dots drawn apart like the real LCD), Backlit, Pocket (handheld green, dots apart), Amber, Phosphor, Paper.
 
-Every page is drawn whole into the frame buffer not on screen and shown at the next vblank, so nothing is seen half drawn. Verified in PPSSPP on 15 November 2026 with the real card (Crazy Taxi 2 and Sonic Adventure 2 saves, both icons correct); not yet on hardware. The icons animate at n/30 s per frame, as the Sega VMU manual specifies (VMT-18).
+Every page is drawn whole into the frame buffer not on screen and shown at the next vblank, so nothing is seen half drawn. A frame begun before the previous swap had happened was drawn into the buffer still on screen, a flicker on hardware that PPSSPP did not show; `ui_begin` now waits for that vblank, and the CPU runs at 333 MHz. Confirmed on hardware (15 November 2026): no flicker. The status page shows the drawing time per frame. Verified in PPSSPP on 15 November 2026 with the real card (Crazy Taxi 2 and Sonic Adventure 2 saves, both icons correct); not yet on hardware. The icons animate at n/30 s per frame, as the Sega VMU manual specifies (VMT-18).
 
 ### 5.0b Facts from the Sega VMU Manual
 
