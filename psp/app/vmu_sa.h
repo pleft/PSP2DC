@@ -26,8 +26,11 @@
 #define SA_ICON_ATTENTION 0x08
 
 void sa_reset(void);                       /* back to TIME, as on leaving the Dreamcast (VMU-7) */
-/* buttons pressed since the last call (edges); card: the memory card, or NULL */
-void sa_input(unsigned pressed, const unsigned char *card);
+/* One frame: the buttons pressed since the last call (edges) and held, the
+ * memory card (or NULL), the ms since the last call. In GAME mode A starts
+ * the card's game (vmu_game.c); holding MODE 2 s leaves it. Returns 1 when
+ * the game changed the card (written back into card). */
+int sa_input(unsigned pressed, unsigned held, unsigned char *card, unsigned ms);
 /* the screen as the Dreamcast would send it (for ui_lcd) and the lit icons */
 unsigned sa_render(unsigned char lcd[PSP2DC_LCD_BYTES], const unsigned char *card);
 const char *sa_mode_name(void);

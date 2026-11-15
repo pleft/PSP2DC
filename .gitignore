@@ -15,3 +15,5 @@ psp/*/PARAM.SFO
 /testdata/
 # the Sega VMU developer manual (41 MB, Sega's document): kept locally only
 /docs/VMU.pdf
+# libevmu and its PSP build (scripts/build-evmu.sh)
+/third_party/

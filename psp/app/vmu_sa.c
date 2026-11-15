@@ -2,7 +2,10 @@
  *
  * The modes after the Sega VMU manual (VMU-7): GAME starts the executable
  * on the card (not yet: it needs an emulated VMU CPU), TIME shows the clock,
- * FILE shows the card's files. The screens' layout follows photographs of a
+ * FILE shows the card's files. GAME runs the card's game on an emulated VMU
+ * (vmu_game.c): A starts it, holding MODE 2 s leaves it (on a real VMU the
+ * game itself hands back to the BIOS; this works whatever the game does).
+ * The screens' layout follows photographs of a
  * real VMU (FILE: "#001/001", the name over two lines, the date), in an 8x4
  * text grid of 6x8 cells; the font is drawn here, not Sega's. */
 #include <pspkernel.h>
@@ -10,13 +13,16 @@
 #include <string.h>
 #include <stdio.h>
 #include "vmu_sa.h"
+#include "vmu_game.h"
 
 enum { MODE_GAME, MODE_TIME, MODE_FILE, MODES };
 static int g_mode = MODE_TIME, g_sleep, g_file;
+static unsigned g_mode_held_ms;            /* MODE held while a game runs */
+#define LEAVE_GAME_MS 2000
 static const char *const g_names[MODES] = { "GAME", "TIME", "FILE" };
 
 void sa_reset(void) { g_mode = MODE_TIME; g_sleep = 0; }
-const char *sa_mode_name(void) { return g_sleep ? "SLEEP" : g_names[g_mode]; }
+const char *sa_mode_name(void) { return game_running() ? "PLAYING" : g_sleep ? "SLEEP" : g_names[g_mode]; }
 
 /* ---- the card's files (mc.pp.se flashmem; see ui.c) ---- */
 typedef struct { char name[13]; unsigned char date[8]; int type; } SaFile;
@@ -38,13 +44,34 @@ static int files(const unsigned char *card, SaFile *out, int max)
     return n;
 }
 
-void sa_input(unsigned pressed, const unsigned char *card)
+static int has_game(const unsigned char *card)
+{
+    SaFile f[200];
+    int n = files(card, f, 200), i;
+    for (i = 0; i < n; i++) if (f[i].type == 0xCC) return 1;
+    return 0;
+}
+
+int sa_input(unsigned pressed, unsigned held, unsigned char *card, unsigned ms)
 {
     SaFile f[200];
     int n;
-    if (pressed & SA_SLEEP) { g_sleep = !g_sleep; return; }
-    if (g_sleep) { if (pressed) g_sleep = 0; return; }   /* any button wakes it */
-    if (pressed & SA_MODE) { g_mode = (g_mode + 1) % MODES; g_file = 0; return; }
+    if (game_running()) {
+        g_mode_held_ms = held & SA_MODE ? g_mode_held_ms + ms : 0;
+        if (g_mode_held_ms >= LEAVE_GAME_MS) {           /* back to the VMU's own GAME screen */
+            g_mode_held_ms = 0;
+            return card ? game_stop(card) : 0;
+        }
+        game_frame(held, ms);
+        return 0;
+    }
+    if (pressed & SA_SLEEP) { g_sleep = !g_sleep; return 0; }
+    if (g_sleep) { if (pressed) g_sleep = 0; return 0; }   /* any button wakes it */
+    if (pressed & SA_MODE) { g_mode = (g_mode + 1) % MODES; g_file = 0; return 0; }
+    if (g_mode == MODE_GAME && (pressed & SA_A) && card && has_game(card)) {
+        game_start(card);
+        return 0;
+    }
     if (g_mode == MODE_FILE) {
         n = files(card, f, 200);
         if (pressed & (SA_DOWN | SA_RIGHT)) g_file++;
@@ -52,6 +79,7 @@ void sa_input(unsigned pressed, const unsigned char *card)
         if (g_file >= n) g_file = 0;
         if (g_file < 0) g_file = n ? n - 1 : 0;
     }
+    return 0;
 }
 
 /* ---- drawing on the 48x32 screen ---- */
@@ -104,6 +132,7 @@ unsigned sa_render(unsigned char lcd[PSP2DC_LCD_BYTES], const unsigned char *car
 {
     char line[40];
     memset(lcd, 0, PSP2DC_LCD_BYTES);
+    if (game_running()) return game_lcd(lcd);
     if (g_sleep) return 0;                 /* screen and icons off */
     if (g_mode == MODE_TIME) {
         ScePspDateTime t;
@@ -136,7 +165,7 @@ unsigned sa_render(unsigned char lcd[PSP2DC_LCD_BYTES], const unsigned char *car
         int n = files(card, f, 200), i;
         for (i = 0; i < n && f[i].type != 0xCC; i++) ;
         text(lcd, 0, 0, "  GAME");
-        if (i < n) { memcpy(line, f[i].name, 8); line[8] = 0; text(lcd, 0, 2, line); text(lcd, 0, 3, "NOT YET"); }
+        if (i < n) { memcpy(line, f[i].name, 8); line[8] = 0; text(lcd, 0, 2, line); text(lcd, 0, 3, " A: PLAY"); }
         else text(lcd, 0, 2, "NO GAME");
         return SA_ICON_GAME;
     }

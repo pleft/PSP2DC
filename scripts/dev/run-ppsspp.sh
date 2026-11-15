@@ -5,8 +5,8 @@
 #   scripts/dev/run-ppsspp.sh          install dist/PSP2DC and start it
 #   scripts/dev/run-ppsspp.sh shot F   save an image of the emulator's window as F (PNG)
 #   scripts/dev/run-ppsspp.sh stop     stop PPSSPP
-#   scripts/dev/run-ppsspp.sh press K  press a PSP button in the emulator: up down left right
-#                                       cross circle square triangle start select (held 0.25 s;
+#   scripts/dev/run-ppsspp.sh press K [S]  press a PSP button in the emulator: up down left right
+#                                       cross circle square triangle start select (held S s, 0.25;
 #                                       PPSSPP's keyboard map; macOS asks once to allow it)
 #
 # PPSSPP's memory stick root (ms0:) is ~/.config/ppsspp: the game goes in its
@@ -31,7 +31,7 @@ press)
 	*) D="key down (${K#key code })"; U="key up (${K#key code })" ;;
 	esac
 	osascript -e 'tell application "System Events" to set frontmost of (first process whose name contains "PPSSPP") to true' \
-		-e 'delay 0.3' -e "tell application \"System Events\" to $D" -e 'delay 0.25' -e "tell application \"System Events\" to $U"
+		-e 'delay 0.3' -e "tell application \"System Events\" to $D" -e "delay ${3:-0.25}" -e "tell application \"System Events\" to $U"
 	exit 0 ;;
 shot)
 	ID=$(swift "$ROOT/scripts/dev/ppsspp-window.swift" 2>/dev/null)

@@ -40,10 +40,11 @@
 #include "tools.h"
 #include "ui.h"
 #include "vmu_sa.h"
+#include "vmu_game.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
-PSP_HEAP_SIZE_KB(1024);
+PSP_HEAP_SIZE_KB(-2048);   /* all but 2 MB: the emulated VMU (libevmu) lives here too */
 
 #define printf pspDebugScreenPrintf
 
@@ -333,8 +334,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            (g_status.flags & PSP2DC_STATUS_CARD) ? "in the Dreamcast; " : "not shown yet; ", g_status.card_pending);
     printf("         %u blocks kept, file written %u times, %u errors      \n",
            g_card_blocks_in, g_card_writes, g_card_write_err);
-    printf("draw     %u.%u ms a frame, longest %u.%u ms      \n", ui_draw_us() / 1000, ui_draw_us() / 100 % 10,
-           ui_draw_max_us() / 1000, ui_draw_max_us() / 100 % 10);
+    printf("draw     %u.%u ms a frame, longest %u.%u ms; VMU CPU %u.%u ms      \n", ui_draw_us() / 1000,
+           ui_draw_us() / 100 % 10, ui_draw_max_us() / 1000, ui_draw_max_us() / 100 % 10,
+           game_frame_us() / 1000, game_frame_us() / 100 % 10);
     printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens" : rec_note());
     printf("         %-44s\n", rec_on() ? "" : shot_note());
     if (rec_on()) { pspDebugScreenSetXY(37, pspDebugScreenGetY() - 1); printf("%4u", rec_count()); pspDebugScreenSetXY(0, pspDebugScreenGetY() + 1); }
@@ -413,7 +415,7 @@ int main(int argc, char *argv[])
     unsigned char seq = 0;
     int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i, settings_due = 0;
     int standalone = 0, was_standalone = 0;
-    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0;
+    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
     unsigned start_us = now_us();
     SceUID thid;
@@ -442,6 +444,7 @@ int main(int argc, char *argv[])
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
     card_load();
+    game_audio_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     if (g_no_usb) {
@@ -519,7 +522,15 @@ int main(int argc, char *argv[])
             if (b & PSP_CTRL_TRIANGLE) vmu_held |= SA_MODE;
             if (b & PSP_CTRL_SQUARE) vmu_held |= SA_SLEEP;
             if (!was_standalone) sa_reset();
-            sa_input(vmu_held & ~vmu_last, g_card_have ? g_card : NULL);
+            {
+                unsigned t = now_us(), ms = last_frame_us ? (t - last_frame_us) / 1000 : 16;
+                if (ms > 50) ms = 50;              /* (a stall is not VMU time) */
+                if (sa_input(vmu_held & ~vmu_last, vmu_held, g_card_have ? g_card : NULL, ms)) {
+                    g_card_dirty = 1;              /* the game saved: the file is written */
+                    g_card_last_us = now_us();
+                    g_card_note = "saved by the VMU game";
+                }
+            }
             vmu_icons = sa_render(sa_lcd, g_card_have ? g_card : NULL);
             if (memcmp(sa_lcd, g_lcd, sizeof(sa_lcd))) { memcpy(g_lcd, sa_lcd, sizeof(sa_lcd)); g_lcd_count++; }
         } else if (was_standalone) {
@@ -528,6 +539,7 @@ int main(int argc, char *argv[])
         }
         vmu_last = vmu_held;
         was_standalone = standalone;
+        last_frame_us = now_us();
 
         if (demo_on() && demo_frame(g_lcd)) g_lcd_count++;
         if (g_no_usb) {

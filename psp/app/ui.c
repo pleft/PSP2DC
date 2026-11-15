@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "vmu_game.h"
 
 #define LINE 512                       /* pixels a buffer line */
 /* the debug screen's text: 8 lines tall, but 7 pixels a column (68 columns) */
@@ -589,8 +590,16 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
         label(x0 + 8, 52, t->text, "VMU ON ITS OWN");
         label(x0 + 212 - 7 * (int)strlen(h->standalone), 52, 0xFF28C8F0, h->standalone);
         for (i = 0; i < 5; i++) label(x0 + 12, 74 + i * 14, half(t->text), map[i]);
-        label(x0 + 12, 154, half(t->text), "MODE: GAME > TIME > FILE");
-        label(x0 + 12, 168, half(t->text), "File: up/down to browse");
+        if (!strcmp(h->standalone, "PLAYING")) {
+            char cpu[40];
+            unsigned us = game_frame_us();
+            snprintf(cpu, sizeof(cpu), "VMU CPU %u.%u ms a frame", us / 1000, us / 100 % 10);
+            label(x0 + 12, 154, half(t->text), "Hold MODE 2 s to leave");
+            label(x0 + 12, 168, half(t->text), cpu);
+        } else {
+            label(x0 + 12, 154, half(t->text), "MODE: GAME > TIME > FILE");
+            label(x0 + 12, 168, half(t->text), "GAME: A plays  FILE: up/dn");
+        }
         goto card_panel;
     }
     /* the controller */

@@ -321,6 +321,18 @@ Connected, the ATTENTION icon lights for a second after the card is written, as 
 
 `scripts/dev/run-ppsspp.sh press BUTTON` presses a PSP button in the emulator, so screens can be stepped through from the Mac.
 
+### 5.0d GAME Mode: the VMU's Games (work in progress)
+
+In GAME mode, A runs the card's game on an emulated VMU (`psp/app/vmu_game.c`): libevmu, the ElysianVMU core (MIT, github.com/gyrovorbis/libevmu, commit 2b15502), fetched and built for the PSP by `scripts/build-evmu.sh` into `third_party/` (not in git). Its software BIOS stands in for Sega's, so no BIOS image is needed. The PSP's buttons drive the game, its screen and icons show on the drawn VMU, the buzzer plays as a square wave through the PSP's speaker, and when the game is left (hold MODE 2 s) the card is read back and, if the game changed it, written to the Memory Stick.
+
+Two traps in libevmu's API, found by running games: `EvmuTicks` is documented as milliseconds but the CPU's update takes nanoseconds; `EvmuLcd_pixel` is declared `(row, col)` but takes `(x, y)`.
+
+Verified: Bounce, Chao Adventure 2 and Metal Gear Stealth run correctly on the Mac (title screens as on a VMU), and Chao Adventure 2 boots on the PSP build in PPSSPP.
+
+**Problem: too slow.** On the PSP build (PPSSPP) a frame of VMU time takes about 388 ms to emulate, many times slower than real time; a real PSP is likely slower still. A profile on the Mac shows the time is libgimbal's object system (type lookups in hash tables, type checks, thread lookups and mutex locks on every emulated instruction), not the emulation itself; turning off libevmu's error tracking and logging changed nothing (the module did shrink from 4.9 to 1.8 MB). The decision on the way forward is open (section 9).
+
+`scripts/dev/card-add-game.py` installs a `.vms` game into a copy of a card image, for trying GAME mode in PPSSPP.
+
 ### 5.1 Controller Mapping
 
 The initial mapping will include:
