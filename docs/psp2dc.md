@@ -413,6 +413,7 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 - Define the USB protocol: controller IN, VMU frame OUT. **Done.**
 - Extend the PSP application to receive and render the frame. **Written.**
 - Test on hardware. **Passed (15 November 2026):** the BIOS shows a memory card in A-1 with 200 free blocks; Crazy Taxi 2 saved to it (180 free afterwards) and stopped warning; GDMENU's VMU screen appeared on the PSP, upright (one write of 50 words to block 0, taken whole); the controller stayed solid throughout with the card enabled.
+- Crazy Taxi 2's animated screen (its logo with flames) plays on the PSP: 208 screens written, 208 taken, no errors, the controller unaffected. The game never asks for the LCD's media info; it only writes. A flickering band at the picture's top was the status text blanking it at each redraw, fixed in the application and confirmed on hardware.
 - Still open in this phase: saves are lost at power off (the card is in the adapter's RAM), and more games' screens are to be tried.
 - Decide and implement VMU save storage.
 
