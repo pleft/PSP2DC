@@ -306,6 +306,21 @@ Every page is drawn whole into the frame buffer not on screen and shown at the n
 | Clock and alarm are Maple FT3 (Timer); the game machine can set the date and time; the alarm sounds the voltage buzzer, 300 Hz to 4 kHz with a settable duty ("planned") | VMU-16/17 | VMU beeps through the PSP |
 | Maple at 2 Mbps; all of it handled by the VMU's System-BIOS | VMU-15 | (background) |
 
+### 5.0c The VMU on Its Own (standalone)
+
+With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behaves as a VMU taken out of the controller (`psp/app/vmu_sa.c`, after the Sega manual's mode settings, VMU-7). The PSP's buttons become the VMU's: d-pad, Cross = A, Circle = B, Start = MODE, Triangle = SLEEP (SELECT is still the shift key). The drawn VMU's buttons sink while held.
+
+- **MODE** goes round GAME, TIME and FILE, lighting that mode's icon; it starts in TIME, as a VMU does on leaving the console.
+- **TIME:** year, month/day, hh:mm:ss and the weekday, from the PSP's clock.
+- **FILE:** the card's files one at a time as on a real VMU (`#001/002`, the 12-character name over two lines, the date YY/MM/DD); up/down to browse. Viewing only: no copy or delete yet.
+- **GAME:** names the card's executable, but cannot run it yet: that needs the VMU's CPU emulated (libevmu, next).
+- **SLEEP** blanks the screen and the icons; any button wakes it.
+- The text uses an 8x4 grid of 6x8 cells in a font drawn for PSP2DC (not Sega's); the layout follows photographs of a real VMU, since the manual does not describe the BIOS screens.
+
+Connected, the ATTENTION icon lights for a second after the card is written, as the manual describes ("lights for Read/Write while flash memory is being accessed"); only writes are seen by the PSP. Checked in PPSSPP (TIME, FILE with browsing, SLEEP); the connected ATTENTION icon is not yet tried on hardware.
+
+`scripts/dev/run-ppsspp.sh press BUTTON` presses a PSP button in the emulator, so screens can be stepped through from the Mac.
+
 ### 5.1 Controller Mapping
 
 The initial mapping will include:

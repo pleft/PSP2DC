@@ -38,6 +38,7 @@
 #include "../../protocol/psp2dc_protocol.h"
 #include "tools.h"
 #include "ui.h"
+#include "vmu_sa.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
@@ -408,6 +409,9 @@ int main(int argc, char *argv[])
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
     int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i, settings_due = 0;
+    int standalone = 0, was_standalone = 0;
+    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0;
+    static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
     unsigned start_us = now_us();
     SceUID thid;
     SceIoStat ist;
@@ -435,15 +439,14 @@ int main(int argc, char *argv[])
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     if (g_no_usb) {
-        demo_start();
+        /* no USB (PPSSPP): the VMU on its own, as with no Dreamcast */
     } else {
         usb_rc = usb_start();
         if ((unsigned)g_usb_kernel == 0x8002013A) {
             /* "library not linked": the driver is loaded but its library is
              * not there to call (PPSSPP loads the module, its functions are
              * stubs). Nothing can come over USB: demo mode. */
-            g_no_usb = 1;
-            demo_start();
+            g_no_usb = 1;   /* the VMU on its own, as with no Dreamcast */
         } else {
             thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
             if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
@@ -492,6 +495,31 @@ int main(int argc, char *argv[])
             last_buttons = pad.Buttons;
         }
         map_input(&pad, &in);
+
+        /* No Dreamcast: the PSP is the VMU on its own (vmu_sa.c), its buttons
+         * the VMU's. (SELECT, held, is still the shift key.) */
+        standalone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
+        vmu_held = 0;
+        if (standalone) {
+            unsigned b = pad.Buttons;
+            if (b & PSP_CTRL_UP) vmu_held |= SA_UP;
+            if (b & PSP_CTRL_DOWN) vmu_held |= SA_DOWN;
+            if (b & PSP_CTRL_LEFT) vmu_held |= SA_LEFT;
+            if (b & PSP_CTRL_RIGHT) vmu_held |= SA_RIGHT;
+            if (b & PSP_CTRL_CROSS) vmu_held |= SA_A;
+            if (b & PSP_CTRL_CIRCLE) vmu_held |= SA_B;
+            if (b & PSP_CTRL_START) vmu_held |= SA_MODE;
+            if (b & PSP_CTRL_TRIANGLE) vmu_held |= SA_SLEEP;
+            if (!was_standalone) sa_reset();
+            sa_input(vmu_held & ~vmu_last, g_card_have ? g_card : NULL);
+            vmu_icons = sa_render(sa_lcd, g_card_have ? g_card : NULL);
+            if (memcmp(sa_lcd, g_lcd, sizeof(sa_lcd))) { memcpy(g_lcd, sa_lcd, sizeof(sa_lcd)); g_lcd_count++; }
+        } else if (was_standalone) {
+            memset(g_lcd, 0, sizeof(g_lcd));   /* the Dreamcast's screen from here on */
+            g_lcd_count++;
+        }
+        vmu_last = vmu_held;
+        was_standalone = standalone;
 
         if (demo_on() && demo_frame(g_lcd)) g_lcd_count++;
         if (g_no_usb) {
@@ -556,14 +584,22 @@ int main(int argc, char *argv[])
             h.link = demo_on() ? UI_LINK_DEMO : up ? UI_LINK_UP
                    : (!g_no_usb && pspexpUsbAttached()) ? UI_LINK_WAITING : UI_LINK_NONE;
             h.link_text = demo_on() ? "demo, no adapter" : up ? "connected to the adapter"
-                        : g_no_usb ? "no USB driver" : h.link == UI_LINK_WAITING ? "cable in, waiting"
-                        : "connect the adapter";
+                        : g_no_usb ? "no USB: VMU on its own" : h.link == UI_LINK_WAITING ? "cable in, waiting"
+                        : "VMU on its own";
             h.in = &in;
             h.stick_source = sources[g_stick_mode];
             h.card = g_card;
             h.card_have = g_card_have;
             h.card_note = g_card_note;
             h.notice = g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
+            /* the icons: the VMU's own when on its own; connected, ATTENTION
+             * while the card is being written, as the manual has it (VMU-7:
+             * "Attention ... lights for Read/Write while flash memory is
+             * being accessed"), here for a second after a block came */
+            h.icons = standalone ? vmu_icons
+                    : (up && g_card_last_us && now_us() - g_card_last_us < 1000000) ? SA_ICON_ATTENTION : 0;
+            h.vmu_pressed = standalone ? vmu_held : 0;
+            h.standalone = standalone ? sa_mode_name() : NULL;
             h.now_ms = now_us() / 1000;
             ui_page_home(&h, &ui_themes[g_theme]);
         }
