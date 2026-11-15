@@ -3,7 +3,7 @@
 PSPEXP_USB ?= ../../../PSPExp/psp/transport-usb
 
 TARGET = psp2dc_app
-OBJS = main.o tools.o ui.o vmu_sa.o vmu_game.o vmu_core.o cards.o
+OBJS = main.o tools.o ui.o vmu_sa.o vmu_game.o vmu_core.o cards.o card_sync.o
 
 INCDIR = $(PSPEXP_USB)
 CFLAGS = -O2 -G0 -Wall -std=gnu17

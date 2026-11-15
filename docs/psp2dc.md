@@ -312,8 +312,16 @@ With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behave
 
 - **MODE** goes round GAME, TIME and FILE, lighting that mode's icon; it starts in TIME, as a VMU does on leaving the console.
 - **TIME:** year, month/day, hh:mm:ss and the weekday, from the PSP's clock.
-- **FILE:** the card's files one at a time as on a real VMU (`#001/002`, the 12-character name over two lines, the date YY/MM/DD); up/down to browse. Viewing only: no copy or delete yet.
-- **GAME:** names the card's executable, but cannot run it yet: that needs the VMU's CPU emulated (libevmu, next).
+- **FILE,** after the VMU's instruction sheet (Sega 670-14102A, "File Mode", from dreamcast.wiki; the developer manual in `docs/VMU.pdf` only says File mode can "display, copy, and delete files"). Screens in the sheet's order:
+  - *File selection:* `Free 200` (free blocks of the 200) and `Game 128` (room for a mini-game: one to a card, from block 0 up and unbroken, at most 128 blocks, as the developer manual gives it; 0 when the card has one). A or right goes on.
+  - *File display:* `#001/002`, the 12-character name over two lines (shown inverted when the file is copy-protected, directory byte 0x01 = 0xFF), the date month/day/year as the sheet labels it (YY/MM/DD before). Up/down pick a file; right goes on; B or left back.
+  - *Comment display:* the file's 16-character comment (the header's "description shown in VMS file menu", mc.pp.se), the blocks it uses, `Data` or `Game`, and the arrow. Right goes on; B or left back.
+  - *Action selection:* `Copy` / `Delete`, `A:Yes`, `B:No`; up/down choose (a copy-protected file has no Copy), A takes it, B or left back.
+  - *Copy:* a VMU copies to a second VMU plugged into it; here the other "VMU" is another card in `ms0:/PSP2DC/cards`, chosen on a `Copy to` screen (up/down), then the sheet's `Copy ?` with `Yes No` (left/right, A enters; No goes back), `Copying!` with the ATTENTION icon lit, and `Copied`, or its errors: `Same file exist`, `Not enough free memory`, `Copy failed`. The file goes where the BIOS puts it (mc.pp.se): a game from block 0 up, data in the highest free blocks; the other card is written as any card (`.new`, then renamed).
+  - *Delete:* the sheet shows no screens for it: `Delete ?` as `Copy ?` but with No chosen first, then `Deleted`; the file's blocks freed in the FAT and its directory entry cleared, and the card written to the Memory Stick.
+  - The FAT and directory are found from the root block (0x46 and 0x4a) when its fields make sense together, else at their usual places: cards formatted by the adapter or the PSP before 15 November 2026 have those fields 4 bytes late (5.0f).
+  - Checked in PPSSPP with a scripted run and the card files compared byte by byte afterwards: a 20-block save copied to another card the same in every byte (blocks 199 down to 180), copying it again refused with `Same file exist`, deleting it freed its 20 blocks and left the other save untouched.
+- **GAME:** A runs the card's game (5.0d).
 - **SLEEP** blanks the screen and the icons; any button wakes it.
 - The text uses an 8x4 grid of 6x8 cells in a font drawn for PSP2DC (not Sega's); the layout follows photographs of a real VMU, since the manual does not describe the BIOS screens.
 
@@ -340,12 +348,39 @@ Two traps in libevmu's API, found by running games and kept in mind by the compa
 The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, so they can be named on a computer (`saves.bin`, `games.bin`). The card in use is kept in the settings (`card=`). The single card of earlier versions (`ms0:/PSP2DC/card1.bin`) is copied into the folder as `card1` on the first start and removed once the copy reads back the same (a rename into another folder failed under PPSSPP).
 
 - **SELECT + L / R:** the previous or next card (by name); the panel and the top line show its name, and for two seconds "card: NAME (2 of 3)".
-- **SELECT + Start:** a new card, formatted as the adapter formats one (200 blocks free), named `cardN` with the first free N, and changed to.
+- **SELECT + Start:** a new card, formatted as a Dreamcast formats one (200 blocks free), named `cardN` with the first free N, and changed to.
 - **On its own** (no Dreamcast) the change is immediate, the card in use written first if it changed; not while a VMU game runs.
-- **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (protocol 4, `CARD_EJECT`): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
+- **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (`CARD_EJECT`, since protocol 4): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
+- **Reconnecting** to an adapter that still holds a card is 5.0f.
 - A file is tested for by opening it: `sceIoGetstat` said "not there" for files that were there under PPSSPP, and a new card must never overwrite an old one.
 
 Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a card), using `ms0:/PSP2DC/dev_input.txt`, a timed list of buttons the application holds when the file is there (combinations cannot be held from the Mac's keyboard). On hardware (15 November 2026): the old card was moved into the folder; a new card made while connected (SELECT + Start) was seen by the Dreamcast, and Sonic Adventure 2 saved onto it; a card made on the Mac (`games.bin`, Chao Adventure 2) was chosen with SELECT + R and its game played.
+
+### 5.0f Which Copy of a Card Counts (protocol 5)
+
+The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
+
+**What went wrong (15 November 2026).** Connected with `games.bin` in use, the PSP was unplugged, changed to `card1` on its own and plugged in again: the adapter's copy of `games` went into `card1` and was saved there; the same again with `card2`. Both lost their saves and became byte-for-byte the games card (a copy of the Memory Stick taken before anything else was changed confirmed it). `card1` was restored from a copy taken earlier that day; `card2`'s save had no copy. The adapter never knew which card it held, and the PSP never asked.
+
+**Now** (`firmware/patches/0008`, `psp/app/card_sync.c`, `main.c` `card_decide`):
+
+- The PSP names the card it sends (`CARD_DONE`); on a new connection the adapter answers with the card's name and CRC-32 (`CARD_STATE`) and sends no block until the PSP asks (`CARD_SEND`) or takes the card out (`CARD_EJECT`, with `DISCARD` when the PSP needs none of it).
+- The PSP keeps a **base**: the name and CRC-32 of the last copy both had (after sending a card; each time it writes the file while the adapter holds that card). It is kept in the settings (`base=`).
+- On reconnecting it compares the adapter's copy, its own copy of that card (the card in use, or that card's file) and the base:
+
+| | What happens |
+|---|---|
+| The copies are the same | Nothing comes. If the PSP has another card in use, that one goes in. |
+| Only the adapter's changed (the Dreamcast saved meanwhile) | It comes into its own card's file; then the PSP's card in use goes in. |
+| Only the PSP's changed (played or changed on its own) | The PSP's card in use goes in. |
+| Both changed, or not known | It comes into a new card, `NAME-dc`, and nothing is written over; then the PSP's card in use goes in. |
+
+- Blocks from the adapter are taken only once asked for: an adapter still on protocol 4 sends its card unasked, and the PSP now drops it (and says "adapter protocol 4, PSP 5: update it").
+- A card upload cut short no longer ends with "no file", which made the adapter send its blank card over the PSP's.
+- A VMU game left running stops before the card in use changes or the Dreamcast takes it, and its flash only ever goes back to its own card.
+- `scripts/dev/card-sync-test.c` checks the choice in all these cases on the Mac (with real card images), the incident first: 12 of 12 as intended.
+
+**The format.** The adapter's preformat (from upstream joypad-os, "exactly like MaplePad's CheckFormatted()"), and `cards_format` after it, wrote the root block's file system fields from 0x44 instead of 0x40, so the FAT's location sat at 0x4a instead of 0x46, and ended every system block's FAT chain. mc.pp.se's flashmem.html, dmitry.gr's "VMU Hacking" and libevmu's `EvmuRootBlock` agree on 0x46 for the FAT and 0x4a for the directory, as does a card image formatted by a Dreamcast (DreamPicoPort's `formatted_storage.bin`, stamped 1999-09-09, the Dreamcast's default date): from 0x40, last block 255, partition 0, root 255, FAT 254 and its size 1, directory 253 and its size 13, icon 0, save area 200 and 31, game area 0 and 128; the directory chained 253 down to 241. Both now write that; a new card's system area matches the Dreamcast's but for the date and the optional custom colour. The Dreamcast never noticed (it learns the layout from the Maple media info), but the VMU's own BIOS, emulators and tools read the root block. Cards made before keep their old root block; PSP2DC reads either.
 
 ### 5.1 Controller Mapping
 
@@ -563,6 +598,7 @@ Completed:
 
 Not yet completed:
 
+- On hardware: protocol 5 (which copy of a card counts, 5.0f) and FILE mode's copy and delete (5.0c); both checked on the Mac and in PPSSPP only.
 - Real-game compatibility and latency measurements.
 - Permanent (soldered) wiring.
 

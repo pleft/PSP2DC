@@ -1,0 +1,157 @@
+From e132e3b1390352837b2eeb1ad4a5bf56ec1b2305 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 21:45:25 +0200
+Subject: [PATCH] PSP2DC: the card named and checked on reconnecting (protocol
+ 5); preformat as a Dreamcast's
+
+The adapter keeps its card in RAM while the PSP is away. Protocol 4 sent all
+of it to the PSP at the next HELLO, and the PSP took it as the card it had in
+use: a PSP that changed card while unplugged wrote one card over the others.
+Now CARD_DONE names the card, CARD_STATE reports its name and CRC-32, and the
+adapter sends nothing until the PSP asks (CARD_SEND, all or only new blocks)
+or ejects it (CARD_EJECT, with DISCARD when the PSP needs none of it).
+
+The preformat wrote the root block's file system fields from 0x44, four
+bytes late (FAT location at 0x4a instead of 0x46), and ended every system
+block's FAT chain. Now as a card formatted by a Dreamcast and as mc.pp.se,
+dmitry.gr and libevmu document it: fields from 0x40, the directory chained
+253 down to 241.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/native/device/dreamcast/vmu.c | 23 ++++++++++------
+ src/usb/usbh/psp2dc/psp2dc_host.c | 46 ++++++++++++++++++++++++++-----
+ 2 files changed, 54 insertions(+), 15 deletions(-)
+
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index a7677d2e..a243cb7b 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -226,16 +226,23 @@ static void vmu_preformat(void) {
+     // Format timestamp at 0x30
+     static const uint8_t ts[] = {0x20,0x21,0x03,0x02,0x09,0x00,0x00,0x01};
+     memcpy(root + 0x30, ts, 8);
+-    // Filesystem info at 0x44 (LE16 fields)
+-    uint16_t *r = (uint16_t *)(root + 0x44);
+-    r[0]=254; r[1]=0; r[2]=255; r[3]=254; r[4]=1; r[5]=253; r[6]=13; r[7]=0; r[8]=200; r[9]=31;
+-    // Reserved32 = 0x00800000 at offset 0x60
+-    root[0x60]=0x00; root[0x61]=0x00; root[0x62]=0x80; root[0x63]=0x00;
+-
+-    // FAT block (254): free area + system marks
++    // Filesystem info from 0x40 (LE16 fields): last block, partition, root,
++    // FAT, FAT size, directory, directory size, icon, save area, its size,
++    // game area, its size. As a card formatted by a Dreamcast (1999-09-09
++    // stamp) and the layout of mc.pp.se's flashmem.html, dmitry.gr's "VMU
++    // Hacking" and libevmu's EvmuRootBlock (FAT at 0x46, directory at 0x4a).
++    // Written from 0x44 before, everything 4 bytes late (2026-11-15).
++    uint16_t *r = (uint16_t *)(root + 0x40);
++    r[0]=255; r[1]=0; r[2]=255; r[3]=254; r[4]=1; r[5]=253; r[6]=13; r[7]=0;
++    r[8]=200; r[9]=31; r[10]=0; r[11]=128;
++
++    // FAT block (254): user area free, the directory chained from its first
++    // block (253) down to its last (241), the FAT and root blocks alone
+     uint16_t *fat = (uint16_t *)&vmu_ram[FAT_BLOCK * VMU_BLOCK_SIZE];
+     for (int i = 0; i < 241; i++) fat[i] = 0xFFFC;  // free
+-    for (int i = 241; i < 256; i++) fat[i] = 0xFFFA;  // system (EOF)
++    fat[241] = 0xFFFA;
++    for (int i = 242; i <= 253; i++) fat[i] = (uint16_t)(i - 1);
++    fat[254] = fat[255] = 0xFFFA;
+ 
+     // No default ICONDATA_VMS file: the card is a truly-empty formatted VMU
+     // (blocks 0/1 free, directory empty), exactly like a freshly-formatted real
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index 87fad21f..e453b2db 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -20,7 +20,9 @@
+ // it as a file; the exchange is described in the protocol header. What the
+ // adapter holds outlives a PSP that is unplugged or restarted (card_loaded is
+ // not the device's state but the adapter's), so a save made meanwhile reaches
+-// the PSP when it is back.
++// the PSP when it is back. It is told by name and CRC-32 (CARD_STATE) and sent
++// only when the PSP asks for it (CARD_SEND): the PSP may have changed card,
++// or changed this one, while it was away.
+ //
+ // One PSP at a time: one set of buffers, whatever CFG_TUH_DEVICE_MAX is.
+ #include "psp2dc_host.h"
+@@ -80,8 +82,25 @@ static const uint8_t sync_bytes[PSP2DC_USB_SYNC_LEN] = PSP2DC_USB_SYNC_BYTES;
+ // The adapter holds a card: a PSP sent its file, or said it has none (the
+ // freshly formatted one stands). From then on the Dreamcast is shown it.
+ static bool card_loaded;
++static char card_name[PSP2DC_CARD_NAME_LEN];   // the card's name, as the PSP gave it
+ bool psp2dc_card_ready(void) { return card_loaded; }
+ 
++#ifdef CONFIG_VMU
++// The card's CRC-32, a part at a time (the Dreamcast may write meanwhile: a
++// CRC that matches no copy only makes the PSP keep both).
++static uint32_t card_crc(void)
++{
++    uint8_t part[PSP2DC_CARD_PART_SIZE];
++    uint32_t crc = 0;
++    for (unsigned block = 0; block < PSP2DC_CARD_BLOCKS; block++)
++        for (unsigned p = 0; p < PSP2DC_CARD_PARTS; p++) {
++            vmu_card_get_part((uint8_t)block, (uint8_t)p, part);
++            crc = psp2dc_crc32(crc, part, sizeof(part));
++        }
++    return crc;
++}
++#endif
++
+ static psp2dc_dev_t *dev(uint8_t addr)
+ {
+     return addr && the_dev.state != ST_CLOSED && the_dev.addr == addr ? &the_dev : NULL;
+@@ -144,18 +163,23 @@ static void message(uint8_t addr, psp2dc_dev_t *d, uint8_t type, const uint8_t *
+     } else if (type == PSP2DC_MSG_HELLO && len >= 1) {
+         printf("[psp2dc] PSP %u: hello, protocol %u\n", addr, payload[0]);
+         d->state_due = true;
+-        d->keeper = false;
++        d->keeper = false;          // nothing goes to it before it says what it wants
+ #ifdef CONFIG_VMU
+-        if (card_loaded) {          // the adapter's copy is the one that counts: all of it to this PSP
+-            vmu_card_mark_all_dirty();
++    } else if (type == PSP2DC_MSG_CARD_SEND && len >= 1) {
++        if (card_loaded) {
++            if (payload[0]) vmu_card_mark_all_dirty();
+             d->keeper = true;
++            printf("[psp2dc] PSP %u: sending it %s\n", addr, payload[0] ? "the whole card" : "the card's new blocks");
+         }
+     } else if (type == PSP2DC_MSG_CARD_EJECT) {
+-        // Taken out only once every block has reached the PSP; else refused
+-        // (CARD_STATE LOADED) and the PSP tries again later.
++        // Taken out only once every block has reached the PSP, unless it says
++        // it does not need them; else refused (CARD_STATE LOADED) and the PSP
++        // tries again later.
++        bool discard = len >= 1 && (payload[0] & PSP2DC_EJECT_DISCARD);
+         d->state_due = true;
+-        if (card_loaded && vmu_card_dirty_count() == 0) {
++        if (card_loaded && (discard || vmu_card_dirty_count() == 0)) {
+             card_loaded = false;               // the Dreamcast loses the card (dreamcast_task)
++            card_name[0] = 0;
+             vmu_card_clear_dirty();
+             d->keeper = false;
+             printf("[psp2dc] PSP %u: memory card taken out\n", addr);
+@@ -165,6 +189,8 @@ static void message(uint8_t addr, psp2dc_dev_t *d, uint8_t type, const uint8_t *
+     } else if (type == PSP2DC_MSG_CARD_DONE && len == sizeof(Psp2dcCardDone)) {
+         if (!card_loaded) {
+             if (!payload[0]) vmu_card_mark_all_dirty();   // no file there: the formatted card is the PSP's to keep
++            memset(card_name, 0, sizeof(card_name));
++            if (len >= sizeof(Psp2dcCardDone)) memcpy(card_name, payload + 4, sizeof(card_name) - 1);
+             card_loaded = true;
+             printf("[psp2dc] PSP %u: memory card %s\n", addr, payload[0] ? "received" : "new");
+         }
+@@ -215,6 +241,12 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+     if (d->state_due) {
+         Psp2dcCardState cs = { .state = card_loaded ? PSP2DC_CARD_LOADED : PSP2DC_CARD_EMPTY };
+         d->state_due = false;
++#ifdef CONFIG_VMU
++        if (card_loaded) {
++            cs.crc = card_crc();
++            memcpy(cs.name, card_name, sizeof(cs.name));
++        }
++#endif
+         return put_msg(d->tx, PSP2DC_MSG_CARD_STATE, &cs, sizeof(cs));
+     }
+ #ifdef CONFIG_VMU
+-- 
+2.54.0 (Apple Git-157)
+

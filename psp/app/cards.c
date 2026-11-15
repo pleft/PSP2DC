@@ -102,14 +102,17 @@ int cards_write(const char *name, const unsigned char *img)
     return sceIoRename(tmp, path) < 0 ? -1 : 0;
 }
 
-/* As the adapter's own preformat (firmware vmu.c, vmu_preformat; the layout
- * from mc.pp.se/dc/vms/flashmem.html): everything 0xFF, the system area
- * (blocks 241-255) zeroed, the root block's magic and file system info, the
- * FAT with blocks 0-240 free and the system blocks chained; no files. */
+/* As a card a Dreamcast formats (and the adapter's preformat, firmware vmu.c,
+ * vmu_preformat): everything 0xFF, the system area (blocks 241-255) zeroed,
+ * the root block's magic and file system info from 0x40 (FAT at 0x46,
+ * directory at 0x4a: mc.pp.se/dc/vms/flashmem.html, dmitry.gr "VMU
+ * Hacking", libevmu's EvmuRootBlock), the FAT with blocks 0-240 free and the
+ * directory chained from 253 down to 241; no files. Written 4 bytes late
+ * before, as the adapter did (2026-11-15). */
 void cards_format(unsigned char *img)
 {
     unsigned char *root = img + 255 * 512, *fat = img + 254 * 512;
-    static const unsigned short info[10] = { 254, 0, 255, 254, 1, 253, 13, 0, 200, 31 };
+    static const unsigned short info[12] = { 255, 0, 255, 254, 1, 253, 13, 0, 200, 31, 0, 128 };
     ScePspDateTime t;
     int i;
     memset(img, 0xFF, PSP2DC_CARD_BYTES);
@@ -121,12 +124,27 @@ void cards_format(unsigned char *img)
         int v[8] = { t.year / 100, t.year % 100, t.month, t.day, t.hour, t.minute, t.second, 0 };
         for (i = 0; i < 8; i++) root[0x30 + i] = (unsigned char)((v[i] / 10) << 4 | v[i] % 10);
     }
-    for (i = 0; i < 10; i++) { root[0x44 + 2 * i] = info[i] & 0xFF; root[0x45 + 2 * i] = info[i] >> 8; }
-    root[0x62] = 0x80;
+    for (i = 0; i < 12; i++) { root[0x40 + 2 * i] = info[i] & 0xFF; root[0x41 + 2 * i] = info[i] >> 8; }
     for (i = 0; i < 256; i++) {
-        unsigned v = i < 241 ? 0xFFFC : 0xFFFA;
+        unsigned v = i < 241 ? 0xFFFC : (i >= 242 && i <= 253) ? (unsigned)(i - 1) : 0xFFFA;
         fat[2 * i] = v & 0xFF; fat[2 * i + 1] = v >> 8;
     }
+}
+
+int cards_unique(const char *base, const char *suffix, char out[CARD_NAME_MAX])
+{
+    char path[128], tmp[128], num[8];
+    int i, room;
+    for (i = 1; i < 100; i++) {
+        num[0] = 0;
+        if (i > 1) snprintf(num, sizeof(num), "%d", i);
+        room = CARD_NAME_MAX - 1 - (int)strlen(suffix) - (int)strlen(num);
+        snprintf(out, CARD_NAME_MAX, "%.*s%s%s", room, base, suffix, num);
+        path_of(path, sizeof(path), out, "bin");
+        path_of(tmp, sizeof(tmp), out, "new");
+        if (!exists(path) && !exists(tmp)) return 0;
+    }
+    return -1;
 }
 
 int cards_new(char out[CARD_NAME_MAX])

@@ -26,10 +26,18 @@
 #define SA_ICON_ATTENTION 0x08
 
 void sa_reset(void);                       /* back to TIME, as on leaving the Dreamcast (VMU-7) */
+/* The card in use's name (cards.h): FILE's Copy offers the others, and a
+ * game belongs to the card it was started from. */
+void sa_card_name(const char *name);
+/* Ends a running game, its flash written into card (the card it was started
+ * from, still in use): to be called before the card in use changes or the
+ * Dreamcast takes it. 1 when the game changed the card. */
+int sa_stop(unsigned char *card);
 /* One frame: the buttons pressed since the last call (edges) and held, the
  * memory card (or NULL), the ms since the last call. In GAME mode A starts
- * the card's game (vmu_game.c); holding MODE 2 s leaves it. Returns 1 when
- * the game changed the card (written back into card). */
+ * the card's game (vmu_game.c); holding MODE 2 s leaves it. In FILE mode a
+ * file can be copied to another card or deleted. Returns 1 when the card
+ * was changed (a game's save, a deleted file), to be written to its file. */
 int sa_input(unsigned pressed, unsigned held, unsigned char *card, unsigned ms);
 /* the screen as the Dreamcast would send it (for ui_lcd) and the lit icons */
 unsigned sa_render(unsigned char lcd[PSP2DC_LCD_BYTES], const unsigned char *card);
