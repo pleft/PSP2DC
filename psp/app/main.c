@@ -8,7 +8,8 @@
  * Dreamcast draws one, shown enlarged at the bottom right of a text status page,
  * and the blocks of the memory card to keep.
  *
- * The memory card is a file on the Memory Stick (CARD_FILE, a plain 128 KB
+ * The memory card is a file on the Memory Stick (cards.c: one of several in
+ * ms0:/PSP2DC/cards, a plain 128 KB
  * image). The adapter answers the Dreamcast from a copy in its RAM; this side
  * sends the file up when the adapter has none and writes back what a game
  * saves. The order of things is in the protocol header.
@@ -41,6 +42,7 @@
 #include "ui.h"
 #include "vmu_sa.h"
 #include "vmu_game.h"
+#include "cards.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
@@ -60,13 +62,14 @@ static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
 static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
 
-/* The memory card: outside the application's own folder, which an update
- * replaces as a whole. Written as CARD_NEW first and renamed, so a write cut
- * short (the battery, the switch) leaves the last good file in place. */
+/* The memory card in use: one of the files in ms0:/PSP2DC/cards (cards.c),
+ * outside the application's own folder, which an update replaces as a whole.
+ * g_card_lock keeps the saver thread from writing while the card is changed. */
 #define CARD_DIR   "ms0:/PSP2DC"
-#define CARD_FILE  CARD_DIR "/card1.bin"
-#define CARD_NEW   CARD_DIR "/card1.new"
 #define CARD_QUIET_US 700000   /* this long with no block coming before the file is written */
+static char g_card_name[CARD_NAME_MAX] = "card1";
+static SceUID g_card_lock = -1;
+static char g_switch_to[CARD_NAME_MAX];    /* connected: the card to change to once the adapter has let go */
 
 static unsigned char g_card[PSP2DC_CARD_BYTES] __attribute__((aligned(64)));
 static int g_card_have;                    /* g_card holds a card (from the file, or from the adapter) */
@@ -79,35 +82,44 @@ static const char *g_card_note = "no file yet";
 
 static unsigned now_us(void) { return (unsigned)sceKernelGetSystemTimeLow(); }
 
-static int card_read(const char *path)
-{
-    SceUID fd = sceIoOpen(path, PSP_O_RDONLY, 0);
-    int n;
-    if (fd < 0) return 0;
-    n = sceIoRead(fd, g_card, sizeof(g_card));
-    sceIoClose(fd);
-    return n == (int)sizeof(g_card);
-}
+static void card_lock(void) { if (g_card_lock >= 0) sceKernelWaitSema(g_card_lock, 1, NULL); }
+static void card_unlock(void) { if (g_card_lock >= 0) sceKernelSignalSema(g_card_lock, 1); }
 
-/* The file at the start; a write that was cut after its last byte but before
- * the rename left CARD_NEW whole, and that is the newer one. */
+/* The card named in the settings at the start (or the first there is). With
+ * none at all the adapter's freshly formatted card becomes card1. */
 static void card_load(void)
 {
-    sceIoMkdir(CARD_DIR, 0777);
-    if (card_read(CARD_FILE)) { g_card_have = 1; g_card_note = "from the file"; }
-    else if (card_read(CARD_NEW)) { g_card_have = 1; g_card_note = "from the file (.new)"; }
+    char names[CARDS_MAX][CARD_NAME_MAX];
+    int n;
+    cards_migrate();
+    if (cards_read(g_card_name, g_card)) { g_card_have = 1; g_card_note = "from the file"; return; }
+    if ((n = cards_list(names)) > 0 && cards_read(names[0], g_card)) {
+        snprintf(g_card_name, sizeof(g_card_name), "%s", names[0]);
+        g_card_have = 1; g_card_note = "from the file";
+    }
 }
 
-static int card_write(void)
+static int card_write(void) { return cards_write(g_card_name, g_card); }
+
+/* Puts another card in g_card: the one in use written first if it changed.
+ * The caller makes sure nothing is on its way into it. 0, or < 0 when the
+ * other one could not be read (and nothing changed). */
+static int card_change(const char *name)
 {
-    SceUID fd = sceIoOpen(CARD_NEW, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-    int n;
-    if (fd < 0) return -1;
-    n = sceIoWrite(fd, g_card, sizeof(g_card));
-    sceIoClose(fd);
-    if (n != (int)sizeof(g_card)) return -1;
-    sceIoRemove(CARD_FILE);
-    return sceIoRename(CARD_NEW, CARD_FILE) < 0 ? -1 : 0;
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    int rc = -1;
+    if (!cards_read(name, img)) return -1;
+    card_lock();
+    if (g_card_dirty && g_card_have && card_write() == 0) g_card_dirty = 0;
+    if (!g_card_dirty) {
+        memcpy(g_card, img, sizeof(img));
+        snprintf(g_card_name, sizeof(g_card_name), "%s", name);
+        g_card_have = 1;
+        g_card_note = "changed";
+        rc = 0;
+    }
+    card_unlock();
+    return rc;
 }
 
 /* Writes the file a moment after the adapter's blocks stop coming: a game's
@@ -117,9 +129,13 @@ static int saver_thread(SceSize args, void *argp)
     while (g_running) {
         sceKernelDelayThread(200000);
         if (g_card_dirty && now_us() - g_card_last_us > CARD_QUIET_US) {
-            g_card_dirty = 0;   /* before the write: a block coming during it sets it again */
-            if (card_write() < 0) { g_card_write_err++; g_card_dirty = 1; g_card_last_us = now_us(); }
-            else { g_card_writes++; g_card_note = "saved to the file"; }
+            card_lock();
+            if (g_card_dirty) {
+                g_card_dirty = 0;   /* before the write: a block coming during it sets it again */
+                if (card_write() < 0) { g_card_write_err++; g_card_dirty = 1; g_card_last_us = now_us(); }
+                else { g_card_writes++; g_card_note = "saved to the file"; }
+            }
+            card_unlock();
         }
     }
     return 0;
@@ -227,7 +243,7 @@ static int send_msg(unsigned char type, const void *payload, int len)
 {
     static unsigned char buf[64] __attribute__((aligned(64)));
     buf[0] = PSP2DC_MAGIC0; buf[1] = PSP2DC_MAGIC1; buf[2] = type; buf[3] = (unsigned char)len;
-    memcpy(buf + PSP2DC_HEADER_LEN, payload, len);
+    if (len) memcpy(buf + PSP2DC_HEADER_LEN, payload, len);
     return pspexpUsbWrite(buf, PSP2DC_HEADER_LEN + len);
 }
 
@@ -355,6 +371,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
     printf("SELECT tap: stick source\n");
     printf("SELECT+Left/Right page  +Triangle shot\n");
+    printf("SELECT+L/R card  +Start new card\n");
     printf("SELECT+Circle demo   HOME quit");
     ui_lcd(g_lcd, 480 - 48 * 4 - 8, 272 - 32 * 4 - 8, 4, &ui_themes[g_theme]);
     ui_end();
@@ -374,13 +391,19 @@ static void settings_load(void)
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
     if ((p = strstr(buf, "stick="))) g_stick_mode = atoi(p + 6) % STICK_MODES;
+    if ((p = strstr(buf, "card="))) {
+        int i;
+        for (i = 0; i < CARD_NAME_MAX - 1 && p[5 + i] && p[5 + i] != '\n' && p[5 + i] != '\r'; i++) g_card_name[i] = p[5 + i];
+        g_card_name[i] = 0;
+    }
 }
 
 static void settings_save(void)
 {
-    char buf[96];
+    char buf[160];
     SceUID fd;
-    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\nstick=%d\n", g_page, g_theme, g_stick_mode);
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\nstick=%d\ncard=%s\n", g_page, g_theme, g_stick_mode,
+                     g_card_name);
     sceIoMkdir(CARD_DIR, 0777);
     if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
     sceIoWrite(fd, buf, n);
@@ -393,6 +416,54 @@ static char g_notice[48];
 static unsigned g_notice_at;
 static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s); g_notice_at = now_us() | 1; }
 
+/* ms0:/PSP2DC/dev_input.txt, for trying button combinations from PPSSPP
+ * (a key held there cannot be): lines "<ms after the start> <buttons>", the
+ * buttons joined by + (up down left right cross circle square triangle
+ * start select l r, or none), each held until the next line. Absent, nothing. */
+#define DEV_STEPS 64
+static struct { unsigned at, buttons; } g_dev_steps[DEV_STEPS];
+static int g_dev_count;
+
+static void dev_input_load(void)
+{
+    static const struct { const char *name; unsigned bit; } keys[] = {
+        {"up", PSP_CTRL_UP}, {"down", PSP_CTRL_DOWN}, {"left", PSP_CTRL_LEFT}, {"right", PSP_CTRL_RIGHT},
+        {"cross", PSP_CTRL_CROSS}, {"circle", PSP_CTRL_CIRCLE}, {"square", PSP_CTRL_SQUARE},
+        {"triangle", PSP_CTRL_TRIANGLE}, {"start", PSP_CTRL_START}, {"select", PSP_CTRL_SELECT},
+        {"l", PSP_CTRL_LTRIGGER}, {"r", PSP_CTRL_RTRIGGER}, {"none", 0},
+    };
+    static char buf[2048];
+    char *line, *next;
+    int n;
+    SceUID fd = sceIoOpen(CARD_DIR "/dev_input.txt", PSP_O_RDONLY, 0);
+    if (fd < 0) return;
+    n = sceIoRead(fd, buf, sizeof(buf) - 1);
+    sceIoClose(fd);
+    if (n <= 0) return;
+    buf[n] = 0;
+    for (line = buf; line && *line && g_dev_count < DEV_STEPS; line = next) {
+        char *tok;
+        unsigned at = (unsigned)atoi(line), bits = 0, k;
+        next = strchr(line, '\n');
+        if (next) *next++ = 0;
+        if (!(tok = strchr(line, ' '))) continue;
+        for (tok = strtok(tok + 1, "+ \r"); tok; tok = strtok(NULL, "+ \r"))
+            for (k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
+                if (!strcmp(tok, keys[k].name)) bits |= keys[k].bit;
+        g_dev_steps[g_dev_count].at = at;
+        g_dev_steps[g_dev_count].buttons = bits;
+        g_dev_count++;
+    }
+}
+
+static unsigned dev_input(unsigned ms_since_start)
+{
+    unsigned bits = 0;
+    int i;
+    for (i = 0; i < g_dev_count && g_dev_steps[i].at <= ms_since_start; i++) bits = g_dev_steps[i].buttons;
+    return bits;
+}
+
 /* The line at the top of the VMU and saves pages */
 static const char *top_line(void)
 {
@@ -402,7 +473,7 @@ static const char *top_line(void)
     if (g_notice_at && now_us() - g_notice_at < 2000000)
         snprintf(buf, sizeof(buf), "PSP2DC  %-17s %s", link, g_notice);
     else
-        snprintf(buf, sizeof(buf), "PSP2DC  %-17s card: %s", link, g_card_have ? g_card_note : "none yet");
+        snprintf(buf, sizeof(buf), "PSP2DC  %-17s %s: %s", link, g_card_name, g_card_have ? g_card_note : "none yet");
     return buf;
 }
 
@@ -443,6 +514,8 @@ int main(int argc, char *argv[])
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
+    g_card_lock = sceKernelCreateSema("card", 0, 1, 1, NULL);
+    dev_input_load();
     card_load();
     game_audio_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
@@ -465,6 +538,7 @@ int main(int argc, char *argv[])
     memset(&in, 0, sizeof(in));
     while (g_running) {
         sceCtrlReadBufferPositive(&pad, 1);   /* waits for the next sample: once a frame */
+        if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
         if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
             unsigned pressed = pad.Buttons & ~last_buttons;
             if (!(last_buttons & PSP_CTRL_SELECT)) sel_used = 0;
@@ -485,6 +559,38 @@ int main(int argc, char *argv[])
                     settings_due = 1;
                 }
                 sel_used = 1;
+            }
+            if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_START)) {
+                char names[CARDS_MAX][CARD_NAME_MAX], made[CARD_NAME_MAX], msg[48];
+                int n = cards_list(names), cur = 0, k;
+                const char *to = NULL;
+                sel_used = 1;
+                if (pressed & PSP_CTRL_START) {          /* a new, empty card, and changed to it */
+                    if (cards_new(made) == 0) { to = made; n = cards_list(names); }
+                    else notice("could not make a card");
+                } else if (n > 1) {
+                    for (k = 0; k < n; k++) if (!strcasecmp(names[k], g_card_name)) cur = k;   /* (FAT names: any case) */
+                    to = names[(cur + (pressed & PSP_CTRL_RTRIGGER ? 1 : n - 1)) % n];
+                } else notice("only one card: SELECT+Start makes another");
+                if (to && game_running()) { notice("leave the VMU game first"); to = NULL; }
+                if (to && !g_no_usb && pspexpUsbConnected()) {
+                    /* the adapter lets go of the card first, once every block
+                     * has reached us; the change happens on its answer */
+                    if (g_switch_to[0] || g_status.card_pending || g_card_dirty || now_us() - g_card_last_us < 2000000)
+                        notice("card busy: try again in a moment");
+                    else {
+                        snprintf(g_switch_to, sizeof(g_switch_to), "%s", to);
+                        send_msg(PSP2DC_MSG_CARD_EJECT, NULL, 0);
+                        notice("changing card...");
+                    }
+                } else if (to) {
+                    if (card_change(to) == 0) {
+                        for (k = 0; k < n; k++) if (!strcasecmp(names[k], to)) cur = k;
+                        snprintf(msg, sizeof(msg), "card: %s (%d of %d)", to, cur + 1, n);
+                        notice(msg);
+                        settings_due = 1;
+                    } else notice("could not read that card");
+                }
             }
             if (pressed & PSP_CTRL_CIRCLE) {
                 if (demo_on()) demo_stop();
@@ -556,6 +662,17 @@ int main(int argc, char *argv[])
             }
             if (g_card_state_seq != state_seen) {   /* the adapter said whether it holds a card */
                 state_seen = g_card_state_seq;
+                if (g_switch_to[0]) {                  /* the answer to a CARD_EJECT */
+                    if (g_card_state == PSP2DC_CARD_EMPTY) {
+                        char msg[48];
+                        if (card_change(g_switch_to) == 0) {
+                            snprintf(msg, sizeof(msg), "card: %s", g_switch_to);
+                            settings_due = 1;
+                        } else snprintf(msg, sizeof(msg), "could not read %s: kept", g_switch_to);
+                        notice(msg);                   /* (either way the adapter gets the card in use) */
+                    } else notice("card busy: try again in a moment");
+                    g_switch_to[0] = 0;
+                }
                 if (g_card_state == PSP2DC_CARD_EMPTY) {
                     Psp2dcCardDone done = { 0, {0, 0, 0} };
                     if (g_card_have && card_upload() == 0) { done.sent = 1; g_card_note = "sent to the adapter"; }
@@ -570,6 +687,7 @@ int main(int argc, char *argv[])
             else sent++;
         } else {
             connected = 0;
+            g_switch_to[0] = 0;
             /* Cable in and configured, but the adapter's sync does not come (or
              * is not taken): the PSP's USB is started afresh. PSPExp's runtime
              * does the same when a board's syncs go unanswered; here it was a
@@ -611,6 +729,7 @@ int main(int argc, char *argv[])
             h.card = g_card;
             h.card_have = g_card_have;
             h.card_note = g_card_note;
+            h.card_name = g_card_name;
             h.notice = g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
             /* the icons: the VMU's own when on its own; connected, ATTENTION
              * while the card is being written, as the manual has it (VMU-7:

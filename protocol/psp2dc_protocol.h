@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-#define PSP2DC_PROTOCOL_VERSION 3
+#define PSP2DC_PROTOCOL_VERSION 4
 
 /* the PSPExp link under it */
 #define PSP2DC_USB_VID      0x054Cu
@@ -51,6 +51,7 @@
 #define PSP2DC_MSG_INPUT     0x02   /* every frame */
 #define PSP2DC_MSG_CARD_PART 0x03   /* the memory card going up, a quarter block a message */
 #define PSP2DC_MSG_CARD_DONE 0x04   /* ... and its end (or: there is no card file) */
+#define PSP2DC_MSG_CARD_EJECT 0x05  /* take the card out: another one is to be put in */
 /* adapter -> PSP */
 #define PSP2DC_MSG_STATUS     0x10   /* about once a second */
 #define PSP2DC_MSG_CARD_STATE 0x12   /* the answer to HELLO: whether the adapter holds a card */
@@ -79,6 +80,13 @@ typedef struct {
  *            keeps its freshly formatted card. Only now does the adapter show
  *            the Dreamcast a memory card.
  *   LOADED:  the PSP sends nothing: the adapter's copy is the newer one.
+ *   Changing card (the PSP holds several card files): the PSP sends
+ *            CARD_EJECT once every block has reached it. The adapter takes
+ *            the card away from the Dreamcast, as a VMU pulled out, and
+ *            answers CARD_STATE EMPTY; the PSP sends the other card as above,
+ *            and the adapter shows it to the Dreamcast a second later at the
+ *            earliest, so the Dreamcast sees the card change. While blocks
+ *            are still on their way the adapter refuses: CARD_STATE LOADED.
  *   Then, and from then on: the adapter sends every block the PSP may not
  *            have (all of them once, after LOADED or a CARD_DONE without a
  *            file; afterwards each block a game writes) as CARD_SAVE, and the

@@ -1,0 +1,124 @@
+From 0ce72bb89629120924e17c7eea28d18becb60cc4 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 20:27:45 +0200
+Subject: [PATCH 7/7] PSP2DC: the memory card can be changed (CARD_EJECT,
+ protocol 4)
+
+On CARD_EJECT, once every block has reached the PSP, the adapter takes the
+card away from the Dreamcast (dreamcast_disable_vmu: the controller-only
+packets, as a VMU pulled out), clears its marks and answers CARD_STATE
+EMPTY; the PSP sends the other card and the adapter shows it again a second
+later at the earliest, so the Dreamcast sees it change. Refused (LOADED)
+while blocks are on their way.
+
+Builds; not yet tested on hardware.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       | 21 ++++++++++++++++++-
+ .../device/dreamcast/dreamcast_device.h       |  1 +
+ src/native/device/dreamcast/vmu.c             |  1 +
+ src/native/device/dreamcast/vmu.h             |  1 +
+ src/usb/usbh/psp2dc/psp2dc_host.c             | 10 +++++++++
+ 5 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 73231501..236647f6 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -578,6 +578,18 @@ void dreamcast_enable_vmu(void)
+     current_controller_address = ADDRESS_CONTROLLER_AND_VMU;
+     printf("[DC] VMU advertisement enabled (addr 0x%02X)\n", current_controller_address);
+ }
++
++// The card taken out, as a VMU pulled from the controller: the controller-only
++// packets again. (PSP2DC changes card this way.)
++void dreamcast_disable_vmu(void)
++{
++    pInfoPacket = &InfoPacket;
++    pAllInfoPacket = &AllInfoPacket;
++    pControllerPacket = &ControllerPacket;
++    pACKPacket = &ACKPacket;
++    current_controller_address = ADDRESS_CONTROLLER_ONLY;
++    printf("[DC] VMU advertisement withdrawn\n");
++}
+ #endif
+ 
+ // ============================================================================
+@@ -1376,8 +1388,15 @@ void dreamcast_task(void)
+ #ifdef CONFIG_PSP2DC
+     // The card is the PSP's file: nothing to show the Dreamcast until the PSP
+     // has sent it (or said it has none), or a game could save onto the empty
+-    // card of a PSP that connects a moment later with its own.
++    // card of a PSP that connects a moment later with its own. When the PSP
++    // changes card the card is taken away, and shown again a second later at
++    // the earliest so that the Dreamcast sees it go.
+     extern bool psp2dc_card_ready(void);
++    if (vmu_enabled && !psp2dc_card_ready()) {
++        dreamcast_disable_vmu();
++        vmu_enabled = false;
++        vmu_enable_time = time_us_32() + 1000000;
++    }
+     if (!vmu_enabled && time_us_32() > vmu_enable_time && psp2dc_card_ready()) {
+ #else
+     if (!vmu_enabled && time_us_32() > vmu_enable_time) {
+diff --git a/src/native/device/dreamcast/dreamcast_device.h b/src/native/device/dreamcast/dreamcast_device.h
+index d3fbe19c..219b6291 100644
+--- a/src/native/device/dreamcast/dreamcast_device.h
++++ b/src/native/device/dreamcast/dreamcast_device.h
+@@ -179,6 +179,7 @@ bool dreamcast_get_purupuru_state(uint8_t port, uint8_t* power, uint8_t* freq, u
+ // Call once VMU is initialized and ready to respond to Maple Bus queries
+ // Rebuilds controller Device Info packets to include ADDRESS_SUBPERIPHERAL0
+ void dreamcast_enable_vmu(void);
++void dreamcast_disable_vmu(void);
+ 
+ // OutputInterface accessor
+ #include "core/output_interface.h"
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 87f542dd..a7677d2e 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -362,6 +362,7 @@ void vmu_card_get_part(uint8_t block, uint8_t part, uint8_t *out) {
+ }
+ 
+ void vmu_card_mark_all_dirty(void) { memset((void *)vmu_block_dirty, 1, sizeof(vmu_block_dirty)); }
++void vmu_card_clear_dirty(void) { memset((void *)vmu_block_dirty, 0, sizeof(vmu_block_dirty)); write_block = 0xFFFF; write_phases = 0; }
+ void vmu_card_mark_dirty(uint8_t block) { vmu_block_dirty[block] = 1; }
+ 
+ // The mark comes off before the block is read: a write by Core 1 during the
+diff --git a/src/native/device/dreamcast/vmu.h b/src/native/device/dreamcast/vmu.h
+index df547c2b..6b94cdf4 100644
+--- a/src/native/device/dreamcast/vmu.h
++++ b/src/native/device/dreamcast/vmu.h
+@@ -93,6 +93,7 @@ void vmu_card_mark_all_dirty(void);
+ bool vmu_card_take_dirty(uint8_t *block);
+ void vmu_card_mark_dirty(uint8_t block);
+ uint32_t vmu_card_dirty_count(void);
++void vmu_card_clear_dirty(void);
+ 
+ // Address and status
+ uint8_t   vmu_get_address(void);
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index 7246a7f8..87fad21f 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -150,6 +150,16 @@ static void message(uint8_t addr, psp2dc_dev_t *d, uint8_t type, const uint8_t *
+             vmu_card_mark_all_dirty();
+             d->keeper = true;
+         }
++    } else if (type == PSP2DC_MSG_CARD_EJECT) {
++        // Taken out only once every block has reached the PSP; else refused
++        // (CARD_STATE LOADED) and the PSP tries again later.
++        d->state_due = true;
++        if (card_loaded && vmu_card_dirty_count() == 0) {
++            card_loaded = false;               // the Dreamcast loses the card (dreamcast_task)
++            vmu_card_clear_dirty();
++            d->keeper = false;
++            printf("[psp2dc] PSP %u: memory card taken out\n", addr);
++        }
+     } else if (type == PSP2DC_MSG_CARD_PART && len == sizeof(Psp2dcCardPart)) {
+         if (!card_loaded) vmu_card_set_part(payload[0], payload[1], payload + 2);   // (never once a game can write)
+     } else if (type == PSP2DC_MSG_CARD_DONE && len == sizeof(Psp2dcCardDone)) {
+-- 
+2.54.0 (Apple Git-157)
+

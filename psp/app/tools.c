@@ -13,13 +13,14 @@ static unsigned now_ms(void) { return (unsigned)(sceKernelGetSystemTimeWide() / 
 /* The next free name: dir/prefix-NNN.ext, NNN from 001. */
 static int next_name(const char *dir, const char *prefix, const char *ext, char *out, int max)
 {
-    SceIoStat st;
     int i;
     sceIoMkdir(TOOLS_DIR, 0777);
     sceIoMkdir(dir, 0777);
     for (i = 1; i < 1000; i++) {
+        SceUID fd;
         snprintf(out, max, "%s/%s-%03d.%s", dir, prefix, i, ext);
-        if (sceIoGetstat(out, &st) < 0) return 0;
+        if ((fd = sceIoOpen(out, PSP_O_RDONLY, 0)) < 0) return 0;   /* (by opening: see cards.c) */
+        sceIoClose(fd);
     }
     return -1;
 }

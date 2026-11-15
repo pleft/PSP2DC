@@ -8,7 +8,7 @@ EVMU_SRC = $(EVMU)/libevmu/lib
 EVMU_OUT = $(EVMU)/evmu-psp/lib
 
 TARGET = psp2dc_app
-OBJS = main.o tools.o ui.o vmu_sa.o vmu_game.o
+OBJS = main.o tools.o ui.o vmu_sa.o vmu_game.o cards.o
 
 INCDIR = $(PSPEXP_USB) $(EVMU_SRC)/api $(EVMU_SRC)/lib/libgimbal/lib/api $(EVMU_OUT)/lib/libgimbal/lib/api
 # (libevmu's headers want the configuration its build used)

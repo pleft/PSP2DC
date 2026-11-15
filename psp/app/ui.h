@@ -48,6 +48,7 @@ typedef struct {
     const unsigned char *card;         /* the memory card, when card_have */
     int card_have;
     const char *card_note;
+    const char *card_name;
     const char *notice;                /* a change just made, or NULL */
     unsigned now_ms;
     unsigned icons;                    /* lit LCD icons: 1 file, 2 game, 4 clock, 8 attention */

@@ -613,7 +613,8 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
 card_panel:
     /* the memory card */
     round_rect(x0, 198, 220, 50, 6, t->panel);
-    label(x0 + 8, 204, t->text, "MEMORY CARD");
+    label(x0 + 8, 204, t->text, "CARD");
+    if (h->card_name) label(x0 + 8 + 5 * 7, 204, 0xFF28C8F0, h->card_name);
     if (h->card_have) {
         char s[40];
         n = card_files(h->card, files, 200, &free_blocks);
@@ -630,6 +631,6 @@ card_panel:
     if (h->notice) label(x0 + 8, 232, t->text, h->notice);
 
     /* the keys */
-    label(x0 + 4, 256, half(t->text), "SELECT + <> page   ^v theme");
+    label(x0 + 4, 256, half(t->text), "SELECT+ <>page ^vtheme L/R card");
     ui_end();
 }

@@ -242,7 +242,7 @@ The message format is defined once, in `protocol/psp2dc_protocol.h`, shared by t
 joypad-os's VMU code is disabled upstream because writing the image to the Pico's flash disturbs Maple timing, and its SD card option needs pins that are unavailable here. So the card is kept on the PSP's Memory Stick and the adapter writes no flash at all:
 
 - The adapter answers the Dreamcast from the 128 KB image in its RAM, as before.
-- The PSP keeps the card as `ms0:/PSP2DC/card1.bin`, a plain 128 KB image (the usual VMU dump). It is outside the application's folder so that copying a new version of the application cannot remove it, and it is written to a second name and renamed, so an interrupted write leaves the last good file.
+- The PSP keeps the card as a file in `ms0:/PSP2DC/cards` (section 5.0e; at first `ms0:/PSP2DC/card1.bin`), a plain 128 KB image (the usual VMU dump). It is outside the application's folder so that copying a new version of the application cannot remove it, and it is written to a second name and renamed, so an interrupted write leaves the last good file.
 - When the link comes up, the PSP says whether it has a file and the adapter says whether it already holds a card. A freshly powered adapter takes the PSP's file (256 blocks), and only then shows the Dreamcast a memory card; with no file on the PSP, the adapter's freshly formatted card is used and sent to the PSP to keep. An adapter that already holds a card (the PSP was unplugged or restarted mid-session) keeps its own and sends all of it to the PSP.
 - Each block a game writes is marked in the adapter and sent to the PSP, one block a transfer, taking turns with the VMU screen; the PSP writes the file 0.7 s after the blocks stop.
 - A consequence: with no PSP connected the Dreamcast sees no memory card, only a controller with nothing in its slots.
@@ -332,6 +332,18 @@ Verified: Bounce, Chao Adventure 2 and Metal Gear Stealth run correctly on the M
 **Problem: too slow.** On the PSP build (PPSSPP) a frame of VMU time takes about 388 ms to emulate, many times slower than real time; a real PSP is likely slower still. A profile on the Mac shows the time is libgimbal's object system (type lookups in hash tables, type checks, thread lookups and mutex locks on every emulated instruction), not the emulation itself; turning off libevmu's error tracking and logging changed nothing (the module did shrink from 4.9 to 1.8 MB). The decision on the way forward is open (section 9).
 
 `scripts/dev/card-add-game.py` installs a `.vms` game into a copy of a card image, for trying GAME mode in PPSSPP.
+
+### 5.0e Several Memory Cards
+
+The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, so they can be named on a computer (`saves.bin`, `games.bin`). The card in use is kept in the settings (`card=`). The single card of earlier versions (`ms0:/PSP2DC/card1.bin`) is copied into the folder as `card1` on the first start and removed once the copy reads back the same (a rename into another folder failed under PPSSPP).
+
+- **SELECT + L / R:** the previous or next card (by name); the panel and the top line show its name, and for two seconds "card: NAME (2 of 3)".
+- **SELECT + Start:** a new card, formatted as the adapter formats one (200 blocks free), named `cardN` with the first free N, and changed to.
+- **On its own** (no Dreamcast) the change is immediate, the card in use written first if it changed; not while a VMU game runs.
+- **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (protocol 4, `CARD_EJECT`): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
+- A file is tested for by opening it: `sceIoGetstat` said "not there" for files that were there under PPSSPP, and a new card must never overwrite an old one.
+
+Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a card), using `ms0:/PSP2DC/dev_input.txt`, a timed list of buttons the application holds when the file is there (combinations cannot be held from the Mac's keyboard). The connected change needs the firmware of 15 November 20:23 or later and is not yet tried on hardware.
 
 ### 5.1 Controller Mapping
 
