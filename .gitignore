@@ -1,0 +1,13 @@
+.DS_Store
+# build outputs
+/build/
+/dist/
+psp/*/*.o
+psp/*/*.d
+psp/*/*.elf
+psp/*/*.prx
+psp/*/EBOOT.PBP
+psp/*/PARAM.SFO
+# joypad-os is its own repository (branch superpico); its changes are kept
+# here as patches in firmware/patches
+/firmware/joypad-os/

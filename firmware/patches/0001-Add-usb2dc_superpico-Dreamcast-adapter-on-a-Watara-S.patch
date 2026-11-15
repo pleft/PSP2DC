@@ -1,0 +1,473 @@
+From efd6edcbe6ae52751dcb13e1ec8ba46905f59ccd Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 16:10:44 +0200
+Subject: [PATCH 1/2] Add usb2dc_superpico: Dreamcast adapter on a Watara
+ SuperPico, with a PSP as the controller
+
+A build target for the SuperPico flash cart (a Raspberry Pi Pico behind three
+always-enabled 74LVC245 buffers on GP0-GP16 and GP28): Maple on GP21/GP22,
+debug UART1 TX on GP20, nothing driven on the buffered pins.
+
+A TinyUSB host class driver (usb/usbh/psp2dc, CONFIG_PSP2DC) for a Sony PSP
+running the PSP2DC application over PSPExp's USB link (054c:01ca, vendor
+class, bulk IN + OUT): half duplex, since the RP2040 host runs one
+non-interrupt transfer at a time. The protocol header lives in the PSP2DC
+project (../../protocol/psp2dc_protocol.h).
+
+Tested on hardware: a PSP-1000 navigating GDMENU and playing Crazy Taxi 2 on
+a real Dreamcast.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ Makefile                          |   6 +
+ src/CMakeLists.txt                |  42 +++++
+ src/usb/usbh/psp2dc/psp2dc_host.c | 271 ++++++++++++++++++++++++++++++
+ src/usb/usbh/psp2dc/psp2dc_host.h |  14 ++
+ src/usb/usbh/usbh.c               |   6 +
+ src/usb/usbh/xinput/xinput.c      |   9 +
+ 6 files changed, 348 insertions(+)
+ create mode 100644 src/usb/usbh/psp2dc/psp2dc_host.c
+ create mode 100644 src/usb/usbh/psp2dc/psp2dc_host.h
+
+diff --git a/Makefile b/Makefile
+index d720d68e..17f88e22 100644
+--- a/Makefile
++++ b/Makefile
+@@ -75,6 +75,7 @@ CONSOLE_nuonserial := joypad_nuonserial
+ CONSOLE_loopy := joypad_loopy
+ CONSOLE_dc := joypad_dc
+ CONSOLE_dc_rp2040zero := joypad_dc_rp2040zero
++CONSOLE_dc_superpico := joypad_dc_superpico
+ CONSOLE_ami_rp2040zero := joypad_ami_rp2040zero
+ CONSOLE_ami_xiao := joypad_ami_xiao
+ CONSOLE_usb_pico := joypad_usb_pico
+@@ -163,6 +164,7 @@ APP_nuonserial_kb2040 := kb2040 nuonserial nuonserial_kb2040 Nuon CDC-Serial
+ APP_usb2loopy_kb2040 := kb2040 loopy usb2loopy_kb2040 USB/BT Loopy
+ APP_usb2dc_kb2040 := kb2040 dc usb2dc_kb2040 USB/BT Dreamcast
+ APP_usb2dc_rp2040zero := rp2040zero dc_rp2040zero usb2dc_rp2040zero USB/BT Dreamcast
++APP_usb2dc_superpico := pico dc_superpico usb2dc_superpico USB/BT Dreamcast
+ APP_usb2ami_rp2040zero := rp2040zero ami_rp2040zero usb2ami_rp2040zero USB/BT Amiga/Atari
+ APP_usb2ami_xiao := seeed_xiao_rp2040 ami_xiao usb2ami_xiao USB/BT Amiga/Atari
+ APP_usb2neogeo_kb2040 := kb2040 neogeo usb2neogeo_kb2040 USB/BT NEOGEO
+@@ -666,6 +668,10 @@ usb2dc_kb2040:
+ usb2dc_rp2040zero:
+ 	$(call build_app,usb2dc_rp2040zero)
+ 
++.PHONY: usb2dc_superpico
++usb2dc_superpico:
++	$(call build_app,usb2dc_superpico)
++
+ .PHONY: usb2ami_rp2040zero
+ usb2ami_rp2040zero:
+ 	$(call build_app,usb2ami_rp2040zero)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 453e6ff3..b5a18757 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -806,6 +806,48 @@ joypad_target_common(joypad_dc_rp2040zero)
+ joypad_add_btstack(joypad_dc_rp2040zero)
+ pico_generate_pio_header(joypad_dc_rp2040zero ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
+ 
++# --- Dreamcast (Watara SuperPico flash cart, PSP2DC project) ---
++# The SuperPico's three 74LVC245 buffers are permanently enabled and drive
++# GP0-GP16 and GP28, so NOTHING here may be an output on those pins. Only the
++# eight direct data-bus pins are usable: GP17 18 19 20 21 22 26 27 (+ LED GP25).
++#   Maple A = GP21 (cart edge pin 31, D3)   Maple B = GP22 (edge pin 32, D2)
++#   Debug UART1 TX = GP20 (edge pin 30, D4), 115200 8N1, no RX
++#   GP18 is driven by the maple_idle PIO program (leave edge pin 28 unconnected)
++add_executable(joypad_dc_superpico)
++target_compile_definitions(joypad_dc_superpico PRIVATE
++    MAPLE_PIN1=21 MAPLE_PIN5=22
++    CONFIG_PSP2DC=1               # host driver for a PSP running PSP2DC
++    CONFIG_NO_NEOPIXEL=1          # no pixel; default pins would hit a buffer
++    USE_BOOTSEL_BUTTON=1          # no GPIO button (buffered pins read garbage)
++    BOARD_LED_PIN=25
++    BOARD_NAME="superpico"
++    NO_CUSTOM_UART_PINS=1         # skip the KB2040 GP12/GP13 UART setup
++    PICO_DEFAULT_UART=1
++    PICO_DEFAULT_UART_TX_PIN=20
++    PICO_DEFAULT_UART_RX_PIN=-1
++)
++target_compile_options(joypad_dc_superpico PRIVATE ${USB2DC_FORCE_CONFIG})
++target_sources(joypad_dc_superpico PUBLIC ${COMMON_SOURCES}
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_device.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/maple_state_machine.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_sd.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_storage.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc/app.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/psp2dc/psp2dc_host.c
++)
++target_include_directories(joypad_dc_superpico PUBLIC
++    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast
++    ${CMAKE_CURRENT_SOURCE_DIR}/../../../protocol   # PSP2DC project: psp2dc_protocol.h
++)
++target_link_libraries(joypad_dc_superpico PRIVATE ${COMMON_LIBRARIES} hardware_dma)
++pico_enable_stdio_uart(joypad_dc_superpico 1)
++pico_enable_stdio_usb(joypad_dc_superpico 0)
++joypad_target_common(joypad_dc_superpico)
++joypad_add_btstack(joypad_dc_superpico)
++pico_generate_pio_header(joypad_dc_superpico ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
++
+ # --- NEOGEO ---
+ add_executable(joypad_neogeo)
+ target_compile_definitions(joypad_neogeo PRIVATE CONFIG_NEOGEO=1)
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+new file mode 100644
+index 00000000..3e4e63be
+--- /dev/null
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -0,0 +1,271 @@
++// PSP2DC host driver: see psp2dc_host.h and protocol/psp2dc_protocol.h.
++//
++// The RP2040's host controller runs one non-interrupt transfer at a time, so
++// this driver is strictly half duplex: at any moment it has either one bulk
++// OUT or one bulk IN in flight, never both.
++//
++//   SYNC:     send the link's sync packet, then read until its echo comes back
++//             (PSPExp's driver answers a sync with the same 16 bytes and from
++//             then on passes the application's bytes through).
++//   RUNNING:  read a transfer, parse the messages in it, send whatever is
++//             waiting (a STATUS once a second), read again. The PSP sends an
++//             INPUT message every frame, so a read never waits long.
++//
++// A PSP that stops sending (application paused, cable still in) has its
++// buttons released after PSP2DC_SILENCE_MS, so nothing stays held.
++#include "psp2dc_host.h"
++
++#if CFG_TUH_ENABLED
++#include <stdio.h>
++#include <string.h>
++#include "psp2dc_protocol.h"
++#include "core/buttons.h"
++#include "core/input_event.h"
++#include "core/router/router.h"
++#include "platform/platform.h"
++
++enum {
++    PSP2DC_RX_SIZE     = PSP2DC_USB_PACKET_FS,   // one full-speed packet a read
++    PSP2DC_TX_SIZE     = 256,
++    PSP2DC_STREAM_SIZE = 256,
++    PSP2DC_SYNC_RETRY_MS = 1000,
++    PSP2DC_STATUS_MS     = 1000,
++    PSP2DC_SILENCE_MS    = 300,
++};
++
++typedef enum { ST_CLOSED = 0, ST_OPENED, ST_SYNC, ST_RUNNING } psp2dc_state_t;
++
++typedef struct {
++    psp2dc_state_t state;
++    uint8_t ep_in, ep_out;
++    bool busy;              // a transfer (either direction) is in flight
++    bool sync_sent;         // SYNC: the sync went out, its echo is awaited
++    bool submitted;         // an input event reached the router
++    bool silent;            // the neutral state was sent after a silence
++    uint32_t sync_ms, status_ms, input_ms;
++    uint32_t inputs, bad;   // counters, for the log
++    uint16_t stream_len;
++    uint8_t stream[PSP2DC_STREAM_SIZE];
++    CFG_TUSB_MEM_ALIGN uint8_t rx[PSP2DC_RX_SIZE];
++    CFG_TUSB_MEM_ALIGN uint8_t tx[PSP2DC_TX_SIZE];
++} psp2dc_dev_t;
++
++static CFG_TUSB_MEM_SECTION psp2dc_dev_t devs[CFG_TUH_DEVICE_MAX + 1];
++static const uint8_t sync_bytes[PSP2DC_USB_SYNC_LEN] = PSP2DC_USB_SYNC_BYTES;
++
++static psp2dc_dev_t *dev(uint8_t addr)
++{
++    return addr && addr <= CFG_TUH_DEVICE_MAX ? &devs[addr] : NULL;
++}
++
++static bool transfer(uint8_t addr, uint8_t ep, uint8_t *buf, uint16_t len)
++{
++    if (!usbh_edpt_claim(addr, ep)) return false;
++    if (usbh_edpt_xfer(addr, ep, buf, len)) return true;
++    usbh_edpt_release(addr, ep);
++    return false;
++}
++
++static void submit(uint8_t addr, psp2dc_dev_t *d, const Psp2dcInput *in)
++{
++    static const struct { uint16_t psp; uint32_t jp; } map[] = {
++        { PSP2DC_BTN_A, JP_BUTTON_B1 },     { PSP2DC_BTN_B, JP_BUTTON_B2 },
++        { PSP2DC_BTN_X, JP_BUTTON_B3 },     { PSP2DC_BTN_Y, JP_BUTTON_B4 },
++        { PSP2DC_BTN_START, JP_BUTTON_S2 }, { PSP2DC_BTN_UP, JP_BUTTON_DU },
++        { PSP2DC_BTN_DOWN, JP_BUTTON_DD },  { PSP2DC_BTN_LEFT, JP_BUTTON_DL },
++        { PSP2DC_BTN_RIGHT, JP_BUTTON_DR }, { PSP2DC_BTN_Z, JP_BUTTON_L3 },
++        { PSP2DC_BTN_C, JP_BUTTON_R3 },     { PSP2DC_BTN_D, JP_BUTTON_S1 },
++    };
++    input_event_t event = {
++        .dev_addr = addr, .instance = 0,
++        .type = INPUT_TYPE_GAMEPAD, .transport = INPUT_TRANSPORT_USB,
++        .button_count = 4,
++        .analog = {128, 128, 128, 128, 0, 0},
++    };
++    if (in) {
++        uint16_t b = in->buttons;   // little endian on both ends
++        for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
++            if (b & map[i].psp) event.buttons |= map[i].jp;
++        }
++        event.analog[ANALOG_LX] = in->stick_x;
++        event.analog[ANALOG_LY] = in->stick_y;
++        event.analog[ANALOG_L2] = in->trigger_l;
++        event.analog[ANALOG_R2] = in->trigger_r;
++    }
++    router_submit_input(&event);
++    d->submitted = true;
++}
++
++// Messages out of the byte stream. Bytes that are not a header are skipped
++// one at a time, so a damaged stream finds the next message by itself.
++static void parse(uint8_t addr, psp2dc_dev_t *d)
++{
++    uint16_t pos = 0;
++    while (d->stream_len - pos >= PSP2DC_HEADER_LEN) {
++        const uint8_t *p = d->stream + pos;
++        if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; d->bad++; continue; }
++        uint16_t total = PSP2DC_HEADER_LEN + p[3];
++        if (d->stream_len - pos < total) break;   // the rest comes with the next read
++        if (p[2] == PSP2DC_MSG_INPUT && p[3] == sizeof(Psp2dcInput)) {
++            Psp2dcInput in;
++            memcpy(&in, p + PSP2DC_HEADER_LEN, sizeof(in));
++            submit(addr, d, &in);
++            d->inputs++;
++            d->input_ms = platform_time_ms();
++            d->silent = false;
++        } else if (p[2] == PSP2DC_MSG_HELLO && p[3] == sizeof(Psp2dcHello)) {
++            printf("[psp2dc] PSP %u: hello, protocol %u\n", addr, p[PSP2DC_HEADER_LEN]);
++        }
++        pos += total;
++    }
++    if (pos) {
++        memmove(d->stream, d->stream + pos, d->stream_len - pos);
++        d->stream_len -= pos;
++    }
++}
++
++static void received(uint8_t addr, psp2dc_dev_t *d, uint32_t len)
++{
++    if (d->state == ST_SYNC) {
++        if (len == PSP2DC_USB_SYNC_LEN && !memcmp(d->rx, sync_bytes, sizeof(sync_bytes))) {
++            d->state = ST_RUNNING;
++            d->stream_len = 0;
++            d->input_ms = d->status_ms = platform_time_ms();
++            printf("[psp2dc] PSP %u: link synchronised\n", addr);
++        }
++        return;   // anything else before the echo is stale
++    }
++    if (len > sizeof(d->stream) - d->stream_len) { d->stream_len = 0; d->bad++; }   // never with these sizes
++    memcpy(d->stream + d->stream_len, d->rx, len);
++    d->stream_len += (uint16_t)len;
++    parse(addr, d);
++}
++
++static uint16_t build_status(psp2dc_dev_t *d)
++{
++    Psp2dcStatus st = { .uptime_ms = platform_time_ms(), .version = PSP2DC_PROTOCOL_VERSION };
++    d->tx[0] = PSP2DC_MAGIC0; d->tx[1] = PSP2DC_MAGIC1;
++    d->tx[2] = PSP2DC_MSG_STATUS; d->tx[3] = sizeof(st);
++    memcpy(d->tx + PSP2DC_HEADER_LEN, &st, sizeof(st));
++    return PSP2DC_HEADER_LEN + sizeof(st);
++}
++
++void psp2dc_host_task(void)
++{
++    for (unsigned addr = 1; addr <= CFG_TUH_DEVICE_MAX; addr++) {
++        psp2dc_dev_t *d = &devs[addr];
++        uint32_t now = platform_time_ms();
++        if (d->state < ST_SYNC) continue;
++
++        if (d->state == ST_RUNNING && d->submitted && !d->silent && now - d->input_ms > PSP2DC_SILENCE_MS) {
++            submit((uint8_t)addr, d, NULL);   // the PSP went quiet: let go of everything
++            d->silent = true;
++        }
++        if (d->busy) continue;
++
++        if (d->state == ST_SYNC) {
++            if (!d->sync_sent || now - d->sync_ms > PSP2DC_SYNC_RETRY_MS) {
++                memcpy(d->tx, sync_bytes, sizeof(sync_bytes));
++                if (transfer((uint8_t)addr, d->ep_out, d->tx, sizeof(sync_bytes))) {
++                    d->busy = true;
++                    d->sync_sent = true;
++                    d->sync_ms = now;
++                }
++            } else {
++                d->busy = transfer((uint8_t)addr, d->ep_in, d->rx, sizeof(d->rx));
++            }
++            continue;
++        }
++        // RUNNING: what is waiting to go out first, then the next read
++        if (now - d->status_ms >= PSP2DC_STATUS_MS) {
++            uint16_t n = build_status(d);
++            if (transfer((uint8_t)addr, d->ep_out, d->tx, n)) {
++                d->busy = true;
++                d->status_ms = now;
++                continue;
++            }
++        }
++        d->busy = transfer((uint8_t)addr, d->ep_in, d->rx, sizeof(d->rx));
++    }
++}
++
++static bool psp2dc_init(void)
++{
++    memset(devs, 0, sizeof(devs));
++    return true;
++}
++
++static void psp2dc_close(uint8_t addr)
++{
++    psp2dc_dev_t *d = dev(addr);
++    if (!d || d->state == ST_CLOSED) return;
++    if (d->submitted) router_device_disconnected(addr, 0);
++    printf("[psp2dc] PSP %u: gone (%lu inputs, %lu bad bytes)\n", addr,
++           (unsigned long)d->inputs, (unsigned long)d->bad);
++    memset(d, 0, sizeof(*d));
++}
++
++static bool psp2dc_deinit(void)
++{
++    for (unsigned addr = 1; addr <= CFG_TUH_DEVICE_MAX; addr++) psp2dc_close((uint8_t)addr);
++    return true;
++}
++
++static bool psp2dc_open(uint8_t rhport, uint8_t addr, const tusb_desc_interface_t *itf, uint16_t max_len)
++{
++    (void)rhport;
++    uint16_t vid, pid;
++    psp2dc_dev_t *d = dev(addr);
++    if (!d || !tuh_vid_pid_get(addr, &vid, &pid)) return false;
++    if (vid != PSP2DC_USB_VID || pid != PSP2DC_USB_PID) return false;
++    if (itf->bInterfaceClass != TUSB_CLASS_VENDOR_SPECIFIC || itf->bNumEndpoints < 2) return false;
++
++    uint8_t ep_in = 0, ep_out = 0;
++    const uint8_t *p = (const uint8_t *)itf;
++    for (uint16_t pos = itf->bLength; pos + 2 <= max_len && p[pos] >= 2; pos += p[pos]) {
++        if (p[pos + 1] == TUSB_DESC_INTERFACE) break;
++        if (p[pos + 1] != TUSB_DESC_ENDPOINT || p[pos] < sizeof(tusb_desc_endpoint_t)) continue;
++        const tusb_desc_endpoint_t *ep = (const tusb_desc_endpoint_t *)(p + pos);
++        if (ep->bmAttributes.xfer != TUSB_XFER_BULK) continue;
++        if (!tuh_edpt_open(addr, ep)) return false;
++        if (tu_edpt_dir(ep->bEndpointAddress) == TUSB_DIR_IN) ep_in = ep->bEndpointAddress;
++        else ep_out = ep->bEndpointAddress;
++    }
++    if (!ep_in || !ep_out) return false;
++    memset(d, 0, sizeof(*d));
++    d->ep_in = ep_in;
++    d->ep_out = ep_out;
++    d->state = ST_OPENED;
++    printf("[psp2dc] PSP %u: found (in %02x, out %02x)\n", addr, ep_in, ep_out);
++    return true;
++}
++
++static bool psp2dc_set_config(uint8_t addr, uint8_t itf_num)
++{
++    psp2dc_dev_t *d = dev(addr);
++    if (d && d->state == ST_OPENED) d->state = ST_SYNC;
++    usbh_driver_set_config_complete(addr, itf_num);
++    return true;
++}
++
++static bool psp2dc_xfer(uint8_t addr, uint8_t ep, xfer_result_t result, uint32_t len)
++{
++    psp2dc_dev_t *d = dev(addr);
++    if (!d || d->state < ST_SYNC) return false;
++    d->busy = false;
++    if (ep == d->ep_in) {
++        if (result == XFER_RESULT_SUCCESS) received(addr, d, len);
++    } else if (ep == d->ep_out) {
++        if (result != XFER_RESULT_SUCCESS && d->state == ST_SYNC) d->sync_sent = false;
++    } else {
++        return false;
++    }
++    return true;
++}
++
++const usbh_class_driver_t usbh_psp2dc_driver = {
++    .name = "PSP2DC", .init = psp2dc_init, .deinit = psp2dc_deinit,
++    .open = psp2dc_open, .set_config = psp2dc_set_config,
++    .xfer_cb = psp2dc_xfer, .close = psp2dc_close,
++};
++#endif
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.h b/src/usb/usbh/psp2dc/psp2dc_host.h
+new file mode 100644
+index 00000000..ad82d0b2
+--- /dev/null
++++ b/src/usb/usbh/psp2dc/psp2dc_host.h
+@@ -0,0 +1,14 @@
++// PSP2DC: a Sony PSP running the PSP2DC application as the controller.
++// The PSP is a USB device (PSPExp's kernel driver, 054c:01ca, vendor class,
++// bulk IN + bulk OUT); this is the host side. Protocol: protocol/psp2dc_protocol.h
++// in the PSP2DC project.
++#ifndef PSP2DC_HOST_H
++#define PSP2DC_HOST_H
++
++#include "tusb.h"
++#if CFG_TUH_ENABLED
++#include "host/usbh_pvt.h"
++extern const usbh_class_driver_t usbh_psp2dc_driver;
++void psp2dc_host_task(void);
++#endif
++#endif
+diff --git a/src/usb/usbh/usbh.c b/src/usb/usbh/usbh.c
+index 88da0ae0..ca70f254 100644
+--- a/src/usb/usbh/usbh.c
++++ b/src/usb/usbh/usbh.c
+@@ -6,6 +6,9 @@
+ #include "usbh.h"
+ #include "tusb.h"
+ #include "intel/intel_wireless_series.h"
++#ifdef CONFIG_PSP2DC
++#include "psp2dc/psp2dc_host.h"
++#endif
+ #include "core/services/players/manager.h"
+ #include "core/services/codes/codes.h"
+ #include <stdio.h>
+@@ -211,6 +214,9 @@ void usbh_task(void)
+ 
+ #if CFG_TUH_ENABLED
+     intel_wireless_series_task();
++#ifdef CONFIG_PSP2DC
++    psp2dc_host_task();
++#endif
+ #endif
+ 
+ #if CFG_TUH_XINPUT
+diff --git a/src/usb/usbh/xinput/xinput.c b/src/usb/usbh/xinput/xinput.c
+index a29766bd..4edc5f7e 100644
+--- a/src/usb/usbh/xinput/xinput.c
++++ b/src/usb/usbh/xinput/xinput.c
+@@ -10,6 +10,9 @@
+ #include "xinput_host.h"
+ #include "chatpad.h"
+ #include "usb/usbh/intel/intel_wireless_series.h"
++#ifdef CONFIG_PSP2DC
++#include "usb/usbh/psp2dc/psp2dc_host.h"
++#endif
+ #include "core/input_event.h"
+ #include "usb/usbd/usbd.h"  // for usbd_get_mode() / USB_OUTPUT_MODE_XBONE
+ 
+@@ -51,6 +54,9 @@ uint8_t byteScaleAnalog(int16_t xbox_val);
+ // Count how many drivers we have
+ enum {
+     CUSTOM_DRIVER_COUNT = 1 // Intel Wireless Series receiver
++#ifdef CONFIG_PSP2DC
++    + 1 // a PSP running PSP2DC
++#endif
+ #if CFG_TUH_XINPUT
+     + 1
+ #endif
+@@ -67,6 +73,9 @@ usbh_class_driver_t const* usbh_app_driver_get_cb(uint8_t* driver_count) {
+     if (!drivers_initialized) {
+         usbh_class_driver_t* drivers = (usbh_class_driver_t*)custom_driver_storage;
+         int idx = 0;
++#ifdef CONFIG_PSP2DC
++        memcpy(&drivers[idx++], &usbh_psp2dc_driver, sizeof(usbh_class_driver_t));
++#endif
+         memcpy(&drivers[idx++], &usbh_intel_wireless_series_driver, sizeof(usbh_class_driver_t));
+ #if CFG_TUH_XINPUT
+         memcpy(&drivers[idx++], &usbh_xinput_driver, sizeof(usbh_class_driver_t));
+-- 
+2.54.0 (Apple Git-157)
+
