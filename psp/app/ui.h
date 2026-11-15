@@ -30,6 +30,8 @@ void ui_fill(int x, int y, int w, int h, unsigned colour);
 void ui_text(int col, int row, unsigned colour, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 /* the VMU's screen, as the Dreamcast sends it (turned half round here) */
 void ui_lcd(const unsigned char *lcd, int x, int y, int scale, const UiTheme *t);
+/* the 48x32 dots spread over w x h pixels (dots of mixed sizes where that is not whole) */
+void ui_lcd_fit(const unsigned char *lcd, int x, int y, int w, int h, const UiTheme *t);
 /* the same with dots sx pixels wide and sy tall */
 void ui_lcd_dots(const unsigned char *lcd, int x, int y, int sx, int sy, const UiTheme *t);
 
