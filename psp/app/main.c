@@ -249,7 +249,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
     printf("L/R = triggers   SELECT = stick\n");
-    printf("HOME = quit\n");
+    printf("HOME = quit");
 }
 
 int main(int argc, char *argv[])
@@ -262,6 +262,12 @@ int main(int argc, char *argv[])
     SceUID thid;
 
     pspDebugScreenInit();
+    /* The debug screen clears the next text line at every newline, across the
+     * whole width: the status page's last lines reach the VMU picture's top
+     * rows and blanked them at each redraw until the next screen came (a
+     * flickering band, seen in Crazy Taxi 2, 2026-11-15). The lines are padded
+     * with spaces instead, and the picture is drawn again after the text. */
+    pspDebugScreenClearLineDisable();
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     sceCtrlSetSamplingCycle(0);
@@ -294,7 +300,7 @@ int main(int argc, char *argv[])
         } else {
             connected = 0;
         }
-        if ((frame++ % 6) == 0) show(usb_rc, &in, sent, errors);
+        if ((frame++ % 6) == 0) { show(usb_rc, &in, sent, errors); lcd_shown = ~0u; }
         if (g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; lcd_draw(); }
     }
     pspexpUsbStop();
