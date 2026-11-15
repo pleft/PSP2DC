@@ -516,12 +516,13 @@ static unsigned dev_input(unsigned ms_since_start)
  * connected: the Dreamcast has the card then. Not while a VMU game runs: it
  * holds its own copy of the card, which it writes back when it ends. */
 enum { SB_NONE, SB_ACTIONS, SB_CARDS, SB_DELETE, SB_RESULT };
-enum { ACT_COPY, ACT_EXPORT, ACT_DELETE, ACTS };
+enum { ACT_COPY, ACT_MOVE, ACT_EXPORT, ACT_DELETE, ACTS };
 static int g_sv_sel, g_sv_box, g_sv_item;
 static char g_sv_title[48], g_sv_line[3][64];
 static char g_sv_cards[CARDS_MAX][CARD_NAME_MAX];
 static int g_sv_ncards;
 static CardFile g_sv_file;                 /* the save the box is about */
+static int g_sv_move;                      /* the card list is for a move, not a copy */
 
 static void saves_reset(void) { g_sv_sel = g_sv_box = g_sv_item = 0; g_saves_first = 0; }
 
@@ -540,22 +541,55 @@ static int saves_file(CardFile *f)
     return g_card_have && cardfs_find(g_card, g_sv_file.off, f) && !strcmp(f->name, g_sv_file.name);
 }
 
-static void saves_copy(const char *to)
+/* the save is on that card's file, the same bytes as here (read back) */
+static int saves_landed(const char *to, const CardFile *f)
+{
+    static unsigned char back[PSP2DC_CARD_BYTES], a[200 * 512], b[200 * 512];
+    static CardFile there[200];
+    int n, i, la, lb;
+    if (!cards_read(to, back)) return 0;
+    n = cardfs_list(back, there, 200);
+    for (i = 0; i < n; i++)
+        if (!strcmp(there[i].name, f->name)) {
+            la = cardfs_export_vms(g_card, f, a);
+            lb = cardfs_export_vms(back, &there[i], b);
+            return la > 0 && la == lb && !memcmp(a, b, la);
+        }
+    return 0;
+}
+
+/* Copy, or move: copy, read back, and only then delete it here */
+static void saves_copy(const char *to, int move)
 {
     static unsigned char other[PSP2DC_CARD_BYTES];
     char line[64];
     CardFile f;
     int rc;
-    if (!saves_file(&f) || !cards_read(to, other)) { saves_result("Copy failed", "The card could not be read.", NULL, NULL); return; }
+    if (!saves_file(&f) || !cards_read(to, other)) {
+        saves_result(move ? "Move failed" : "Copy failed", "The card could not be read.", NULL, NULL);
+        return;
+    }
     rc = cardfs_copy(g_card, &f, other);
     if (rc == CARDFS_OK && cards_write(to, other) < 0) rc = CARDFS_FAIL;
+    if (rc == CARDFS_OK && move && !saves_landed(to, &f)) rc = CARDFS_FAIL;
     snprintf(line, sizeof(line), "%s to %s", f.name, to);
-    if (rc == CARDFS_OK) saves_result("Copied", line, NULL, NULL);
-    else if (rc == CARDFS_SAME) saves_result("Same file exist", line, "That card has a save of this name.", NULL);
+    if (rc == CARDFS_OK && move) {
+        card_lock();
+        cardfs_delete(g_card, &f);
+        g_card_dirty = 1;
+        g_card_last_us = now_us();
+        g_card_note = "save moved";
+        card_unlock();
+        saves_result("Moved", line, NULL, NULL);
+    } else if (rc == CARDFS_OK) saves_result("Copied", line, NULL, NULL);
+    else if (rc == CARDFS_SAME)
+        saves_result("Same file exist", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
     else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other))
-        saves_result("Not copied", line, "That card has a game already:", "a card holds one game.");
-    else if (rc == CARDFS_ROOM) saves_result("Not enough free memory", line, "Not enough free blocks there.", NULL);
-    else saves_result("Copy failed", line, NULL, NULL);
+        saves_result(move ? "Not moved" : "Not copied", line, "That card has a game already (one a card).",
+                     move ? "It stays on this card." : NULL);
+    else if (rc == CARDFS_ROOM)
+        saves_result("Not enough free memory", line, "Not enough free blocks there.", move ? "It stays on this card." : NULL);
+    else saves_result(move ? "Move failed" : "Copy failed", line, move ? "It stays on this card." : NULL, NULL);
 }
 
 static void saves_input(unsigned pressed)
@@ -580,12 +614,13 @@ static void saves_input(unsigned pressed)
     case SB_ACTIONS:                       /* a copy-protected save cannot be copied, as on the VMU */
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
             do g_sv_item = (g_sv_item + (pressed & PSP_CTRL_DOWN ? 1 : ACTS - 1)) % ACTS;
-            while (g_sv_item == ACT_COPY && g_sv_file.prot);
+            while ((g_sv_item == ACT_COPY || g_sv_item == ACT_MOVE) && g_sv_file.prot);
         }
         if (pressed & PSP_CTRL_CIRCLE) g_sv_box = SB_NONE;
         else if (pressed & PSP_CTRL_CROSS) {
-            if (g_sv_item == ACT_COPY) {
+            if (g_sv_item == ACT_COPY || g_sv_item == ACT_MOVE) {
                 char names[CARDS_MAX][CARD_NAME_MAX];
+                g_sv_move = g_sv_item == ACT_MOVE;
                 int m = cards_list(names);
                 for (k = g_sv_ncards = 0; k < m; k++)
                     if (strcasecmp(names[k], g_card_name)) memcpy(g_sv_cards[g_sv_ncards++], names[k], CARD_NAME_MAX);
@@ -605,8 +640,8 @@ static void saves_input(unsigned pressed)
     case SB_CARDS:
         if (pressed & PSP_CTRL_DOWN) g_sv_item = (g_sv_item + 1) % g_sv_ncards;
         if (pressed & PSP_CTRL_UP) g_sv_item = (g_sv_item + g_sv_ncards - 1) % g_sv_ncards;
-        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_COPY; }
-        else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_sv_item]);
+        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = g_sv_move ? ACT_MOVE : ACT_COPY; }
+        else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_sv_item], g_sv_move);
         break;
     case SB_DELETE:                        /* No first */
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_sv_item = !g_sv_item;
@@ -632,7 +667,8 @@ static void saves_input(unsigned pressed)
 
 static void saves_view(UiSaves *v, int standalone)
 {
-    static const char *const acts[ACTS] = { "Copy to another card", "Export to the Memory Stick", "Delete" };
+    static const char *const acts[ACTS] = { "Copy to another card", "Move to another card",
+                                            "Export to the Memory Stick", "Delete" };
     int k;
     memset(v, 0, sizeof(*v));
     v->first = g_saves_first;
@@ -647,9 +683,12 @@ static void saves_view(UiSaves *v, int standalone)
     if (g_sv_box == SB_ACTIONS) {
         for (k = 0; k < ACTS; k++) v->items[k] = acts[k];
         v->nitems = ACTS;
-        if (g_sv_file.prot) { v->off_items = 1u << ACT_COPY; v->lines[0] = "Copy-protected: it cannot be copied."; }
+        if (g_sv_file.prot) {
+            v->off_items = 1u << ACT_COPY | 1u << ACT_MOVE;
+            v->lines[0] = "Copy-protected: it stays on this card.";
+        }
     } else if (g_sv_box == SB_CARDS) {
-        v->lines[0] = "Copy to:";
+        v->lines[0] = g_sv_move ? "Move to:" : "Copy to:";
         for (k = 0; k < g_sv_ncards && k < 10; k++) v->items[k] = g_sv_cards[k];
         v->nitems = k;
     } else if (g_sv_box == SB_DELETE) {
