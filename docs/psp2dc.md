@@ -321,6 +321,7 @@ With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behave
   - *Delete:* the sheet shows no screens for it: `Delete ?` as `Copy ?` but with No chosen first, then `Deleted`; the file's blocks freed in the FAT and its directory entry cleared, and the card written to the Memory Stick.
   - The FAT and directory are found from the root block (0x46 and 0x4a) when its fields make sense together, else at their usual places: cards formatted by the adapter or the PSP before 15 November 2026 have those fields 4 bytes late (5.0f).
   - Checked in PPSSPP with a scripted run and the card files compared byte by byte afterwards: a 20-block save copied to another card the same in every byte (blocks 199 down to 180), copying it again refused with `Same file exist`, deleting it freed its 20 blocks and left the other save untouched.
+  - On hardware (15 November 2026): the Sonic Adventure 2 save copied from `card1` to `card2` (`Copied`), copying it again refused (`Same file exist`), and the stray Chao Adventure 2 copy deleted from `card2`, its blocks freed.
 - **GAME:** A runs the card's game (5.0d).
 - **SLEEP** blanks the screen and the icons; any button wakes it.
 - The text uses an 8x4 grid of 6x8 cells in a font drawn for PSP2DC (not Sega's); the layout follows photographs of a real VMU, since the manual does not describe the BIOS screens.
@@ -379,6 +380,7 @@ The adapter keeps the card in its RAM for as long as the Dreamcast is on, also w
 - A card upload cut short no longer ends with "no file", which made the adapter send its blank card over the PSP's.
 - A VMU game left running stops before the card in use changes or the Dreamcast takes it, and its flash only ever goes back to its own card.
 - `scripts/dev/card-sync-test.c` checks the choice in all these cases on the Mac (with real card images), the incident first: 12 of 12 as intended.
+- **On hardware (15 November 2026):** after flashing, the PSP's card went in ("sent to the adapter"); changing to `card1` while connected showed its two saves on the Dreamcast; and the incident repeated (the Dreamcast left on with `card1` in, the PSP unplugged, another card chosen on its own, plugged in again) ended with the chosen card in ("sent to the adapter") and `card1` keeping both saves. A Dreamcast save made while the PSP is unplugged (the "only the adapter's changed" case) cannot be tried here: the PSP is the only controller.
 
 **The format.** The adapter's preformat (from upstream joypad-os, "exactly like MaplePad's CheckFormatted()"), and `cards_format` after it, wrote the root block's file system fields from 0x44 instead of 0x40, so the FAT's location sat at 0x4a instead of 0x46, and ended every system block's FAT chain. mc.pp.se's flashmem.html, dmitry.gr's "VMU Hacking" and libevmu's `EvmuRootBlock` agree on 0x46 for the FAT and 0x4a for the directory, as does a card image formatted by a Dreamcast (DreamPicoPort's `formatted_storage.bin`, stamped 1999-09-09, the Dreamcast's default date): from 0x40, last block 255, partition 0, root 255, FAT 254 and its size 1, directory 253 and its size 13, icon 0, save area 200 and 31, game area 0 and 128; the directory chained 253 down to 241. Both now write that; a new card's system area matches the Dreamcast's but for the date and the optional custom colour. The Dreamcast never noticed (it learns the layout from the Maple media info), but the VMU's own BIOS, emulators and tools read the root block. Cards made before keep their old root block; PSP2DC reads either.
 
@@ -595,10 +597,10 @@ Completed:
 - The VMU's screen on the PSP and the memory card kept on the PSP's Memory Stick, both working on hardware.
 - Wrote the PSP2DC protocol, the firmware's PSP host driver and a first PSP application; verified on hardware that controller data reaches the adapter and status messages come back.
 - Phase 1 passed: the RP2040 enumerates the PSP (PSPExp driver) at full speed.
+- Protocol 5: a card is never written over another on reconnecting (the 15 November incident repeated on hardware without loss); FILE mode copies and deletes on hardware.
 
 Not yet completed:
 
-- On hardware: protocol 5 (which copy of a card counts, 5.0f) and FILE mode's copy and delete (5.0c); both checked on the Mac and in PPSSPP only.
 - Real-game compatibility and latency measurements.
 - Permanent (soldered) wiring.
 
