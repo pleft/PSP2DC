@@ -264,6 +264,21 @@ The application will:
 5. Render VMU graphics on the PSP display.
 6. Provide controller configuration and save-management interfaces.
 
+### 5.0 Tools and Working Without Hardware
+
+SELECT is a shift key: while it is held nothing is sent to the Dreamcast.
+
+| Keys | Action |
+|---|---|
+| SELECT tapped alone | Cycle the stick source (nub, d-pad, none) |
+| SELECT + Square | Start or stop recording the VMU's screens to `ms0:/PSP2DC/capture/vmu-NNN.rec` (kept in memory while recording, written at the stop, up to 1500 screens) |
+| SELECT + Triangle | Screenshot of the PSP's screen to `ms0:/PSP2DC/shots/shot-NNN.bmp` |
+| SELECT + Circle | Demo mode on or off (only while not connected) |
+
+Demo mode plays every recording in `capture/` in turn at its recorded pace, or a made-up screen when there are none. It starts by itself when the USB driver is not usable, which is the case in PPSSPP: the driver module loads but its library calls return `0x8002013A`.
+
+`scripts/dev/run-ppsspp.sh` installs `dist/PSP2DC` into PPSSPP and starts it; `scripts/dev/run-ppsspp.sh shot file.png` captures the emulator's window. PPSSPP's memory stick root is `~/.config/ppsspp`, so `ms0:/PSP2DC` is `~/.config/ppsspp/PSP2DC`. An empty file `dev_autoshot` there makes the application take screenshots by itself 3, 6 and 10 s after starting. Verified in PPSSPP on 15 November 2026: demo mode with the made-up screen, and screenshots written correctly. Recording needs the adapter and is untested.
+
 ### 5.1 Controller Mapping
 
 The initial mapping will include:

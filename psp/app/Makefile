@@ -3,7 +3,7 @@
 PSPEXP_USB ?= ../../../PSPExp/psp/transport-usb
 
 TARGET = psp2dc_app
-OBJS = main.o
+OBJS = main.o tools.o
 
 INCDIR = $(PSPEXP_USB)
 CFLAGS = -O2 -G0 -Wall

@@ -41,11 +41,16 @@ static int boot_main(SceSize args, void *argp)
     slash[1] = 0;
 
     if (load_start(dir, USB_MODULE, 0, NULL) < 0) {
-        pspDebugScreenPrintf("\nThe USB driver did not load. PSP2DC needs custom firmware\n"
-                             "and %s next to its EBOOT.\n", USB_MODULE);
-        goto fail;
-    }
-    if (load_start(dir, APP_MODULE, args, argp) < 0) goto fail;
+        /* No driver (PPSSPP, or the official firmware): the application in
+         * demo mode, told by an argument after its path. */
+        static char argbuf[400];
+        int n = snprintf(argbuf, sizeof(argbuf), "%s", (const char *)argp);
+        pspDebugScreenPrintf("\nThe USB driver did not load (emulator, or no custom firmware):\n"
+                             "demo mode only.\n");
+        memcpy(argbuf + n + 1, "--no-usb", 9);
+        sceKernelDelayThread(1500000);
+        if (load_start(dir, APP_MODULE, n + 1 + 9, argbuf) < 0) goto fail;
+    } else if (load_start(dir, APP_MODULE, args, argp) < 0) goto fail;
     sceKernelSelfStopUnloadModule(1, 0, NULL);
     return 0;
 fail:

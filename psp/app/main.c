@@ -14,7 +14,14 @@
  * saves. The order of things is in the protocol header.
  *
  * User mode; the kernel USB driver (pspexp_usb.prx) was loaded by the boot
- * module and is reached through its exported library (libpspexpusb.a).
+ * module and is reached through its exported library (libpspexpusb.a). When
+ * it could not be loaded (PPSSPP), the boot module passes --no-usb and the
+ * application starts in demo mode, touching no USB at all.
+ *
+ * SELECT is a shift key: while it is held nothing is sent to the Dreamcast.
+ * Tapped alone it changes the stick's source; with Square it starts or stops
+ * recording the VMU's screens, with Triangle it takes a screenshot, with
+ * Circle it starts or stops the demo (tools.c).
  */
 #include <pspkernel.h>
 #include <pspdebug.h>
@@ -28,6 +35,7 @@
 #include <string.h>
 #include "pspexp_usb_driver.h"
 #include "../../protocol/psp2dc_protocol.h"
+#include "tools.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
@@ -157,6 +165,7 @@ static void lcd_draw(void)
 #define PSPEXP_DRIVER_PID  0x1CA
 static int g_usb_kernel, g_usb_bus, g_usb_drv, g_usb_act, g_usb_tries;
 static unsigned g_usb_restarts;   /* times the USB was started afresh for an adapter that did not sync */
+static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP); demo only */
 
 /* The driver's start does its three steps in one go and stops at the first
  * error, "already done" included. When that fails, the steps one by one, with
@@ -285,6 +294,7 @@ static int reader_thread(SceSize args, void *argp)
             } else if (p[2] == PSP2DC_MSG_LCD && p[3] == PSP2DC_LCD_BYTES) {
                 memcpy(g_lcd, p + PSP2DC_HEADER_LEN, PSP2DC_LCD_BYTES);
                 g_lcd_count++;
+                rec_frame(g_lcd);
             }
             pos += total;
         }
@@ -323,8 +333,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     PspExpUsbStats st;
     const char *link;
     memset(&st, 0, sizeof(st));
-    pspexpUsbGetStats(&st);
-    link = pspexpUsbConnected() ? "CONNECTED to the adapter      "
+    if (!g_no_usb) pspexpUsbGetStats(&st);
+    link = g_no_usb ? "no USB (emulator?)            "
+         : pspexpUsbConnected() ? "CONNECTED to the adapter      "
          : pspexpUsbAttached()  ? "cable in, waiting for adapter "
          :                        "waiting for the USB cable     ";
     pspDebugScreenSetXY(0, 0);
@@ -348,6 +359,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            (g_status.flags & PSP2DC_STATUS_CARD) ? "in the Dreamcast; " : "not shown yet; ", g_status.card_pending);
     printf("         %u blocks kept, file written %u times, %u errors      \n",
            g_card_blocks_in, g_card_writes, g_card_write_err);
+    printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens" : rec_note());
+    printf("         %-44s\n", rec_on() ? "" : shot_note());
+    if (rec_on()) { pspDebugScreenSetXY(37, pspDebugScreenGetY() - 1); printf("%4u", rec_count()); pspDebugScreenSetXY(0, pspDebugScreenGetY() + 1); }
     printf("Dreamcast controller state\n");
     printf("  buttons  %c %c %c %c  %s   dpad %c%c%c%c      \n",
            in->buttons & PSP2DC_BTN_A ? 'A' : '.', in->buttons & PSP2DC_BTN_B ? 'B' : '.',
@@ -361,8 +375,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     else if (g_stick_mode == STICK_DPAD) printf("stick from: the d-pad (the nub is ignored)    \n");
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
-    printf("L/R = triggers   SELECT = stick\n");
-    printf("HOME = quit");
+    printf("SELECT tap: stick source\n");
+    printf("SELECT+Square rec  +Triangle shot\n");
+    printf("SELECT+Circle demo   HOME quit");
 }
 
 int main(int argc, char *argv[])
@@ -372,8 +387,19 @@ int main(int argc, char *argv[])
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
-    int usb_rc, connected = 0;
+    int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i;
+    unsigned start_us = now_us();
     SceUID thid;
+    SceIoStat ist;
+
+    for (i = 1; i < argc; i++) if (!strcmp(argv[i], "--no-usb")) g_no_usb = 1;
+    /* ms0:/PSP2DC/dev_autoshot: screenshots taken by themselves, to look at a
+     * layout from PPSSPP without pressing anything */
+    {
+        SceUID fd = sceIoOpen(TOOLS_DIR "/dev_autoshot", PSP_O_RDONLY, 0);
+        if (fd >= 0) { autoshot = 1; sceIoClose(fd); }
+    }
+    (void)ist;
 
     pspDebugScreenInit();
     /* The debug screen clears the next text line at every newline, across the
@@ -388,22 +414,51 @@ int main(int argc, char *argv[])
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
     card_load();
-    usb_rc = usb_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
-    thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
-    if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
+    if (g_no_usb) {
+        demo_start();
+    } else {
+        usb_rc = usb_start();
+        if ((unsigned)g_usb_kernel == 0x8002013A) {
+            /* "library not linked": the driver is loaded but its library is
+             * not there to call (PPSSPP loads the module, its functions are
+             * stubs). Nothing can come over USB: demo mode. */
+            g_no_usb = 1;
+            demo_start();
+        } else {
+            thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
+            if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
+        }
+    }
 
     memset(&in, 0, sizeof(in));
     while (g_running) {
         sceCtrlReadBufferPositive(&pad, 1);   /* waits for the next sample: once a frame */
-        if ((pad.Buttons & PSP_CTRL_SELECT) && !(last_buttons & PSP_CTRL_SELECT)) {
-            g_stick_mode = (g_stick_mode + 1) % STICK_MODES;
+        if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
+            unsigned pressed = pad.Buttons & ~last_buttons;
+            if (!(last_buttons & PSP_CTRL_SELECT)) sel_used = 0;
+            if (pressed & PSP_CTRL_SQUARE) { if (rec_on()) rec_stop(); else rec_start(); sel_used = 1; }
+            if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; sel_used = 1; }
+            if (pressed & PSP_CTRL_CIRCLE) {
+                if (demo_on()) demo_stop();
+                else if (!connected) demo_start();
+                sel_used = 1;
+            }
+            last_buttons = pad.Buttons;
+            pad.Buttons = 0;
+            pad.Lx = pad.Ly = 128;
+        } else {
+            if ((last_buttons & PSP_CTRL_SELECT) && !sel_used) g_stick_mode = (g_stick_mode + 1) % STICK_MODES;
+            last_buttons = pad.Buttons;
         }
-        last_buttons = pad.Buttons;
         map_input(&pad, &in);
 
-        if (pspexpUsbConnected()) {
+        if (demo_on() && demo_frame(g_lcd)) g_lcd_count++;
+        if (g_no_usb) {
+            /* nothing to send */
+        } else if (pspexpUsbConnected()) {
+            if (demo_on()) demo_stop();       /* the real thing wins */
             unsigned gen = pspexpUsbGeneration();
             if (!connected || gen != generation) {   /* a new link: say who we are */
                 Psp2dcHello hello = { PSP2DC_PROTOCOL_VERSION, g_card_have ? PSP2DC_HELLO_HAS_CARD : 0, {0, 0} };
@@ -445,8 +500,17 @@ int main(int argc, char *argv[])
         g_usb_restarts = usb_restarts;
         if ((frame++ % 6) == 0) { show(usb_rc, &in, sent, errors); lcd_shown = ~0u; }
         if (g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; lcd_draw(); }
+        if (autoshot) {   /* 3, 6 and 10 s after the start */
+            unsigned t = (now_us() - start_us) / 1000000;
+            if ((autoshot == 1 && t >= 3) || (autoshot == 2 && t >= 6) || (autoshot == 3 && t >= 10)) {
+                shot_due = 1;
+                autoshot = autoshot == 3 ? 0 : autoshot + 1;
+            }
+        }
+        if (shot_due) { shot_due = 0; shot_take(); }
     }
-    pspexpUsbStop();
+    if (rec_on()) rec_stop();
+    if (!g_no_usb) pspexpUsbStop();
     sceKernelExitGame();
     return 0;
 }
