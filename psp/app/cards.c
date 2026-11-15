@@ -214,3 +214,167 @@ int cards_export(const unsigned char *card, const CardFile *f, char base[9])
     snprintf(path, sizeof(path), "%s/%s.VMI", SAVES_DIR, base);
     return write_file(path, vmi, sizeof(vmi));
 }
+
+/* ---- backups: ms0:/PSP2DC/backups/NAME@YYYYMMDD-HHMMSS[-auto].bin ---- */
+
+int cards_backup(const char *name, const unsigned char *img, int automatic)
+{
+    static unsigned char file[PSP2DC_CARD_BYTES];
+    static CardBackup all[BACKUPS_MAX];
+    ScePspDateTime t;
+    char path[160];
+    int n, i, kept = 0;
+    if (!img) { if (!cards_read(name, file)) return -1; img = file; }
+    memset(&t, 0, sizeof(t));
+    sceRtcGetCurrentClockLocalTime(&t);
+    sceIoMkdir(BACKUPS_DIR, 0777);
+    snprintf(path, sizeof(path), "%s/%s@%04d%02d%02d-%02d%02d%02d%s.bin", BACKUPS_DIR, name, t.year, t.month, t.day,
+             t.hour, t.minute, t.second, automatic ? "-auto" : "");
+    if (!exists(path) && write_file(path, img, PSP2DC_CARD_BYTES) < 0) return -1;
+    if (!automatic) return 0;
+    /* the automatic ones: the newest BACKUPS_AUTO_KEEP of this card kept */
+    n = cards_backups(all, BACKUPS_MAX);
+    for (i = 0; i < n; i++) {
+        if (!all[i].automatic || strcasecmp(all[i].card, name)) continue;
+        if (++kept > BACKUPS_AUTO_KEEP) {
+            snprintf(path, sizeof(path), "%s/%s", BACKUPS_DIR, all[i].file);
+            sceIoRemove(path);
+        }
+    }
+    return 0;
+}
+
+int cards_backups(CardBackup *out, int max)
+{
+    SceUID d = sceIoDopen(BACKUPS_DIR);
+    SceIoDirent e;
+    int n = 0, i, j;
+    if (d < 0) return 0;
+    memset(&e, 0, sizeof(e));
+    while (n < max && sceIoDread(d, &e) > 0) {
+        int len = strlen(e.d_name);
+        char *at = strrchr(e.d_name, '@');
+        if (len > 4 && len < (int)sizeof(out[0].file) && at && !strcasecmp(e.d_name + len - 4, ".bin") &&
+            e.d_stat.st_size == PSP2DC_CARD_BYTES && at - e.d_name < CARD_NAME_MAX && strlen(at + 1) >= 19) {
+            CardBackup *b = &out[n];
+            memset(b, 0, sizeof(*b));
+            strcpy(b->file, e.d_name);
+            memcpy(b->card, e.d_name, at - e.d_name);
+            /* YYYYMMDD-HHMMSS as "YYYY-MM-DD HH:MM" */
+            snprintf(b->when, sizeof(b->when), "%.4s-%.2s-%.2s %.2s:%.2s", at + 1, at + 5, at + 7, at + 10, at + 12);
+            memcpy(b->stamp, at + 1, 15);
+            b->automatic = strstr(at, "-auto") != NULL;
+            n++;
+        }
+        memset(&e, 0, sizeof(e));
+    }
+    sceIoDclose(d);
+    for (i = 1; i < n; i++)                /* newest first */
+        for (j = i; j > 0 && strcmp(out[j - 1].stamp, out[j].stamp) < 0; j--) {
+            CardBackup t = out[j]; out[j] = out[j - 1]; out[j - 1] = t;
+        }
+    return n;
+}
+
+int cards_backup_read(const CardBackup *b, unsigned char *img)
+{
+    char path[160];
+    snprintf(path, sizeof(path), "%s/%s", BACKUPS_DIR, b->file);
+    return read_file(path, img);
+}
+
+/* ---- the cards themselves ---- */
+
+int cards_name_ok(const char *name)
+{
+    int i;
+    if (!name[0] || strlen(name) >= CARD_NAME_MAX) return 0;
+    for (i = 0; name[i]; i++)
+        if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= 'A' && name[i] <= 'Z') ||
+              (name[i] >= '0' && name[i] <= '9') || name[i] == '-' || name[i] == '_')) return 0;
+    return 1;
+}
+
+int cards_rename(const char *from, const char *to)
+{
+    char a[128], b[128];
+    if (!cards_name_ok(to)) return -1;
+    path_of(a, sizeof(a), from, "bin");
+    path_of(b, sizeof(b), to, "bin");
+    if (strcasecmp(from, to) && exists(b)) return -2;   /* (FAT names: any case) */
+    return sceIoRename(a, b) < 0 ? -1 : 0;
+}
+
+int cards_delete(const char *name)
+{
+    char path[128];
+    path_of(path, sizeof(path), name, "bin");
+    return sceIoRemove(path) < 0 ? -1 : 0;
+}
+
+int cards_duplicate(const char *name, char out[CARD_NAME_MAX])
+{
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    if (!cards_read(name, img) || cards_unique(name, "-copy", out) < 0) return -1;
+    return cards_write(out, img);
+}
+
+/* ---- saves to import: in SAVES_DIR, .DCI, or .VMS (with a .VMI of the same
+ * name, when there is one) ---- */
+
+int cards_imports(CardImport *out, int max)
+{
+    SceUID d = sceIoDopen(SAVES_DIR);
+    SceIoDirent e;
+    char path[160];
+    int n = 0, i, j;
+    if (d < 0) return 0;
+    memset(&e, 0, sizeof(e));
+    while (n < max && sceIoDread(d, &e) > 0) {
+        int len = strlen(e.d_name), dci, vms;
+        if (len < 5 || len >= (int)sizeof(out[0].file)) { memset(&e, 0, sizeof(e)); continue; }
+        dci = !strcasecmp(e.d_name + len - 4, ".dci");
+        vms = !strcasecmp(e.d_name + len - 4, ".vms");
+        if ((dci || vms) && e.d_stat.st_size > 0 && e.d_stat.st_size <= 32 + 200 * 512) {
+            CardImport *im = &out[n];
+            memset(im, 0, sizeof(*im));
+            strcpy(im->file, e.d_name);
+            im->dci = dci;
+            im->size = (long)e.d_stat.st_size;
+            if (vms) {                     /* its VMI: the same name, .VMI or .vmi */
+                snprintf(path, sizeof(path), "%s/%.*s.VMI", SAVES_DIR, len - 4, e.d_name);
+                im->vmi = exists(path);
+                if (!im->vmi) { snprintf(path, sizeof(path), "%s/%.*s.vmi", SAVES_DIR, len - 4, e.d_name); im->vmi = exists(path); }
+            }
+            n++;
+        }
+        memset(&e, 0, sizeof(e));
+    }
+    sceIoDclose(d);
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && strcasecmp(out[j - 1].file, out[j].file) > 0; j--) {
+            CardImport t = out[j]; out[j] = out[j - 1]; out[j - 1] = t;
+        }
+    return n;
+}
+
+int cards_import_read(const CardImport *im, unsigned char *data, int max, unsigned char vmi[108])
+{
+    char path[160];
+    SceUID fd;
+    int len, k = (int)strlen(im->file) - 4;
+    snprintf(path, sizeof(path), "%s/%s", SAVES_DIR, im->file);
+    if ((fd = sceIoOpen(path, PSP_O_RDONLY, 0)) < 0) return -1;
+    len = sceIoRead(fd, data, max);
+    sceIoClose(fd);
+    if (im->vmi) {
+        snprintf(path, sizeof(path), "%s/%.*s.VMI", SAVES_DIR, k, im->file);
+        if ((fd = sceIoOpen(path, PSP_O_RDONLY, 0)) < 0) {
+            snprintf(path, sizeof(path), "%s/%.*s.vmi", SAVES_DIR, k, im->file);
+            fd = sceIoOpen(path, PSP_O_RDONLY, 0);
+        }
+        if (fd < 0 || sceIoRead(fd, vmi, 108) != 108) { if (fd >= 0) sceIoClose(fd); return -1; }
+        sceIoClose(fd);
+    }
+    return len;
+}

@@ -57,20 +57,42 @@ typedef struct {
 /* The VMU four times its size in a drawing of the VMU, the controller's
  * state and the memory card beside it. */
 void ui_page_home(const UiHome *h, const UiTheme *t);
-/* The Saves page's state: where it is, what is chosen, and a box over it */
-enum { UI_KEYS_VIEW, UI_KEYS_BROWSE, UI_KEYS_MENU, UI_KEYS_OK };
+/* A box over a page: a title, lines of text, choices (one chosen, some
+ * greyed), or a name being edited (Rename) */
+typedef struct {
+    const char *title;                 /* NULL: no box */
+    const char *lines[8];              /* NULL-ended */
+    const char *items[12];
+    int nitems, item;
+    unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
+    const char *edit;                  /* a name being edited, or NULL */
+    int cursor;                        /* the character being changed */
+} UiBox;
+/* the line of keys at the bottom of the Saves and Cards pages */
+enum { UI_KEYS_VIEW, UI_KEYS_BROWSE, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT };
+
+/* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {
     int first;                         /* the first save shown */
     int sel;                           /* the chosen save, or -1 (connected: view only) */
-    const char *title;                 /* a box over the page: its title, or NULL */
-    const char *lines[3];              /* its lines of text, NULL-ended */
-    const char *items[10];             /* its choices */
-    int nitems, item;                  /* how many, and the one chosen */
-    unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
-    int keys;                          /* UI_KEYS_*: the line of keys at the bottom */
+    UiBox box;
+    int keys;                          /* UI_KEYS_* */
 } UiSaves;
 /* The memory card's saves. Returns how many there are. */
 int  ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
                    const char *top);
+
+/* The Cards page: "New card" first, then each card */
+#define UI_CARDS_MAX 32
+typedef struct {
+    int n;                             /* cards */
+    const char *name[UI_CARDS_MAX];
+    int saves[UI_CARDS_MAX], free[UI_CARDS_MAX], in_use[UI_CARDS_MAX];
+    const char *game[UI_CARDS_MAX];    /* its game's name, or NULL */
+    int first, sel;                    /* rows: 0 is "New card", 1 + i card i; sel -1: view only */
+    UiBox box;
+    int keys;
+} UiCards;
+void ui_page_cards(const UiCards *v, const UiTheme *t, const char *top);
 
 #endif

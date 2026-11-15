@@ -49,6 +49,8 @@ void sa_reset(void)
     g_fs = FS_FREE; g_file = g_act = g_yes = g_target = g_ntargets = 0;
     g_mode_held_ms = 0;
 }
+static void (*g_before_delete)(const unsigned char *card);
+void sa_before_delete(void (*fn)(const unsigned char *card)) { g_before_delete = fn; }
 void sa_card_name(const char *name) { g_card_name = name ? name : ""; }
 
 int sa_stop(unsigned char *card)
@@ -113,6 +115,7 @@ static int file_input(unsigned pressed, unsigned char *card)
         if (pressed & SA_A) {
             if (!g_yes) g_fs = g_act ? FS_ACTION : FS_TARGET;   /* "No": the previous screen */
             else if (g_act) {
+                if (g_before_delete) g_before_delete(card);
                 cardfs_delete(card, &f[g_file]);
                 done(NULL, NULL, "Deleted", NULL);
                 memcpy(g_done_name, f[g_file].name, 13);

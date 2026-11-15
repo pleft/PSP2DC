@@ -165,6 +165,7 @@ void ui_page_vmu(const unsigned char *lcd, const UiTheme *t, const char *top, co
     ui_end();
 }
 
+
 /* ---- the saves page ------------------------------------------------------
  * The card's file system (mc.pp.se/dc/vms/flashmem.html): block 255 the
  * root, 254 the FAT (16-bit entries; 0xFFFC free), 253 down to 241 the
@@ -694,6 +695,82 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     ui_end();
 }
 
+/* ---- the box over a page, and the keys line, for the Saves and Cards pages */
+static void draw_box(const UiBox *b, const UiTheme *t)
+{
+    const unsigned hi = 0xFF28C8F0;
+    int lines = 0, h, y0, x0 = 70, w = 340, k, shown = b->nitems, top = 0;
+    if (!b->title) return;
+    for (k = 0; k < 8 && b->lines[k]; k++) lines++;
+    if (shown > 9) {                       /* a long list: nine at a time, round the chosen one */
+        top = b->item - 4;
+        if (top > b->nitems - 9) top = b->nitems - 9;
+        if (top < 0) top = 0;
+        shown = 9;
+    }
+    h = 30 + (lines + shown + (b->edit ? 2 : 0)) * 16 + 6;
+    y0 = (272 - h) / 2;
+    round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, hi);
+    round_rect(x0, y0, w, h, 6, t->panel);
+    label_fit(x0 + 10, y0 + 8, t->text, b->title, w - 20);
+    y0 += 26;
+    for (k = 0; k < lines; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, b->lines[k], w - 28);
+    if (b->edit) {                         /* the name, its chosen character lit */
+        int len = (int)strlen(b->edit), x = x0 + 14;
+        for (k = 0; k < len || k == b->cursor; k++, x += 9) {
+            char ch[2] = { k < len ? b->edit[k] : ' ', 0 };
+            if (k == b->cursor) ui_fill(x - 1, y0 + 2, 9, 12, hi);
+            label(x, y0 + 4, k == b->cursor ? 0xFF000000 : t->text, ch);
+        }
+        y0 += 32;
+    }
+    for (k = top; k < top + shown; k++, y0 += 16) {
+        int off = (b->off_items >> k) & 1;
+        if (k == b->item) ui_fill(x0 + 6, y0, w - 12, 15, dim(hi) | 0xFF000000);
+        label_fit(x0 + 14, y0 + 4, off ? half(half(t->text)) : k == b->item ? hi : t->text, b->items[k], w - 28);
+    }
+}
+
+/* keys: UI_KEYS_*; from-to of n shown at the right when n > 0 */
+static void draw_keys(int keys, const UiTheme *t, int from, int to, int n)
+{
+    unsigned c = half(t->text);
+    int x = 4, y = 262;
+    if (keys == UI_KEYS_VIEW) {
+        label(x, y, c, "view only: the Dreamcast has the card  SELECT+");  x += 46 * 7 + 3;
+        arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
+        label(x, y, c, "page");
+        return;
+    }
+    if (keys == UI_KEYS_EDIT) {
+        arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);     x += 20;
+        label(x, y, c, "letter");                                 x += 6 * 7 + 8;
+        arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);  x += 15;
+        label(x, y, c, "move");                                   x += 4 * 7 + 8;
+        sym(SYM_X, x, y - 2, 0, 0, 0);  label(x + 14, y, c, "done");   x += 14 + 5 * 7;
+        sym(SYM_O, x, y - 2, 0, 0, 0);  label(x + 14, y, c, "cancel");
+        return;
+    }
+    if (keys != UI_KEYS_OK) {
+        arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);   x += 20;
+        label(x, y, c, "choose");               x += 6 * 7 + 12;
+    }
+    sym(SYM_X, x, y - 2, 0, 0, 0);              x += 14;
+    label(x, y, c, keys == UI_KEYS_BROWSE ? "actions" : keys == UI_KEYS_MENU ? "do it" : "OK");
+    x += 8 * 7;
+    if (keys == UI_KEYS_MENU) { sym(SYM_O, x, y - 2, 0, 0, 0); label(x + 14, y, c, "back"); }
+    if (keys == UI_KEYS_BROWSE) {
+        label(x, y, c, "SELECT+");              x += 7 * 7 + 3;
+        arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
+        label(x, y, c, "page");
+    }
+    if (from > 0) {
+        char more[16];
+        snprintf(more, sizeof(more), "%d-%d of %d", from, to, n);
+        label(476 - 7 * (int)strlen(more), y, c, more);
+    }
+}
+
 /* ---- the saves page ------------------------------------------------------
  * Three saves a screen, each with its icon twice its size (64x64), its
  * descriptions, file name, date, size and kind. Standalone the chosen one is
@@ -737,53 +814,45 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
                 f->type == 0xCC ? "GAME" : "DATA");
     }
 
-    /* the box: a list to choose from, or lines to read */
-    if (v->title) {
-        int lines = v->nitems ? v->nitems : 0, h, y0, x0 = 80, w = 320, k;
-        for (k = 0; k < 3 && v->lines[k]; k++) lines++;
-        h = 30 + lines * 16 + 6;
-        y0 = (272 - h) / 2;
-        round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, hi);
-        round_rect(x0, y0, w, h, 6, t->panel);
-        label_fit(x0 + 10, y0 + 8, t->text, v->title, w - 20);
-        y0 += 26;
-        for (k = 0; k < 3 && v->lines[k]; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, v->lines[k], w - 28);
-        for (k = 0; k < v->nitems; k++, y0 += 16) {
-            int off = (v->off_items >> k) & 1;
-            if (k == v->item) ui_fill(x0 + 6, y0, w - 12, 15, dim(hi) | 0xFF000000);
-            label_fit(x0 + 14, y0 + 4, off ? half(half(t->text)) : k == v->item ? hi : t->text, v->items[k], w - 28);
-        }
-    }
-
-    /* the keys */
-    {
-        unsigned c = half(t->text);
-        int x = 4, y = 262;
-        if (v->keys == UI_KEYS_VIEW) {
-            label(x, y, c, "view only: the Dreamcast has the card    SELECT+");  x += 48 * 7 + 3;
-            arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
-            label(x, y, c, "page");
-        } else {
-            if (v->keys != UI_KEYS_OK) {
-                arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);   x += 20;
-                label(x, y, c, "choose");               x += 6 * 7 + 12;
-            }
-            sym(SYM_X, x, y - 2, 0, 0, 0);              x += 14;
-            label(x, y, c, v->keys == UI_KEYS_BROWSE ? "actions" : v->keys == UI_KEYS_MENU ? "do it" : "OK");
-            x += 8 * 7;
-            if (v->keys == UI_KEYS_MENU) { sym(SYM_O, x, y - 2, 0, 0, 0); label(x + 14, y, c, "back"); }
-            if (v->keys == UI_KEYS_BROWSE) {
-                label(x, y, c, "SELECT+");              x += 7 * 7 + 3;
-                arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
-                label(x, y, c, "page");
-            }
-            if (n > 3) {
-                char more[16];
-                snprintf(more, sizeof(more), "%d-%d of %d", v->first + 1, v->first + (n - v->first < 3 ? n - v->first : 3), n);
-                label(476 - 7 * (int)strlen(more), y, c, more);
-            }
-        }
-    }
+    draw_box(&v->box, t);
+    draw_keys(v->keys, t, n > 3 ? v->first + 1 : 0, v->first + (n - v->first < 3 ? n - v->first : 3), n);
     ui_end();
     return n;
+}
+
+/* ---- the cards page ------------------------------------------------------
+ * "New card" first, plain to see; then each card: its name (yellow, "in
+ * use", for the one in use), its saves, its free blocks, its game. */
+void ui_page_cards(const UiCards *v, const UiTheme *t, const char *top)
+{
+    const unsigned hi = 0xFF28C8F0;
+    int row, y, rows = v->n + 1;
+    ui_begin(t->bg);
+    ui_text(0, 0, t->text, "%s", top);
+    ui_text(0, 2, t->text, "MEMORY CARDS   %d card%s   ms0:/PSP2DC/cards", v->n, v->n == 1 ? "" : "s");
+    for (row = v->first, y = 32; row < rows && y + 30 <= 256; row++, y += 34) {
+        if (row == v->sel) {
+            ui_fill(2, y - 2, 476, 2, hi); ui_fill(2, y + 30, 476, 2, hi);
+            ui_fill(2, y - 2, 2, 34, hi);  ui_fill(476, y - 2, 2, 34, hi);
+        }
+        if (row == 0) {                    /* New card */
+            round_rect(4, y, 472, 30, 5, dim(hi) | 0xFF000000);
+            ui_fill(18, y + 13, 14, 4, hi); ui_fill(23, y + 8, 4, 14, hi);
+            label(44, y + 8, hi, "New card");
+            label(44 + 9 * 7, y + 8, half(t->text), "an empty, formatted memory card");
+            label(44, y + 19, half(t->text), "");
+        } else {
+            int i = row - 1;
+            char s[64];
+            ui_fill(4, y, 472, 30, t->frame);
+            label_fit(14, y + 5, v->in_use[i] ? hi : 0xFFFFFFFF, v->name[i], 200);
+            if (v->in_use[i]) label(14 + 7 * ((int)strlen(v->name[i]) < 28 ? (int)strlen(v->name[i]) + 1 : 29), y + 5, hi, "in use");
+            snprintf(s, sizeof(s), "%d save%s, %d blocks free", v->saves[i], v->saves[i] == 1 ? "" : "s", v->free[i]);
+            label(14, y + 17, t->text, s);
+            if (v->game[i]) { snprintf(s, sizeof(s), "game: %s", v->game[i]); label_fit(250, y + 17, half(t->text), s, 220); }
+        }
+    }
+    draw_box(&v->box, t);
+    draw_keys(v->keys, t, rows > 6 ? v->first + 1 : 0, v->first + 6 < rows ? v->first + 6 : rows, rows);
+    ui_end();
 }

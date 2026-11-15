@@ -35,6 +35,9 @@ void sa_card_name(const char *name);
  * from, still in use): to be called before the card in use changes or the
  * Dreamcast takes it. 1 when the game changed the card. */
 int sa_stop(unsigned char *card);
+/* Called with the card before FILE mode takes a file off it (main.c keeps a
+ * backup). */
+void sa_before_delete(void (*fn)(const unsigned char *card));
 /* One frame: the buttons pressed since the last call (edges) and held, the
  * memory card (or NULL), the ms since the last call. In GAME mode A starts
  * the card's game (vmu_game.c); holding MODE 2 s leaves it. In FILE mode a

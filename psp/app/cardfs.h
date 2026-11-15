@@ -40,6 +40,54 @@ void cardfs_comment(const unsigned char *card, const CardFile *f, char out[17]);
 int  cardfs_copy(const unsigned char *src, const CardFile *f, unsigned char *dst);
 void cardfs_delete(unsigned char *card, const CardFile *f);
 
+/* Adds a file: its 32-byte directory entry (the first block ignored) and n
+ * blocks, placed as cardfs_copy places them. CARDFS_OK, _SAME, _ROOM, _FAIL. */
+int  cardfs_add(unsigned char *card, const unsigned char entry[32], const unsigned char *data, int n);
+
+/* What a save's header says (mc.pp.se fileheader.html). 1, or 0 when it has
+ * none that can be read. */
+typedef struct {
+    char vms_desc[17];          /* shown by the VMU */
+    char dc_desc[33];           /* shown by the Dreamcast's file manager */
+    char app[17];               /* the application that made it */
+    int icons, speed;           /* icons (0-3) and their speed, n/30 s */
+    int eyecatch;               /* its large picture (72x56): 0 none, 1 16-bit colour, 2 256 colours, 3 16 */
+    long data_bytes;
+    int crc_stored, crc_computed;   /* computed -1: not checkable (a game: games do not use it) */
+    int header_ok;
+} CardInfo;
+int  cardfs_info(const unsigned char *card, const CardFile *f, CardInfo *out);
+/* The large picture as 72x56 ARGB4444 pixels (as the icons' palette), row by
+ * row; its type, or 0 when it has none. After libevmu's
+ * EvmuVms_createEyecatchArgb4444; no save with one has been seen here. */
+int  cardfs_eyecatch(const unsigned char *card, const CardFile *f, unsigned short out[72 * 56]);
+
+/* Imports. DCI: as exported (the words turned back). VMS: with its VMI when
+ * there is one (name, date, game or not, protected or not); without, a save
+ * when it starts with a save's header and a game otherwise, named name and
+ * dated date (BCD, as a directory entry). CARDFS_OK, _SAME, _ROOM, _FAIL. */
+int  cardfs_import_dci(unsigned char *card, const unsigned char *dci, int len);
+int  cardfs_import_vms(unsigned char *card, const unsigned char *vms, int len, const unsigned char *vmi,
+                       const char *name, const unsigned char date[8]);
+int  cardfs_vms_is_game(const unsigned char *vms, int len);
+
+/* Every save's blocks together: a game from block 0 up, the saves packed from
+ * block 199 down, the bytes unchanged. The room for a game after it, or -1
+ * (a save's blocks broken: check first). */
+int  cardfs_defrag(unsigned char *card);
+
+/* Checks a card: what is wrong, in words; repair puts right what can be put
+ * right without losing anything (the root block's layout, the system blocks'
+ * FAT entries, lost blocks freed) and leaves broken saves to be deleted. */
+#define CARDFS_ISSUES 12
+typedef struct {
+    int n;
+    char text[CARDFS_ISSUES][48];
+    int repairable, broken, lost_blocks;
+} CardCheck;
+void cardfs_check(const unsigned char *card, CardCheck *out);
+int  cardfs_repair(unsigned char *card, CardCheck *out);
+
 /* Exports, into out (room for 32 + 512 * f->size bytes); the length, or -1.
  * VMS: the save's blocks as they are, the file the Dreamcast's browser
  * downloaded. DCI (Nexus): the 32-byte directory entry, then the blocks

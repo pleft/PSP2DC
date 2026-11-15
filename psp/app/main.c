@@ -33,6 +33,7 @@
 #include <psppower.h>
 #include <pspiofilemgr.h>
 #include <pspthreadman.h>
+#include <psprtc.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -98,6 +99,7 @@ static char g_return_to[CARD_NAME_MAX];    /* connected: the card to change back
 static unsigned g_dump_from;               /* g_card_blocks_in when the adapter's whole card was asked for */
 static unsigned g_return_after_us;         /* not before (a refused change is tried again a moment later) */
 static int g_switch_auto;                  /* g_switch_to is ours (card_decide), not the player's */
+static char g_session_backup[CARD_NAME_MAX];   /* the card backed up this session (the saver) */
 static void saves_reset(void);             /* the Saves page's choice, forgotten when the card changes */
 static const char *g_card_note = "no file yet";
 
@@ -180,6 +182,12 @@ static int saver_thread(SceSize args, void *argp)
                 static unsigned char snap[PSP2DC_CARD_BYTES];
                 g_card_dirty = 0;   /* before the copy: a block coming after it sets it again */
                 memcpy(snap, g_card, sizeof(snap));
+                /* the file as it was, kept once a session before it is first
+                 * written (a session: the application's start, or a link) */
+                if (strcasecmp(g_session_backup, g_card_name)) {
+                    cards_backup(g_card_name, NULL, 1);
+                    snprintf(g_session_backup, sizeof(g_session_backup), "%s", g_card_name);
+                }
                 if (cards_write(g_card_name, snap) < 0) { g_card_write_err++; g_card_dirty = 1; g_card_last_us = now_us(); }
                 else {
                     g_card_writes++; g_card_note = "saved to the file";
@@ -209,7 +217,7 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
 
 /* What is on the screen: the VMU large, the memory card's saves, or the
  * status page. Kept with the theme and the stick's source in SETTINGS. */
-enum { PAGE_VMU, PAGE_SAVES, PAGE_STATUS, PAGES };
+enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_STATUS, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
 #define SETTINGS "ms0:/PSP2DC/settings.txt"
 
@@ -464,7 +472,7 @@ static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s
  * start select l r, or none), each held until the next line; "shot" in a
  * line also takes a screenshot (ms0:/PSP2DC/shots) as it starts, without
  * the notice. Absent, nothing. */
-#define DEV_STEPS 128
+#define DEV_STEPS 256
 #define DEV_SHOT 0x80000000u
 static int g_dev_shot_done = -1;           /* the last step whose screenshot was taken */
 static struct { unsigned at, buttons; } g_dev_steps[DEV_STEPS];
@@ -478,7 +486,7 @@ static void dev_input_load(void)
         {"triangle", PSP_CTRL_TRIANGLE}, {"start", PSP_CTRL_START}, {"select", PSP_CTRL_SELECT},
         {"l", PSP_CTRL_LTRIGGER}, {"r", PSP_CTRL_RTRIGGER}, {"none", 0}, {"shot", DEV_SHOT},
     };
-    static char buf[2048];
+    static char buf[8192];
     char *line, *next;
     int n;
     SceUID fd = sceIoOpen(CARD_DIR "/dev_input.txt", PSP_O_RDONLY, 0);
@@ -511,34 +519,90 @@ static unsigned dev_input(unsigned ms_since_start)
     return bits & ~DEV_SHOT;
 }
 
-/* ---- the Saves page, standalone: a save chosen, and a box of what to do
- * with it (copy to another card, export to the Memory Stick, delete). Not
- * connected: the Dreamcast has the card then. Not while a VMU game runs: it
- * holds its own copy of the card, which it writes back when it ends. */
-enum { SB_NONE, SB_ACTIONS, SB_CARDS, SB_DELETE, SB_RESULT };
-enum { ACT_COPY, ACT_MOVE, ACT_EXPORT, ACT_DELETE, ACTS };
-static int g_sv_sel, g_sv_box, g_sv_item;
-static char g_sv_title[48], g_sv_line[3][64];
+/* ---- the Saves and Cards pages, standalone ------------------------------
+ * A save, or a card, chosen; a box of what to do with it. Not connected: the
+ * Dreamcast has the card then. Not while a VMU game runs: it holds its own
+ * copy of the card, which it writes back when it ends. Before anything that
+ * takes something off a card, the card is backed up (cards_backup, -auto).
+ *
+ * The box is one at a time (g_box): what it is about (a save or a card),
+ * what it shows, and what each choice does. */
+enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
+       BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE };
+enum { SA_INFO, SA_COPY, SA_MOVE, SA_EXPORT, SA_DELETE, SAS };
+enum { CA_USE, CA_IMPORT, CA_RENAME, CA_DUPLICATE, CA_BACKUP, CA_RESTORE, CA_DEFRAG, CA_CHECK, CA_DELETE, CAS };
+static int g_box, g_box_item, g_box_move;
+static char g_box_title[48], g_box_line[8][64];
+static int g_box_lines;
+static int g_sv_sel;                       /* the Saves page's chosen save */
+static CardFile g_sv_file;                 /* the save the box is about */
 static char g_sv_cards[CARDS_MAX][CARD_NAME_MAX];
 static int g_sv_ncards;
-static CardFile g_sv_file;                 /* the save the box is about */
-static int g_sv_move;                      /* the card list is for a move, not a copy */
+static int g_cd_sel, g_cd_first;           /* the Cards page: row 0 "New card", 1 + i card i */
+static char g_cd_names[CARDS_MAX][CARD_NAME_MAX];
+static int g_cd_n, g_cd_saves[CARDS_MAX], g_cd_free[CARDS_MAX];
+static char g_cd_game[CARDS_MAX][13];
+static int g_cd_due = 1;                   /* the cards' summaries to be read again */
+static char g_box_card[CARD_NAME_MAX];     /* the card the box is about */
+static CardImport g_imports[64];
+static int g_nimports;
+static CardBackup g_backups[BACKUPS_MAX];
+static int g_nbackups;
+static char g_edit[CARD_NAME_MAX];
+static int g_edit_cursor;
+static int g_box_back;                     /* the page the box returns to: 0 Saves, 1 Cards */
+static int g_restore;                      /* the backup chosen */
 
-static void saves_reset(void) { g_sv_sel = g_sv_box = g_sv_item = 0; g_saves_first = 0; }
+static void saves_reset(void) { g_sv_sel = g_box = g_box_item = 0; g_saves_first = 0; g_cd_due = 1; }
 
-static void saves_result(const char *title, const char *a, const char *b, const char *c)
+static void box_lines(const char *title, const char *a, const char *b, const char *c)
 {
-    snprintf(g_sv_title, sizeof(g_sv_title), "%s", title);
-    snprintf(g_sv_line[0], sizeof(g_sv_line[0]), "%s", a ? a : "");
-    snprintf(g_sv_line[1], sizeof(g_sv_line[1]), "%s", b ? b : "");
-    snprintf(g_sv_line[2], sizeof(g_sv_line[2]), "%s", c ? c : "");
-    g_sv_box = SB_RESULT;
+    snprintf(g_box_title, sizeof(g_box_title), "%s", title);
+    g_box_lines = 0;
+    if (a) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", a);
+    if (b) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", b);
+    if (c) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", c);
+}
+static void result(const char *title, const char *a, const char *b, const char *c)
+{
+    box_lines(title, a, b, c);
+    g_box = BOX_RESULT;
 }
 
 /* the save the box is about, as the card now has it (0: gone) */
 static int saves_file(CardFile *f)
 {
     return g_card_have && cardfs_find(g_card, g_sv_file.off, f) && !strcmp(f->name, g_sv_file.name);
+}
+
+/* A card to change: the one in use is g_card (copied out), another its file. */
+static int card_get(const char *name, unsigned char *img)
+{
+    if (g_card_have && !strcasecmp(name, g_card_name)) {
+        card_lock(); memcpy(img, g_card, PSP2DC_CARD_BYTES); card_unlock();
+        return 1;
+    }
+    return cards_read(name, img);
+}
+/* ... and put back: g_card (written by the saver) or the file. 0 or < 0. */
+static int card_put(const char *name, const unsigned char *img, const char *note)
+{
+    if (g_card_have && !strcasecmp(name, g_card_name)) {
+        card_lock();
+        memcpy(g_card, img, PSP2DC_CARD_BYTES);
+        g_card_dirty = 1;
+        g_card_last_us = now_us();
+        g_card_note = note;
+        card_unlock();
+        return 0;
+    }
+    return cards_write(name, img);
+}
+/* a card as it is now, kept before something is taken off it */
+static void card_keep(const char *name)
+{
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    if (card_get(name, img)) cards_backup(name, img, 1);
 }
 
 /* the save is on that card's file, the same bytes as here (read back) */
@@ -566,7 +630,7 @@ static void saves_copy(const char *to, int move)
     CardFile f;
     int rc;
     if (!saves_file(&f) || !cards_read(to, other)) {
-        saves_result(move ? "Move failed" : "Copy failed", "The card could not be read.", NULL, NULL);
+        result(move ? "Move failed" : "Copy failed", "The card could not be read.", NULL, NULL);
         return;
     }
     rc = cardfs_copy(g_card, &f, other);
@@ -574,131 +638,544 @@ static void saves_copy(const char *to, int move)
     if (rc == CARDFS_OK && move && !saves_landed(to, &f)) rc = CARDFS_FAIL;
     snprintf(line, sizeof(line), "%s to %s", f.name, to);
     if (rc == CARDFS_OK && move) {
+        card_keep(g_card_name);
         card_lock();
         cardfs_delete(g_card, &f);
         g_card_dirty = 1;
         g_card_last_us = now_us();
         g_card_note = "save moved";
         card_unlock();
-        saves_result("Moved", line, NULL, NULL);
-    } else if (rc == CARDFS_OK) saves_result("Copied", line, NULL, NULL);
+        result("Moved", line, NULL, NULL);
+    } else if (rc == CARDFS_OK) result("Copied", line, NULL, NULL);
     else if (rc == CARDFS_SAME)
-        saves_result("Same file exist", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
+        result("Same file exist", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
     else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other))
-        saves_result(move ? "Not moved" : "Not copied", line, "That card has a game already (one a card).",
-                     move ? "It stays on this card." : NULL);
+        result(move ? "Not moved" : "Not copied", line, "That card has a game already (one a card).",
+               move ? "It stays on this card." : NULL);
     else if (rc == CARDFS_ROOM)
-        saves_result("Not enough free memory", line, "Not enough free blocks there.", move ? "It stays on this card." : NULL);
-    else saves_result(move ? "Move failed" : "Copy failed", line, move ? "It stays on this card." : NULL, NULL);
+        result("Not enough free memory", line, "Not enough free blocks there.", move ? "It stays on this card." : NULL);
+    else result(move ? "Move failed" : "Copy failed", line, move ? "It stays on this card." : NULL, NULL);
+    g_cd_due = 1;
 }
 
+static void saves_info(void)
+{
+    CardFile f;
+    CardInfo in;
+    static const char *const pic[4] = { "none", "16-bit colour", "256 colours", "16 colours" };
+    char a[64], b[64], c[64], d[64], e[64], g[64];
+    if (!saves_file(&f) || !cardfs_info(g_card, &f, &in)) { result("No information", "Its header cannot be read.", NULL, NULL); return; }
+    snprintf(g_box_title, sizeof(g_box_title), "%s", f.name);
+    snprintf(a, sizeof(a), "%s", in.dc_desc[0] ? in.dc_desc : "(no description)");
+    snprintf(b, sizeof(b), "On the VMU: %s", in.vms_desc);
+    snprintf(c, sizeof(c), "%s, %d block%s%s", f.type == 0xCC ? "a game" : "a save", f.size, f.size == 1 ? "" : "s",
+             f.prot ? ", copy-protected" : "");
+    snprintf(d, sizeof(d), "Saved %02x%02x-%02x-%02x %02x:%02x", f.date[0], f.date[1], f.date[2], f.date[3], f.date[4], f.date[5]);
+    snprintf(e, sizeof(e), "%d icon%s, large picture: %s", in.icons, in.icons == 1 ? "" : "s", pic[in.eyecatch & 3]);
+    if (in.crc_computed < 0) snprintf(g, sizeof(g), "Check: %s", f.type == 0xCC ? "games carry none" : "cannot be made");
+    else if (in.crc_computed == in.crc_stored) snprintf(g, sizeof(g), "Check: good (CRC %04X)", in.crc_stored);
+    else snprintf(g, sizeof(g), "Check: DAMAGED (CRC %04X, should be %04X)", in.crc_computed, in.crc_stored);
+    g_box_lines = 0;
+    snprintf(g_box_line[g_box_lines++], 64, "%s", a);
+    snprintf(g_box_line[g_box_lines++], 64, "%s", b);
+    if (in.app[0]) snprintf(g_box_line[g_box_lines++], 64, "Made by: %s", in.app);
+    snprintf(g_box_line[g_box_lines++], 64, "%s", c);
+    snprintf(g_box_line[g_box_lines++], 64, "%s", d);
+    snprintf(g_box_line[g_box_lines++], 64, "%s", e);
+    snprintf(g_box_line[g_box_lines++], 64, "%s", g);
+    g_box = BOX_INFO;
+}
+
+/* the saves to import, listed in the box */
+static void import_list(const char *into)
+{
+    g_nimports = cards_imports(g_imports, 64);
+    snprintf(g_box_card, sizeof(g_box_card), "%s", into);
+    if (!g_nimports) {
+        result("Nothing to import", "Put .DCI files, or .VMS (with their", ".VMI), in ms0:/PSP2DC/saves", NULL);
+        return;
+    }
+    box_lines("Import a save", NULL, NULL, NULL);
+    snprintf(g_box_line[0], 64, "into %s, from ms0:/PSP2DC/saves:", into);
+    g_box_lines = 1;
+    g_box = BOX_IMPORT;
+    g_box_item = 0;
+}
+
+static void import_one(const CardImport *im)
+{
+    static unsigned char img[PSP2DC_CARD_BYTES], data[32 + 200 * 512];
+    unsigned char vmi[108], date[8];
+    char name[13], line[64];
+    ScePspDateTime t;
+    int len, rc, i, k;
+    if (!card_get(g_box_card, img)) { result("Import failed", "The card could not be read.", NULL, NULL); return; }
+    if ((len = cards_import_read(im, data, sizeof(data), vmi)) <= 0) { result("Import failed", "The file could not be read.", NULL, NULL); return; }
+    if (im->dci) rc = cardfs_import_dci(img, data, len);
+    else {
+        /* without a VMI: named after the file, dated now */
+        for (i = k = 0; im->file[i] && im->file[i] != '.' && k < 12; i++) {
+            char ch = im->file[i];
+            if (ch >= 'a' && ch <= 'z') ch -= 32;
+            name[k++] = (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ? ch : '_';
+        }
+        name[k] = 0;
+        memset(&t, 0, sizeof(t));
+        sceRtcGetCurrentClockLocalTime(&t);
+        date[0] = (unsigned char)((t.year / 1000) << 4 | (t.year / 100) % 10);
+        date[1] = (unsigned char)(((t.year / 10) % 10) << 4 | t.year % 10);
+        date[2] = (unsigned char)((t.month / 10) << 4 | t.month % 10);
+        date[3] = (unsigned char)((t.day / 10) << 4 | t.day % 10);
+        date[4] = (unsigned char)((t.hour / 10) << 4 | t.hour % 10);
+        date[5] = (unsigned char)((t.minute / 10) << 4 | t.minute % 10);
+        date[6] = (unsigned char)((t.second / 10) << 4 | t.second % 10);
+        date[7] = (unsigned char)((sceRtcGetDayOfWeek(t.year, t.month, t.day) + 6) % 7);   /* 0 Monday */
+        rc = cardfs_import_vms(img, data, len, im->vmi ? vmi : NULL, name, date);
+    }
+    snprintf(line, sizeof(line), "%s into %s", im->file, g_box_card);
+    if (rc == CARDFS_OK && card_put(g_box_card, img, "save imported") == 0) result("Imported", line, NULL, NULL);
+    else if (rc == CARDFS_SAME) result("Same file exist", line, "That card has a save of this name.", NULL);
+    else if (rc == CARDFS_ROOM) result("Not enough free memory", line, "No room there (or a game is there:", "a card holds one game).");
+    else result("Import failed", line, "Not a save or game file.", NULL);
+    g_cd_due = 1;
+}
+
+/* ---- the Saves page ---- */
 static void saves_input(unsigned pressed)
 {
     static CardFile f[200];
-    int n = g_card_have ? cardfs_list(g_card, f, 200) : 0, k;
+    int n = g_card_have ? cardfs_list(g_card, f, 200) : 0;
     if (g_sv_sel >= n) g_sv_sel = n ? n - 1 : 0;
-    switch (g_sv_box) {
-    case SB_NONE:
+    g_box_back = 0;
+    switch (g_box) {
+    case BOX_NONE:
         if ((pressed & PSP_CTRL_DOWN) && g_sv_sel < n - 1) g_sv_sel++;
         if ((pressed & PSP_CTRL_UP) && g_sv_sel > 0) g_sv_sel--;
         if (g_sv_sel < g_saves_first) g_saves_first = g_sv_sel;
         if (g_sv_sel > g_saves_first + 2) g_saves_first = g_sv_sel - 2;
+        if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_TRIANGLE)) && game_running()) {
+            result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL);
+            break;
+        }
+        if (pressed & PSP_CTRL_TRIANGLE) { if (g_card_have) import_list(g_card_name); break; }
         if ((pressed & PSP_CTRL_CROSS) && n) {
-            if (game_running()) { saves_result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL); break; }
             g_sv_file = f[g_sv_sel];
-            snprintf(g_sv_title, sizeof(g_sv_title), "%s", g_sv_file.name);
-            g_sv_box = SB_ACTIONS;
-            g_sv_item = g_sv_file.prot ? ACT_EXPORT : ACT_COPY;
+            snprintf(g_box_title, sizeof(g_box_title), "%s", g_sv_file.name);
+            g_box_lines = 0;
+            g_box = BOX_SAVE_ACTIONS;
+            g_box_item = SA_INFO;
         }
         break;
-    case SB_ACTIONS:                       /* a copy-protected save cannot be copied, as on the VMU */
+    case BOX_SAVE_ACTIONS:                 /* a copy-protected save cannot be copied or moved, as on the VMU */
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
-            do g_sv_item = (g_sv_item + (pressed & PSP_CTRL_DOWN ? 1 : ACTS - 1)) % ACTS;
-            while ((g_sv_item == ACT_COPY || g_sv_item == ACT_MOVE) && g_sv_file.prot);
+            do g_box_item = (g_box_item + (pressed & PSP_CTRL_DOWN ? 1 : SAS - 1)) % SAS;
+            while ((g_box_item == SA_COPY || g_box_item == SA_MOVE) && g_sv_file.prot);
         }
-        if (pressed & PSP_CTRL_CIRCLE) g_sv_box = SB_NONE;
+        if (pressed & PSP_CTRL_CIRCLE) g_box = BOX_NONE;
         else if (pressed & PSP_CTRL_CROSS) {
-            if (g_sv_item == ACT_COPY || g_sv_item == ACT_MOVE) {
+            if (g_box_item == SA_INFO) saves_info();
+            else if (g_box_item == SA_COPY || g_box_item == SA_MOVE) {
                 char names[CARDS_MAX][CARD_NAME_MAX];
-                g_sv_move = g_sv_item == ACT_MOVE;
-                int m = cards_list(names);
+                int m = cards_list(names), k;
+                g_box_move = g_box_item == SA_MOVE;
                 for (k = g_sv_ncards = 0; k < m; k++)
                     if (strcasecmp(names[k], g_card_name)) memcpy(g_sv_cards[g_sv_ncards++], names[k], CARD_NAME_MAX);
-                if (!g_sv_ncards) saves_result("No other card", "SELECT+START on the VMU page", "makes a new one.", NULL);
-                else { g_sv_box = SB_CARDS; g_sv_item = 0; }
-            } else if (g_sv_item == ACT_EXPORT) {
+                if (!g_sv_ncards) result("No other card", "Make one on the Cards page", "(New card).", NULL);
+                else { box_lines(g_sv_file.name, g_box_move ? "Move to:" : "Copy to:", NULL, NULL); g_box = BOX_CARD_LIST; g_box_item = 0; }
+            } else if (g_box_item == SA_EXPORT) {
                 CardFile cf;
                 char base[9], a[64], b[64];
                 if (saves_file(&cf) && cards_export(g_card, &cf, base) == 0) {
                     snprintf(a, sizeof(a), "ms0:/PSP2DC/saves/%s.DCI", base);
                     snprintf(b, sizeof(b), "and %s.VMS with %s.VMI", base, base);
-                    saves_result("Exported", a, b, NULL);
-                } else saves_result("Export failed", "The files could not be written.", NULL, NULL);
-            } else { g_sv_box = SB_DELETE; g_sv_item = 0; }
+                    result("Exported", a, b, NULL);
+                } else result("Export failed", "The files could not be written.", NULL, NULL);
+            } else { box_lines(g_sv_file.name, "Delete it from this card?", NULL, NULL); g_box = BOX_SAVE_DELETE; g_box_item = 0; }
         }
         break;
-    case SB_CARDS:
-        if (pressed & PSP_CTRL_DOWN) g_sv_item = (g_sv_item + 1) % g_sv_ncards;
-        if (pressed & PSP_CTRL_UP) g_sv_item = (g_sv_item + g_sv_ncards - 1) % g_sv_ncards;
-        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = g_sv_move ? ACT_MOVE : ACT_COPY; }
-        else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_sv_item], g_sv_move);
+    case BOX_CARD_LIST:
+        if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_sv_ncards;
+        if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_sv_ncards - 1) % g_sv_ncards;
+        if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_sv_file.name, NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = g_box_move ? SA_MOVE : SA_COPY; }
+        else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_box_item], g_box_move);
         break;
-    case SB_DELETE:                        /* No first */
-        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_sv_item = !g_sv_item;
-        if (pressed & PSP_CTRL_CIRCLE) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_DELETE; }
-        else if (pressed & PSP_CTRL_CROSS) {
+    case BOX_SAVE_DELETE:                  /* No first */
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
+        if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
+            box_lines(g_sv_file.name, NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = SA_DELETE;
+        } else if (pressed & PSP_CTRL_CROSS) {
             CardFile cf;
-            if (!g_sv_item) { g_sv_box = SB_ACTIONS; g_sv_item = ACT_DELETE; break; }
-            if (!saves_file(&cf)) { saves_result("Delete failed", "The save is not there any more.", NULL, NULL); break; }
+            if (!saves_file(&cf)) { result("Delete failed", "The save is not there any more.", NULL, NULL); break; }
+            card_keep(g_card_name);
             card_lock();
             cardfs_delete(g_card, &cf);
             g_card_dirty = 1;
             g_card_last_us = now_us();
             g_card_note = "save deleted";
             card_unlock();
-            saves_result("Deleted", cf.name, NULL, NULL);
+            result("Deleted", cf.name, "(the card as it was is in ms0:/PSP2DC/backups)", NULL);
+            g_cd_due = 1;
         }
         break;
-    case SB_RESULT:
-        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_sv_box = SB_NONE;
+    case BOX_IMPORT:
+        if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_nimports;
+        if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_nimports - 1) % g_nimports;
+        if (pressed & PSP_CTRL_CIRCLE) g_box = BOX_NONE;
+        else if (pressed & PSP_CTRL_CROSS) import_one(&g_imports[g_box_item]);
+        break;
+    default:                               /* a result, the info */
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_box = BOX_NONE;
+        break;
+    }
+}
+
+/* the import list's lines: each file, and what it holds */
+static const char *import_item(int k)
+{
+    static char lines[64][64];
+    const CardImport *im = &g_imports[k];
+    long blocks = ((im->dci ? im->size - 32 : im->size) + 511) / 512;
+    snprintf(lines[k], 64, "%-22.22s %s, %ld block%s", im->file, im->dci ? "DCI" : im->vmi ? "VMS+VMI" : "VMS",
+             blocks, blocks == 1 ? "" : "s");
+    return lines[k];
+}
+
+static void box_view(UiBox *b)
+{
+    static const char *const sacts[SAS] = { "Info", "Copy to another card", "Move to another card",
+                                            "Export to the Memory Stick", "Delete" };
+    static const char *const cacts[CAS] = { "Use this card", "Import a save into it", "Rename", "Duplicate",
+                                            "Back up now", "Restore a backup", "Defragment", "Check and repair",
+                                            "Delete this card" };
+    static char backup_lines[BACKUPS_MAX][64];
+    int k;
+    memset(b, 0, sizeof(*b));
+    if (g_box == BOX_NONE) return;
+    b->title = g_box_title;
+    b->item = g_box_item;
+    for (k = 0; k < g_box_lines && k < 8; k++) b->lines[k] = g_box_line[k];
+    switch (g_box) {
+    case BOX_SAVE_ACTIONS:
+        for (k = 0; k < SAS; k++) b->items[k] = sacts[k];
+        b->nitems = SAS;
+        if (g_sv_file.prot) {
+            b->off_items = 1u << SA_COPY | 1u << SA_MOVE;
+            b->lines[0] = "Copy-protected: it stays on this card.";
+        }
+        break;
+    case BOX_CARD_LIST:
+        for (k = 0; k < g_sv_ncards && k < 12; k++) b->items[k] = g_sv_cards[k];
+        b->nitems = k;
+        break;
+    case BOX_SAVE_DELETE: case BOX_CARD_DELETE: case BOX_RESTORE_ASK:
+        b->items[0] = "No, keep it";
+        b->items[1] = g_box == BOX_RESTORE_ASK ? "Yes, restore it" : "Yes, delete it";
+        b->nitems = 2;
+        break;
+    case BOX_IMPORT:
+        for (k = 0; k < g_nimports && k < 12; k++) b->items[k] = import_item(k);
+        b->nitems = k;
+        break;
+    case BOX_CARD_ACTIONS:
+        for (k = 0; k < CAS; k++) b->items[k] = cacts[k];
+        b->nitems = CAS;
+        if (g_card_have && !strcasecmp(g_box_card, g_card_name)) b->off_items |= 1u << CA_USE | 1u << CA_DELETE;
+        if (g_cd_n < 2) b->off_items |= 1u << CA_DELETE;
+        break;
+    case BOX_RESTORE:
+        for (k = 0; k < g_nbackups && k < 12; k++) {
+            snprintf(backup_lines[k], 64, "%-14.14s %s%s", g_backups[k].card, g_backups[k].when,
+                     g_backups[k].automatic ? " auto" : "");
+            b->items[k] = backup_lines[k];
+        }
+        b->nitems = k;
+        break;
+    case BOX_REPAIR:
+        b->items[0] = "Repair it";
+        b->items[1] = "Leave it";
+        b->nitems = 2;
+        break;
+    case BOX_RENAME:
+        b->edit = g_edit;
+        b->cursor = g_edit_cursor;
         break;
     }
 }
 
 static void saves_view(UiSaves *v, int standalone)
 {
-    static const char *const acts[ACTS] = { "Copy to another card", "Move to another card",
-                                            "Export to the Memory Stick", "Delete" };
-    int k;
     memset(v, 0, sizeof(*v));
     v->first = g_saves_first;
     v->sel = -1;
     v->keys = UI_KEYS_VIEW;
     if (!standalone) return;
     v->sel = g_sv_sel;
-    v->keys = g_sv_box == SB_NONE ? UI_KEYS_BROWSE : g_sv_box == SB_RESULT ? UI_KEYS_OK : UI_KEYS_MENU;
-    if (g_sv_box == SB_NONE) return;
-    v->title = g_sv_title;
-    v->item = g_sv_item;
-    if (g_sv_box == SB_ACTIONS) {
-        for (k = 0; k < ACTS; k++) v->items[k] = acts[k];
-        v->nitems = ACTS;
-        if (g_sv_file.prot) {
-            v->off_items = 1u << ACT_COPY | 1u << ACT_MOVE;
-            v->lines[0] = "Copy-protected: it stays on this card.";
-        }
-    } else if (g_sv_box == SB_CARDS) {
-        v->lines[0] = g_sv_move ? "Move to:" : "Copy to:";
-        for (k = 0; k < g_sv_ncards && k < 10; k++) v->items[k] = g_sv_cards[k];
-        v->nitems = k;
-    } else if (g_sv_box == SB_DELETE) {
-        v->lines[0] = "Delete it from this card?";
-        v->items[0] = "No, keep it";
-        v->items[1] = "Yes, delete it";
-        v->nitems = 2;
-    } else {
-        for (k = 0; k < 3 && g_sv_line[k][0]; k++) v->lines[k] = g_sv_line[k];
+    v->keys = g_box == BOX_NONE ? UI_KEYS_BROWSE : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
+    box_view(&v->box);
+}
+
+/* ---- the Cards page ---- */
+
+/* each card's saves, free blocks and game, read once when they may have changed */
+static void cards_summary(void)
+{
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    static CardFile f[200];
+    int i, k, n;
+    g_cd_n = cards_list(g_cd_names);
+    for (i = 0; i < g_cd_n; i++) {
+        g_cd_saves[i] = g_cd_free[i] = 0;
+        g_cd_game[i][0] = 0;
+        if (!card_get(g_cd_names[i], img)) continue;
+        n = cardfs_list(img, f, 200);
+        g_cd_saves[i] = n;
+        g_cd_free[i] = cardfs_free(img);
+        for (k = 0; k < n; k++) if (f[k].type == 0xCC) { memcpy(g_cd_game[i], f[k].name, 13); }
     }
+    g_cd_due = 0;
+}
+
+/* SELECT+L/R and the Cards page change the card the same way, standalone */
+static int card_use(const char *name)
+{
+    char msg[48];
+    if (card_change(name) < 0) { notice("could not read that card"); return -1; }
+    snprintf(msg, sizeof(msg), "card: %s", name);
+    notice(msg);
+    return 0;
+}
+
+static void cards_input(unsigned pressed, int *settings_due)
+{
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    static const char charset[] = "abcdefghijklmnopqrstuvwxyz0123456789-_";
+    CardCheck ck;
+    char line[64], made[CARD_NAME_MAX];
+    int rows, k;
+    if (g_cd_due) cards_summary();
+    rows = g_cd_n + 1;
+    g_box_back = 1;
+    if (g_box == BOX_NONE && (pressed & PSP_CTRL_CROSS) && game_running()) {
+        result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL);
+        return;
+    }
+    switch (g_box) {
+    case BOX_NONE:
+        if ((pressed & PSP_CTRL_DOWN) && g_cd_sel < rows - 1) g_cd_sel++;
+        if ((pressed & PSP_CTRL_UP) && g_cd_sel > 0) g_cd_sel--;
+        if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;
+        if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
+        if (!(pressed & PSP_CTRL_CROSS)) break;
+        if (g_cd_sel == 0) {               /* New card: made, and in use */
+            if (cards_new(made) == 0 && card_use(made) == 0) {
+                *settings_due = 1;
+                cards_summary();
+                for (k = 0; k < g_cd_n; k++) if (!strcasecmp(g_cd_names[k], made)) g_cd_sel = k + 1;
+                snprintf(line, sizeof(line), "%s, empty, and in use now", made);
+                result("New card", line, NULL, NULL);
+            } else result("New card", "It could not be made.", NULL, NULL);
+            break;
+        }
+        snprintf(g_box_card, sizeof(g_box_card), "%s", g_cd_names[g_cd_sel - 1]);
+        box_lines(g_box_card, NULL, NULL, NULL);
+        g_box = BOX_CARD_ACTIONS;
+        g_box_item = g_card_have && !strcasecmp(g_box_card, g_card_name) ? CA_IMPORT : CA_USE;
+        break;
+    case BOX_CARD_ACTIONS: {
+        unsigned off = 0;
+        if (g_card_have && !strcasecmp(g_box_card, g_card_name)) off |= 1u << CA_USE | 1u << CA_DELETE;
+        if (g_cd_n < 2) off |= 1u << CA_DELETE;
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+            do g_box_item = (g_box_item + (pressed & PSP_CTRL_DOWN ? 1 : CAS - 1)) % CAS;
+            while ((off >> g_box_item) & 1);
+        }
+        if (pressed & PSP_CTRL_CIRCLE) { g_box = BOX_NONE; break; }
+        if (!(pressed & PSP_CTRL_CROSS)) break;
+        switch (g_box_item) {
+        case CA_USE:
+            if (card_use(g_box_card) == 0) { *settings_due = 1; snprintf(line, sizeof(line), "%s is in use now", g_box_card); result("Card changed", line, NULL, NULL); }
+            else result("Card not changed", "It could not be read.", NULL, NULL);
+            break;
+        case CA_IMPORT: import_list(g_box_card); break;
+        case CA_RENAME:
+            snprintf(g_edit, sizeof(g_edit), "%s", g_box_card);
+            for (k = 0; g_edit[k]; k++) if (g_edit[k] >= 'A' && g_edit[k] <= 'Z') g_edit[k] += 32;
+            g_edit_cursor = (int)strlen(g_edit) - 1;
+            box_lines("Rename", g_box_card, NULL, NULL);
+            g_box = BOX_RENAME;
+            break;
+        case CA_DUPLICATE:
+            if (cards_duplicate(g_box_card, made) == 0) { snprintf(line, sizeof(line), "%s as %s", g_box_card, made); result("Duplicated", line, NULL, NULL); }
+            else result("Duplicate failed", "The copy could not be written.", NULL, NULL);
+            g_cd_due = 1;
+            break;
+        case CA_BACKUP:
+            if (card_get(g_box_card, img) && cards_backup(g_box_card, img, 0) == 0)
+                result("Backed up", g_box_card, "in ms0:/PSP2DC/backups", NULL);
+            else result("Backup failed", "It could not be written.", NULL, NULL);
+            break;
+        case CA_RESTORE:
+            g_nbackups = cards_backups(g_backups, BACKUPS_MAX);
+            if (!g_nbackups) { result("No backups yet", "Back up now makes one; one is made", "before anything is taken off a card.", NULL); break; }
+            box_lines("Restore into", g_box_card, "from which backup? (newest first)", NULL);
+            g_box = BOX_RESTORE;
+            g_box_item = 0;
+            for (k = 0; k < g_nbackups; k++) if (!strcasecmp(g_backups[k].card, g_box_card)) { g_box_item = k; break; }
+            break;
+        case CA_DEFRAG: {
+            int before, after;
+            if (!card_get(g_box_card, img)) { result("Defragment failed", "The card could not be read.", NULL, NULL); break; }
+            before = cardfs_game_room(img);
+            card_keep(g_box_card);
+            if ((after = cardfs_defrag(img)) < 0) { result("Not defragmented", "A save's blocks are broken:", "Check and repair first.", NULL); break; }
+            if (card_put(g_box_card, img, "defragmented") < 0) { result("Defragment failed", "The card could not be written.", NULL, NULL); break; }
+            snprintf(line, sizeof(line), "Room for a game: %d blocks (was %d)", after, before);
+            result("Defragmented", g_box_card, line, "Every save is as it was.");
+            g_cd_due = 1;
+            break;
+        }
+        case CA_CHECK:
+            if (!card_get(g_box_card, img)) { result("Check failed", "The card could not be read.", NULL, NULL); break; }
+            cardfs_check(img, &ck);
+            snprintf(g_box_title, sizeof(g_box_title), "Check: %s", g_box_card);
+            g_box_lines = 0;
+            if (!ck.n) snprintf(g_box_line[g_box_lines++], 64, "No problems found.");
+            for (k = 0; k < ck.n && g_box_lines < 6; k++) snprintf(g_box_line[g_box_lines++], 64, "%s", ck.text[k]);
+            if (ck.broken && g_box_lines < 7) snprintf(g_box_line[g_box_lines++], 64, "Broken saves: delete them on the Saves page.");
+            if (ck.repairable) { g_box = BOX_REPAIR; g_box_item = 0; }
+            else g_box = BOX_RESULT;
+            break;
+        case CA_DELETE:
+            box_lines(g_box_card, "Delete this card? (a backup is kept", "in ms0:/PSP2DC/backups)", NULL);
+            g_box = BOX_CARD_DELETE;
+            g_box_item = 0;
+            break;
+        }
+        break;
+    }
+    case BOX_RENAME: {
+        int len = (int)strlen(g_edit), pos = sizeof(charset) - 1;
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {   /* the letter: round the set, past the end a space (an end) */
+            const char *at = g_edit_cursor < len ? strchr(charset, g_edit[g_edit_cursor]) : NULL;
+            int i = at ? (int)(at - charset) : pos, nset = pos + 1;
+            i = (i + (pressed & PSP_CTRL_DOWN ? 1 : nset - 1)) % nset;
+            if (i == pos) { if (g_edit_cursor == len - 1 && len > 1) g_edit[g_edit_cursor] = 0; }
+            else {
+                if (g_edit_cursor >= len) { g_edit[g_edit_cursor + 1] = 0; }
+                g_edit[g_edit_cursor] = charset[i];
+            }
+        }
+        len = (int)strlen(g_edit);
+        if ((pressed & PSP_CTRL_LEFT) && g_edit_cursor > 0) g_edit_cursor--;
+        if ((pressed & PSP_CTRL_RIGHT) && g_edit_cursor < len && g_edit_cursor < CARD_NAME_MAX - 2) {
+            g_edit_cursor++;
+            if (g_edit_cursor == len) { g_edit[len] = 'a'; g_edit[len + 1] = 0; }
+        }
+        if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RENAME; }
+        else if (pressed & PSP_CTRL_CROSS) {
+            int rc = cards_rename(g_box_card, g_edit), in_use = g_card_have && !strcasecmp(g_box_card, g_card_name);
+            if (rc == 0) {
+                if (in_use) { snprintf(g_card_name, sizeof(g_card_name), "%s", g_edit); *settings_due = 1; }
+                if (!strcasecmp(g_base_name, g_box_card)) { snprintf(g_base_name, sizeof(g_base_name), "%s", g_edit); *settings_due = 1; }
+                snprintf(line, sizeof(line), "%s is %s now", g_box_card, g_edit);
+                result("Renamed", line, NULL, NULL);
+                g_cd_due = 1;
+            } else result("Not renamed", rc == -2 ? "A card has that name already." : "It could not be renamed.", NULL, NULL);
+        }
+        break;
+    }
+    case BOX_RESTORE:
+        if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_nbackups;
+        if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_nbackups - 1) % g_nbackups;
+        if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RESTORE; }
+        else if (pressed & PSP_CTRL_CROSS) {
+            k = g_box_item;
+            box_lines("Restore", NULL, NULL, NULL);
+            snprintf(g_box_line[0], 64, "%s: everything on it replaced", g_box_card);
+            snprintf(g_box_line[1], 64, "by %s of %s?", g_backups[k].card, g_backups[k].when);
+            snprintf(g_box_line[2], 64, "(it is backed up first)");
+            g_box_lines = 3;
+            g_box = BOX_RESTORE_ASK;
+            g_restore = k;
+            g_box_item = 0;
+        }
+        break;
+    case BOX_RESTORE_ASK:
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
+        if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
+            box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RESTORE;
+        } else if (pressed & PSP_CTRL_CROSS) {
+            if (!cards_backup_read(&g_backups[g_restore], img)) { result("Restore failed", "The backup could not be read.", NULL, NULL); break; }
+            card_keep(g_box_card);
+            if (card_put(g_box_card, img, "restored") < 0) { result("Restore failed", "The card could not be written.", NULL, NULL); break; }
+            snprintf(line, sizeof(line), "%s of %s", g_backups[g_restore].card, g_backups[g_restore].when);
+            result("Restored", g_box_card, line, NULL);
+            g_cd_due = 1;
+        }
+        break;
+    case BOX_REPAIR:
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
+        if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && g_box_item)) g_box = BOX_NONE;
+        else if (pressed & PSP_CTRL_CROSS) {
+            if (!card_get(g_box_card, img)) { result("Repair failed", "The card could not be read.", NULL, NULL); break; }
+            card_keep(g_box_card);
+            cardfs_repair(img, &ck);
+            if (card_put(g_box_card, img, "repaired") < 0) { result("Repair failed", "The card could not be written.", NULL, NULL); break; }
+            snprintf(g_box_title, sizeof(g_box_title), "Repaired: %s", g_box_card);
+            g_box_lines = 0;
+            for (k = 0; k < ck.n && g_box_lines < 7; k++) snprintf(g_box_line[g_box_lines++], 64, "%s", ck.text[k]);
+            g_box = BOX_RESULT;
+            g_cd_due = 1;
+        }
+        break;
+    case BOX_CARD_DELETE:
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
+        if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
+            box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_DELETE;
+        } else if (pressed & PSP_CTRL_CROSS) {
+            if (g_card_have && !strcasecmp(g_box_card, g_card_name)) { result("Not deleted", "It is in use.", NULL, NULL); break; }
+            if (cards_backup(g_box_card, NULL, 1) < 0) { result("Not deleted", "Its backup could not be made.", NULL, NULL); break; }
+            if (cards_delete(g_box_card) < 0) { result("Delete failed", "The file could not be removed.", NULL, NULL); break; }
+            result("Card deleted", g_box_card, "Its backup: Restore a backup, on any card.", NULL);
+            g_cd_due = 1;
+            if (g_cd_sel > g_cd_n - 1) g_cd_sel = g_cd_n - 1;
+        }
+        break;
+    case BOX_IMPORT:
+        if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_nimports;
+        if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_nimports - 1) % g_nimports;
+        if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_IMPORT; }
+        else if (pressed & PSP_CTRL_CROSS) import_one(&g_imports[g_box_item]);
+        break;
+    default:
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_box = BOX_NONE;
+        break;
+    }
+    if (g_cd_due) cards_summary();
+    if (g_cd_sel > g_cd_n) g_cd_sel = g_cd_n;
+}
+
+/* FILE mode is about to delete a file from the card in use */
+static void file_mode_delete(const unsigned char *card) { cards_backup(g_card_name, card, 1); }
+
+static void cards_view(UiCards *v, int standalone)
+{
+    int i;
+    if (g_cd_due) cards_summary();
+    memset(v, 0, sizeof(*v));
+    v->n = g_cd_n;
+    for (i = 0; i < g_cd_n && i < UI_CARDS_MAX; i++) {
+        v->name[i] = g_cd_names[i];
+        v->saves[i] = g_cd_saves[i];
+        v->free[i] = g_cd_free[i];
+        v->in_use[i] = g_card_have && !strcasecmp(g_cd_names[i], g_card_name);
+        v->game[i] = g_cd_game[i][0] ? g_cd_game[i] : NULL;
+    }
+    v->first = g_cd_first;
+    v->sel = standalone ? g_cd_sel : -1;
+    v->keys = !standalone ? UI_KEYS_VIEW : g_box == BOX_NONE ? UI_KEYS_BROWSE
+            : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
+    if (standalone) box_view(&v->box);
 }
 
 /* The adapter is to let go of its card so the PSP's goes in (the answer,
@@ -847,6 +1324,7 @@ int main(int argc, char *argv[])
     scePowerSetClockFrequency(333, 333, 166);
     ui_init();
     settings_load();
+    sa_before_delete(file_mode_delete);
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     sceCtrlSetSamplingCycle(0);
@@ -883,6 +1361,8 @@ int main(int argc, char *argv[])
             if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; }
             if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
                 g_page = (g_page + (pressed & PSP_CTRL_RIGHT ? 1 : PAGES - 1)) % PAGES;
+                g_box = 0;                     /* (a box belongs to the page it was opened on) */
+                g_cd_due = 1;
                 settings_due = 1;
             }
             if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
@@ -950,6 +1430,7 @@ int main(int argc, char *argv[])
             /* the Saves and Status pages take the buttons; the VMU is not shown */
             if (g_page != PAGE_VMU) {
                 if (g_page == PAGE_SAVES && (b & ~page_last)) { saves_input(b & ~page_last); saves_due = 1; }
+                if (g_page == PAGE_CARDS && (b & ~page_last)) { cards_input(b & ~page_last, &settings_due); saves_due = 1; }
                 page_last = b;
                 b = 0;
             } else page_last = b;
@@ -996,6 +1477,7 @@ int main(int argc, char *argv[])
                 generation = gen;
                 connected = 1;
                 g_card_rx_ok = 0;                /* until card_decide or an upload says */
+                g_session_backup[0] = 0;         /* a new session: the card is backed up before it is written */
                 g_adapter_card[0] = g_switch_to[0] = 0;   /* (g_return_to stays: card_decide goes on) */
                 state_seen = g_card_state_seq;   /* the answer to this hello is the next one */
                 send_msg(PSP2DC_MSG_HELLO, &hello, sizeof(hello));
@@ -1088,6 +1570,13 @@ int main(int argc, char *argv[])
         frame++;
         if (g_page == PAGE_STATUS) {
             if (frame % 6 == 0 || g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; show(usb_rc, &in, sent, errors); }
+        } else if (g_page == PAGE_CARDS) {
+            if (frame % 10 == 0 || saves_due) {
+                UiCards v;
+                cards_view(&v, standalone);
+                saves_due = 0;
+                ui_page_cards(&v, &ui_themes[g_theme], top_line());
+            }
         } else if (g_page == PAGE_SAVES) {
             if (frame % 4 == 0 || saves_due) {   /* (the icons animate) */
                 UiSaves v;
