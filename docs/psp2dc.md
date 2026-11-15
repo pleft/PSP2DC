@@ -230,10 +230,12 @@ The RP2040 host controller runs one non-interrupt transfer at a time, so the dri
 
 The message format is defined once, in `protocol/psp2dc_protocol.h`, shared by the firmware and the PSP application.
 
-**VMU screen forwarding**
+**VMU screen forwarding — written, builds, not yet tested on hardware**
 
-- Advertise the LCD function (FT2) on the VMU sub-peripheral and handle its block write, following MaplePad's `LCDWrite`.
-- Forward the 192-byte frame to the PSP over the bulk OUT endpoint, from Core 0, never from the Maple core.
+- joypad-os's VMU already advertised the LCD function (FT2) but did not answer for it. `vmu.c` now answers a media info request for the LCD and keeps each block write to it as the current screen, following MaplePad.
+- The PSP2DC host driver takes each new screen on Core 0 and sends it to the PSP as an `LCD` message (192 bytes) over the bulk OUT endpoint. The Maple core only copies the 192 bytes.
+- This needs the memory card emulation switched on (`CONFIG_VMU`), which on this target runs in RAM only and has Bluetooth removed to make room; about 250 KB of the RP2040's RAM is in use.
+- The PSP application draws the screen four times enlarged at the bottom right of its status page, turned half round, since the Dreamcast sends it upside down for a VMU sitting reversed in a controller. That orientation is from memory of how the VMU works and is to be confirmed on hardware.
 
 **VMU storage**
 
@@ -389,7 +391,7 @@ Result: with the `usb2dc_superpico` build flashed and the SuperPico powered by 5
 
 **Status: First pass achieved (15 November 2026).** A real Dreamcast, powered on with the adapter in a controller port, accepted the PSP as its controller: PSP-1000 → USB → SuperPico (joypad-os `usb2dc_superpico`, Maple on GP21/GP22) → Dreamcast. The SuperPico was powered from the console's 5 V (measured 4.93 V) on the Pico's VBUS pad, with the Maple lines wired directly to the GPIOs and no extra components. Tested by navigating GDMENU and playing Crazy Taxi 2 (stick steering on the nub, L/R as triggers, face buttons), which played perfectly. The game warns that no memory card is present and continues without saving. Latency has not been measured.
 
-An experimental build with joypad-os's memory card enabled in RAM-only mode exists (`build/psp2dc_superpico_vmu_ram_experimental.uf2`, Bluetooth removed to make room, about 250 KB of RAM used); it has not been flashed.
+The build with the memory card (RAM only) and the VMU screen is `build/psp2dc_superpico_vmu_screen.uf2`; `build/psp2dc_superpico_phase3.uf2` is the controller-only build that played Crazy Taxi 2, kept to go back to.
 
 Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut from its board. Colours as wired: blue = +5 V (pin 3, measured), black and green = ground (pins 4 and 2), red = line A (pin 1), white = line B (pin 5). Connections are unsoldered jumper pins in the Pico's top-row holes on a breadboard, to be made permanent.
 
@@ -407,9 +409,10 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 
 **Status: Pending**
 
-- Port LCD (FT2) handling from MaplePad into joypad-os.
-- Define the USB protocol: controller IN, VMU frame OUT.
-- Extend the PSP application to receive and render the frame.
+- Port LCD (FT2) handling from MaplePad into joypad-os. **Written.**
+- Define the USB protocol: controller IN, VMU frame OUT. **Done.**
+- Extend the PSP application to receive and render the frame. **Written.**
+- Test on hardware: memory card seen by the console, screen shown on the PSP, controller still solid.
 - Decide and implement VMU save storage.
 
 **Go/no-go:** the first major milestone (section 11).

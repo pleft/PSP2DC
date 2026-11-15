@@ -50,7 +50,7 @@
 #define PSP2DC_MSG_INPUT  0x02   /* every frame */
 /* adapter -> PSP */
 #define PSP2DC_MSG_STATUS 0x10   /* about once a second */
-#define PSP2DC_MSG_LCD    0x11   /* reserved: a VMU screen, 192 bytes (48x32, 1 bit a dot) */
+#define PSP2DC_MSG_LCD    0x11   /* the VMU's screen, each time the Dreamcast draws one */
 
 /* HELLO payload */
 typedef struct {
@@ -91,6 +91,12 @@ typedef struct {
     uint8_t  reserved[2];
 } __attribute__((packed)) Psp2dcStatus;
 
+/* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot
+ * (1 = dark), 6 bytes a row, the most significant bit the leftmost dot. It is
+ * upside down for someone holding the controller, where the VMU sits reversed:
+ * the PSP turns it half round to show it. */
 #define PSP2DC_LCD_BYTES 192
+#define PSP2DC_LCD_WIDTH  48
+#define PSP2DC_LCD_HEIGHT 32
 
 #endif /* PSP2DC_PROTOCOL_H */

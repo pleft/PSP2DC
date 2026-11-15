@@ -4,7 +4,8 @@
  * Every frame it reads the PSP's controls, turns them into a Dreamcast
  * controller state and sends that to the adapter over PSPExp's USB link
  * (protocol/psp2dc_protocol.h). A second thread reads what the adapter sends
- * back. The screen is a text status page for now; the VMU picture comes later.
+ * back: a status message once a second and the VMU's screen each time the
+ * Dreamcast draws one, shown enlarged at the bottom right of a text status page.
  *
  * User mode; the kernel USB driver (pspexp_usb.prx) was loaded by the boot
  * module and is reached through its exported library (libpspexpusb.a).
@@ -14,6 +15,7 @@
 #include <pspdisplay.h>
 #include <pspctrl.h>
 #include <pspusb.h>
+#include <pspge.h>
 #include <stdio.h>
 #include <string.h>
 #include "pspexp_usb_driver.h"
@@ -35,6 +37,44 @@ static volatile int g_running = 1;
 /* what the adapter last told us (reader thread writes, main thread shows) */
 static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
+
+/* The VMU's screen as the adapter last sent it, and how many came. */
+static unsigned char g_lcd[PSP2DC_LCD_BYTES];
+static volatile unsigned g_lcd_count;
+
+/* The VMU's screen on the PSP's: each dot LCD_SCALE pixels square, at the
+ * bottom right, in the colours of the real thing. Drawn straight into the
+ * debug screen's frame (32-bit, 512 pixels a line). The Dreamcast sends the
+ * picture upside down for the player (the VMU sits reversed in the
+ * controller), so it is turned half round here: the last dot first. */
+#define LCD_SCALE 4
+#define LCD_X (480 - PSP2DC_LCD_WIDTH * LCD_SCALE - 8)
+#define LCD_Y (272 - PSP2DC_LCD_HEIGHT * LCD_SCALE - 6)
+#define LCD_PAPER 0xFF90B09A   /* ABGR: the LCD's grey green */
+#define LCD_INK   0xFF402018   /* its dark blue dots */
+#define LCD_FRAME 0xFF606060
+
+static void lcd_draw(void)
+{
+    unsigned int *vram = (unsigned int *)(0x40000000 | (unsigned int)sceGeEdramGetAddr());
+    int x, y, i, j;
+    for (y = -3; y < PSP2DC_LCD_HEIGHT * LCD_SCALE + 3; y++) {   /* a frame round it */
+        unsigned int *line = vram + (LCD_Y + y) * 512 + LCD_X;
+        for (x = -3; x < PSP2DC_LCD_WIDTH * LCD_SCALE + 3; x++)
+            if (y < 0 || x < 0 || y >= PSP2DC_LCD_HEIGHT * LCD_SCALE || x >= PSP2DC_LCD_WIDTH * LCD_SCALE) line[x] = LCD_FRAME;
+    }
+    for (y = 0; y < PSP2DC_LCD_HEIGHT; y++) {
+        for (x = 0; x < PSP2DC_LCD_WIDTH; x++) {
+            int sx = PSP2DC_LCD_WIDTH - 1 - x, sy = PSP2DC_LCD_HEIGHT - 1 - y;   /* turned half round */
+            int dark = (g_lcd[sy * (PSP2DC_LCD_WIDTH / 8) + sx / 8] >> (7 - (sx & 7))) & 1;
+            unsigned int colour = dark ? LCD_INK : LCD_PAPER;
+            for (j = 0; j < LCD_SCALE; j++) {
+                unsigned int *px = vram + (LCD_Y + y * LCD_SCALE + j) * 512 + LCD_X + x * LCD_SCALE;
+                for (i = 0; i < LCD_SCALE; i++) px[i] = colour;
+            }
+        }
+    }
+}
 
 /* How the USB came up, for the status page when it did not: the driver's own
  * start, then each step by hand (bus driver, PSPExp's driver, activation). */
@@ -153,6 +193,9 @@ static int reader_thread(SceSize args, void *argp)
                 g_adapter_uptime_ms = st.uptime_ms;
                 g_adapter_version = st.version;
                 g_status_count++;
+            } else if (p[2] == PSP2DC_MSG_LCD && p[3] == PSP2DC_LCD_BYTES) {
+                memcpy(g_lcd, p + PSP2DC_HEADER_LEN, PSP2DC_LCD_BYTES);
+                g_lcd_count++;
             }
             pos += total;
         }
@@ -184,8 +227,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("usb      packet %u  attach %u  detach %u  sync %u      \n",
            (unsigned)st.packet_size, (unsigned)st.attaches, (unsigned)st.detaches, (unsigned)st.resyncs);
     printf("sent     %u inputs  %u errors  tx timeouts %u      \n", sent, errors, (unsigned)st.tx_timeouts);
-    printf("adapter  %u status msgs  up %u s  protocol %u  bad %u      \n\n",
+    printf("adapter  %u status msgs  up %u s  protocol %u  bad %u      \n",
            g_status_count, g_adapter_uptime_ms / 1000, g_adapter_version, g_rx_bad);
+    printf("vmu      %u screens      \n\n", g_lcd_count);
     printf("Dreamcast controller state\n");
     printf("  buttons  %c %c %c %c  %s   dpad %c%c%c%c      \n",
            in->buttons & PSP2DC_BTN_A ? 'A' : '.', in->buttons & PSP2DC_BTN_B ? 'B' : '.',
@@ -194,19 +238,20 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            in->buttons & PSP2DC_BTN_UP ? 'U' : '.', in->buttons & PSP2DC_BTN_DOWN ? 'D' : '.',
            in->buttons & PSP2DC_BTN_LEFT ? 'L' : '.', in->buttons & PSP2DC_BTN_RIGHT ? 'R' : '.');
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
-    printf("  triggers L %3u  R %3u      \n\n", in->trigger_l, in->trigger_r);
+    printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
     if (g_stick_mode == STICK_NUB)       printf("stick from: the nub                           \n");
     else if (g_stick_mode == STICK_DPAD) printf("stick from: the d-pad (the nub is ignored)    \n");
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
-    printf("\nCross=A  Circle=B  Square=X  Triangle=Y  Start=Start\n");
-    printf("L / R = triggers   SELECT = stick source   HOME = quit\n");
+    printf("\nCross=A Circle=B Square=X Triangle=Y\n");
+    printf("L/R = triggers   SELECT = stick\n");
+    printf("HOME = quit\n");
 }
 
 int main(int argc, char *argv[])
 {
     SceCtrlData pad;
     Psp2dcInput in;
-    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0;
+    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
     unsigned char seq = 0;
     int usb_rc, connected = 0;
     SceUID thid;
@@ -245,6 +290,7 @@ int main(int argc, char *argv[])
             connected = 0;
         }
         if ((frame++ % 6) == 0) show(usb_rc, &in, sent, errors);
+        if (g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; lcd_draw(); }
     }
     pspexpUsbStop();
     sceKernelExitGame();

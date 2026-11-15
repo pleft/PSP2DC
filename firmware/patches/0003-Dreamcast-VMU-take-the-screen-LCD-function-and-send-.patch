@@ -1,0 +1,189 @@
+From bf3e190b5408e88bee2ad3ebb7971a8267f3362d Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 15 Nov 2026 16:13:40 +0200
+Subject: [PATCH 3/3] Dreamcast VMU: take the screen (LCD function) and send it
+ to the PSP
+
+The VMU already advertised the LCD function but answered nothing for it. Now
+a media info request for the LCD gets the LCD's (48x32, 1 bit a dot, as
+MaplePad's), and a block write to it is kept as the current screen. The
+PSP2DC host driver sends each new screen to the PSP as an LCD message.
+
+Builds; not yet tested on hardware.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       |  7 +++
+ src/native/device/dreamcast/vmu.c             | 49 ++++++++++++++++++-
+ src/native/device/dreamcast/vmu.h             | 11 +++++
+ src/usb/usbh/psp2dc/psp2dc_host.c             | 19 ++++++-
+ 4 files changed, 84 insertions(+), 2 deletions(-)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 03ef0bd5..335af57d 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -714,6 +714,8 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
+         case CMD_GET_MEDIA_INFO:
+             cmd_vmu_media_info++;
+             cmd_vmu_media_info_sent++;
++            // the memory card's, or the screen's when that is the function asked about
++            vmu_select_media_info(Header->NumWords >= 1 ? __builtin_bswap32(PacketData[0]) : FUNC_MEMORY_CARD);
+             NextPacketSend = SEND_VMU_MEDIA_INFO;
+             return true;
+ 
+@@ -731,6 +733,11 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
+                 NextPacketSend = SEND_VMU_ACK;  // Use dedicated VMU ACK (origin=0x01)
+                 return true;
+             }
++            if (Header->NumWords >= 2 && __builtin_bswap32(PacketData[0]) == FUNC_LCD) {
++                vmu_handle_lcd_write(PacketData, Header->NumWords);   // the VMU's screen
++                NextPacketSend = SEND_VMU_ACK;
++                return true;
++            }
+             break;
+ 
+         case CMD_BLOCK_COMPLETE_WRITE:
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 22cbb757..6c4af2c5 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -86,6 +86,20 @@ typedef struct __attribute__((packed)) {
+     uint32_t CRC;
+ } VmuAckPkt;
+ 
++typedef struct __attribute__((packed)) {
++    uint32_t BitPairsMinus1;
++    uint8_t  Command; uint8_t  Destination; uint8_t  Origin; uint8_t  NumWords;
++    uint32_t Func;
++    uint8_t  dX; uint8_t dY; uint8_t GradContrast; uint8_t Reserved;
++    uint32_t CRC;
++} VmuLcdInfoPkt;
++
++static VmuLcdInfoPkt   vmu_lcd_info_pkt;
++static volatile bool   vmu_media_is_lcd;          // Core 1 only: what SEND_VMU_MEDIA_INFO sends next
++static uint8_t         vmu_lcd[VMU_LCD_BYTES] __attribute__((aligned(4)));
++static volatile uint32_t vmu_lcd_seq;             // +1 a screen written (Core 1)
++static uint32_t        vmu_lcd_taken;             // the last one Core 0 took
++
+ static VmuInfoPkt      vmu_info_pkt;
+ static VmuAllInfoPkt   vmu_all_info_pkt;
+ static VmuMediaInfoPkt vmu_media_pkt;
+@@ -171,6 +185,15 @@ void vmu_build_packets(uint8_t port_addr) {
+       p->Reserved16=0;
+       p->Padding=0;
+       p->CRC=CalcCRC((uint32_t*)&p->Command,(sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC))/sizeof(uint32_t)); }
++    { VmuLcdInfoPkt *p=&vmu_lcd_info_pkt;   // as MaplePad's BuildLCDInfoPacket
++      p->BitPairsMinus1=(sizeof(*p)-7)*4-1; p->Command=CMD_RESPOND_DATA_TRANSFER;
++      p->Destination=0; p->Origin=port_addr;
++      p->NumWords=(sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC)-sizeof(uint32_t))/sizeof(uint32_t);
++      p->Func=__builtin_bswap32(FUNC_LCD);
++      p->dX=48-1; p->dY=32-1;
++      p->GradContrast=0x10;   // 1 bit a dot, no contrast steps
++      p->Reserved=0;
++      p->CRC=CalcCRC((uint32_t*)&p->Command,(sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC))/sizeof(uint32_t)); }
+     { VmuBlockReadPkt *p=&vmu_block_read_pkt;
+       p->Command=CMD_RESPOND_DATA_TRANSFER; p->Destination=0; p->Origin=port_addr;
+       p->Func=__builtin_bswap32(FUNC_MEMORY); p->Phase=0; p->Reserved=0; }
+@@ -242,7 +265,31 @@ uint8_t   vmu_get_address(void)  { return vmu_port_addr; }
+ 
+ const void* __not_in_flash_func(vmu_get_device_info_packet)(uint32_t *sz)     { *sz=sizeof(vmu_info_pkt)/4;      return &vmu_info_pkt; }
+ const void* __not_in_flash_func(vmu_get_all_device_info_packet)(uint32_t *sz) { *sz=sizeof(vmu_all_info_pkt)/4;  return &vmu_all_info_pkt; }
+-const void* __not_in_flash_func(vmu_get_media_info_packet)(uint32_t *sz)      { *sz=sizeof(vmu_media_pkt)/4;     return &vmu_media_pkt; }
++const void* __not_in_flash_func(vmu_get_media_info_packet)(uint32_t *sz) {
++    if (vmu_media_is_lcd) { *sz=sizeof(vmu_lcd_info_pkt)/4; return &vmu_lcd_info_pkt; }
++    *sz=sizeof(vmu_media_pkt)/4; return &vmu_media_pkt;
++}
++
++void __not_in_flash_func(vmu_select_media_info)(uint32_t func) { vmu_media_is_lcd = func == FUNC_LCD; }
++
++// A block write to the LCD: function, block number, then the 192 bytes of the
++// screen (block 0; MaplePad's "block 0x10" test mode is not taken).
++bool __not_in_flash_func(vmu_handle_lcd_write)(const uint32_t *pkt, uint32_t num_words) {
++    if (num_words != 2 + VMU_LCD_BYTES / 4 || pkt[1] != 0) return false;
++    vmu_ram_copy(vmu_lcd, &pkt[2], VMU_LCD_BYTES);
++    vmu_lcd_seq++;
++    return true;
++}
++
++// Core 0. A screen written by Core 1 during the copy shows as one torn frame at
++// worst, and the count has moved on by then, so the next call takes it whole.
++bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]) {
++    uint32_t seq = vmu_lcd_seq;
++    if (seq == vmu_lcd_taken) return false;
++    memcpy(out, vmu_lcd, VMU_LCD_BYTES);
++    vmu_lcd_taken = seq;
++    return true;
++}
+ const void* __not_in_flash_func(vmu_get_block_read_packet)(uint32_t *sz)      { *sz=sizeof(vmu_block_read_pkt)/4; return &vmu_block_read_pkt; }
+ const void* __not_in_flash_func(vmu_get_ack_packet)(uint32_t *sz)             { *sz=sizeof(vmu_ack_pkt)/4;       return &vmu_ack_pkt; }
+ 
+diff --git a/src/native/device/dreamcast/vmu.h b/src/native/device/dreamcast/vmu.h
+index 7510a767..10a821eb 100644
+--- a/src/native/device/dreamcast/vmu.h
++++ b/src/native/device/dreamcast/vmu.h
+@@ -66,6 +66,17 @@ const void* vmu_handle_block_read(const uint32_t *packet_data, uint32_t *size_wo
+ void        vmu_handle_block_write(const uint32_t *packet_data, uint32_t num_words);
+ void        vmu_handle_write_complete(void);
+ 
++// The VMU's screen (FT2, LCD): 48x32 dots, 1 bit a dot, 6 bytes a row, the
++// most significant bit the leftmost dot; as the Dreamcast sends it, which is
++// upside down for someone holding the controller (the VMU sits in it reversed).
++#define VMU_LCD_BYTES 192
++// Core 1: which function the next media info answers (memory card or LCD)
++void vmu_select_media_info(uint32_t func);
++// Core 1: a block write to the LCD. True when it was a screen.
++bool vmu_handle_lcd_write(const uint32_t *packet_data, uint32_t num_words);
++// Core 0: the screen, when it changed since the last call. True when copied.
++bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]);
++
+ // Address and status
+ uint8_t   vmu_get_address(void);
+ VmuStatus vmu_get_status(void);
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index 3e4e63be..e795e7e4 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -8,7 +8,8 @@
+ //             (PSPExp's driver answers a sync with the same 16 bytes and from
+ //             then on passes the application's bytes through).
+ //   RUNNING:  read a transfer, parse the messages in it, send whatever is
+-//             waiting (a STATUS once a second), read again. The PSP sends an
++//             waiting (the VMU's screen when it changed, a STATUS once a
++//             second), read again. The PSP sends an
+ //             INPUT message every frame, so a read never waits long.
+ //
+ // A PSP that stops sending (application paused, cable still in) has its
+@@ -23,6 +24,9 @@
+ #include "core/input_event.h"
+ #include "core/router/router.h"
+ #include "platform/platform.h"
++#ifdef CONFIG_VMU
++#include "native/device/dreamcast/vmu.h"
++#endif
+ 
+ enum {
+     PSP2DC_RX_SIZE     = PSP2DC_USB_PACKET_FS,   // one full-speed packet a read
+@@ -177,6 +181,19 @@ void psp2dc_host_task(void)
+             continue;
+         }
+         // RUNNING: what is waiting to go out first, then the next read
++#ifdef CONFIG_VMU
++        {   // the VMU's screen, when the Dreamcast drew a new one
++            _Static_assert(VMU_LCD_BYTES == PSP2DC_LCD_BYTES, "the LCD message carries the VMU's screen as it is");
++            if (vmu_lcd_take(d->tx + PSP2DC_HEADER_LEN)) {
++                d->tx[0] = PSP2DC_MAGIC0; d->tx[1] = PSP2DC_MAGIC1;
++                d->tx[2] = PSP2DC_MSG_LCD; d->tx[3] = PSP2DC_LCD_BYTES;
++                if (transfer((uint8_t)addr, d->ep_out, d->tx, PSP2DC_HEADER_LEN + PSP2DC_LCD_BYTES)) {
++                    d->busy = true;
++                    continue;
++                }
++            }
++        }
++#endif
+         if (now - d->status_ms >= PSP2DC_STATUS_MS) {
+             uint16_t n = build_status(d);
+             if (transfer((uint8_t)addr, d->ep_out, d->tx, n)) {
+-- 
+2.54.0 (Apple Git-157)
+
