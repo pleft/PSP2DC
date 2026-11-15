@@ -11,3 +11,5 @@ psp/*/PARAM.SFO
 # joypad-os is its own repository (branch superpico); its changes are kept
 # here as patches in firmware/patches
 /firmware/joypad-os/
+# real memory card images (game saves and their artwork): local test data only
+/testdata/

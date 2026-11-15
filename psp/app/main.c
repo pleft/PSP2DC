@@ -376,7 +376,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
     printf("SELECT tap: stick source\n");
-    printf("SELECT+Square rec  +Triangle shot\n");
+    printf("SELECT+Triangle screenshot\n");
     printf("SELECT+Circle demo   HOME quit");
 }
 

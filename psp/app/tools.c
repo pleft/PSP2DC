@@ -36,7 +36,7 @@ static unsigned char *g_rec;
 static volatile unsigned g_rec_n;
 static volatile int g_rec_on;
 static unsigned g_rec_t0;
-static char g_rec_note[96] = "SELECT+Square records the VMU";
+static char g_rec_note[96] = "";   /* (SELECT+Square: a development aid, not in the help) */
 
 void rec_start(void)
 {
