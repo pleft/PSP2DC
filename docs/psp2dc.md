@@ -350,7 +350,7 @@ The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, 
 
 - **SELECT + L / R:** the previous or next card (by name); the panel and the top line show its name, and for two seconds "card: NAME (2 of 3)".
 - **SELECT + Start:** a new card, formatted as a Dreamcast formats one (200 blocks free), named `cardN` with the first free N, and changed to.
-- **Standalone** (no Dreamcast) the change is immediate, the card in use written first if it changed; not while a VMU game runs.
+- **Standalone** (no Dreamcast) the VMU starts afresh with the other card, as another VMU would: TIME mode, nothing chosen in FILE (it kept its FILE screen and file number before). The change is immediate, the card in use written first if it changed; not while a VMU game runs.
 - **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (`CARD_EJECT`, since protocol 4): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
 - **Reconnecting** to an adapter that still holds a card is 5.0f.
 - A file is tested for by opening it: `sceIoGetstat` said "not there" for files that were there under PPSSPP, and a new card must never overwrite an old one.

@@ -154,6 +154,7 @@ static int card_change(const char *name)
     if (!g_card_dirty) {
         memcpy(g_card, img, sizeof(img));
         snprintf(g_card_name, sizeof(g_card_name), "%s", name);
+        sa_reset();                        /* another card, another VMU: nothing of the last one stays */
         g_card_have = 1;
         g_card_note = "changed";
         rc = 0;

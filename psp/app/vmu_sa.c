@@ -42,7 +42,12 @@ static unsigned g_mode_held_ms;            /* MODE held while a game runs */
 #define LEAVE_GAME_MS 2000
 static const char *const g_names[MODES] = { "GAME", "TIME", "FILE" };
 
-void sa_reset(void) { g_mode = MODE_TIME; g_sleep = 0; g_fs = FS_FREE; }
+void sa_reset(void)
+{
+    g_mode = MODE_TIME; g_sleep = 0;
+    g_fs = FS_FREE; g_file = g_act = g_yes = g_target = g_ntargets = 0;
+    g_mode_held_ms = 0;
+}
 void sa_card_name(const char *name) { g_card_name = name ? name : ""; }
 
 int sa_stop(unsigned char *card)

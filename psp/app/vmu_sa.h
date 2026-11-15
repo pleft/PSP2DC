@@ -25,7 +25,9 @@
 #define SA_ICON_CLOCK     0x04
 #define SA_ICON_ATTENTION 0x08
 
-void sa_reset(void);                       /* back to TIME, as on leaving the Dreamcast (VMU-7) */
+/* Back to TIME with nothing chosen, as on leaving the Dreamcast (VMU-7);
+ * also when the card changes, as another VMU would start. */
+void sa_reset(void);
 /* The card in use's name (cards.h): FILE's Copy offers the others, and a
  * game belongs to the card it was started from. */
 void sa_card_name(const char *name);
