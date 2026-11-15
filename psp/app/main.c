@@ -33,9 +33,11 @@
 #include <pspthreadman.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "pspexp_usb_driver.h"
 #include "../../protocol/psp2dc_protocol.h"
 #include "tools.h"
+#include "ui.h"
 
 PSP_MODULE_INFO("PSP2DC", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
@@ -124,40 +126,6 @@ static int saver_thread(SceSize args, void *argp)
 static unsigned char g_lcd[PSP2DC_LCD_BYTES];
 static volatile unsigned g_lcd_count;
 
-/* The VMU's screen on the PSP's: each dot LCD_SCALE pixels square, at the
- * bottom right, in the colours of the real thing. Drawn straight into the
- * debug screen's frame (32-bit, 512 pixels a line). The Dreamcast sends the
- * picture upside down for the player (the VMU sits reversed in the
- * controller), so it is turned half round here: the last dot first. */
-#define LCD_SCALE 4
-#define LCD_X (480 - PSP2DC_LCD_WIDTH * LCD_SCALE - 8)
-#define LCD_Y (272 - PSP2DC_LCD_HEIGHT * LCD_SCALE - 6)
-#define LCD_PAPER 0xFF90B09A   /* ABGR: the LCD's grey green */
-#define LCD_INK   0xFF402018   /* its dark blue dots */
-#define LCD_FRAME 0xFF606060
-
-static void lcd_draw(void)
-{
-    unsigned int *vram = (unsigned int *)(0x40000000 | (unsigned int)sceGeEdramGetAddr());
-    int x, y, i, j;
-    for (y = -3; y < PSP2DC_LCD_HEIGHT * LCD_SCALE + 3; y++) {   /* a frame round it */
-        unsigned int *line = vram + (LCD_Y + y) * 512 + LCD_X;
-        for (x = -3; x < PSP2DC_LCD_WIDTH * LCD_SCALE + 3; x++)
-            if (y < 0 || x < 0 || y >= PSP2DC_LCD_HEIGHT * LCD_SCALE || x >= PSP2DC_LCD_WIDTH * LCD_SCALE) line[x] = LCD_FRAME;
-    }
-    for (y = 0; y < PSP2DC_LCD_HEIGHT; y++) {
-        for (x = 0; x < PSP2DC_LCD_WIDTH; x++) {
-            int sx = PSP2DC_LCD_WIDTH - 1 - x, sy = PSP2DC_LCD_HEIGHT - 1 - y;   /* turned half round */
-            int dark = (g_lcd[sy * (PSP2DC_LCD_WIDTH / 8) + sx / 8] >> (7 - (sx & 7))) & 1;
-            unsigned int colour = dark ? LCD_INK : LCD_PAPER;
-            for (j = 0; j < LCD_SCALE; j++) {
-                unsigned int *px = vram + (LCD_Y + y * LCD_SCALE + j) * 512 + LCD_X + x * LCD_SCALE;
-                for (i = 0; i < LCD_SCALE; i++) px[i] = colour;
-            }
-        }
-    }
-}
-
 /* How the USB came up, for the status page when it did not: the driver's own
  * start, then each step by hand (bus driver, PSPExp's driver, activation). */
 #define USB_ALREADY 0x80243001   /* "already done": that step was already in effect */
@@ -166,6 +134,12 @@ static void lcd_draw(void)
 static int g_usb_kernel, g_usb_bus, g_usb_drv, g_usb_act, g_usb_tries;
 static unsigned g_usb_restarts;   /* times the USB was started afresh for an adapter that did not sync */
 static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP); demo only */
+
+/* What is on the screen: the VMU large, the memory card's saves, or the
+ * status page. Kept with the theme and the stick's source in SETTINGS. */
+enum { PAGE_VMU, PAGE_SAVES, PAGE_STATUS, PAGES };
+static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
+#define SETTINGS "ms0:/PSP2DC/settings.txt"
 
 /* The driver's start does its three steps in one go and stops at the first
  * error, "already done" included. When that fails, the steps one by one, with
@@ -320,10 +294,6 @@ static int card_upload(void)
             m += PSP2DC_HEADER_LEN + sizeof(Psp2dcCardPart);
         }
         if (pspexpUsbWrite(buf, sizeof(buf)) < 0) return -1;
-        if ((block & 31) == 0) {
-            pspDebugScreenSetXY(0, 9);
-            printf("card     sending to the adapter: block %3d of 256      ", block);
-        }
     }
     return 0;
 }
@@ -334,6 +304,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     const char *link;
     memset(&st, 0, sizeof(st));
     if (!g_no_usb) pspexpUsbGetStats(&st);
+    ui_begin(0xFF000000);
+    pspDebugScreenSetTextColor(0xFFFFFFFF);
     link = g_no_usb ? "no USB (emulator?)            "
          : pspexpUsbConnected() ? "CONNECTED to the adapter      "
          : pspexpUsbAttached()  ? "cable in, waiting for adapter "
@@ -376,8 +348,56 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     else                                 printf("stick from: nothing (centred, nub ignored)    \n");
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
     printf("SELECT tap: stick source\n");
-    printf("SELECT+Triangle screenshot\n");
+    printf("SELECT+Left/Right page  +Triangle shot\n");
     printf("SELECT+Circle demo   HOME quit");
+    ui_lcd(g_lcd, 480 - 48 * 4 - 8, 272 - 32 * 4 - 8, 4, &ui_themes[g_theme]);
+    ui_end();
+}
+
+static void settings_load(void)
+{
+    char buf[256];
+    const char *p;
+    int n;
+    SceUID fd = sceIoOpen(SETTINGS, PSP_O_RDONLY, 0);
+    if (fd < 0) return;
+    n = sceIoRead(fd, buf, sizeof(buf) - 1);
+    sceIoClose(fd);
+    if (n <= 0) return;
+    buf[n] = 0;
+    if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
+    if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
+    if ((p = strstr(buf, "stick="))) g_stick_mode = atoi(p + 6) % STICK_MODES;
+}
+
+static void settings_save(void)
+{
+    char buf[96];
+    SceUID fd;
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\nstick=%d\n", g_page, g_theme, g_stick_mode);
+    sceIoMkdir(CARD_DIR, 0777);
+    if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
+    sceIoWrite(fd, buf, n);
+    sceIoClose(fd);
+}
+
+/* A word on what just changed (the stick's source, a screenshot), shown in
+ * the top line for two seconds in place of the card's state. */
+static char g_notice[48];
+static unsigned g_notice_at;
+static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s); g_notice_at = now_us() | 1; }
+
+/* The line at the top of the VMU and saves pages */
+static const char *top_line(void)
+{
+    static char buf[80];
+    const char *link = demo_on() ? "DEMO" : g_no_usb ? "no USB" : pspexpUsbConnected() ? "CONNECTED"
+                     : pspexpUsbAttached() ? "cable in, waiting" : "no cable";
+    if (g_notice_at && now_us() - g_notice_at < 2000000)
+        snprintf(buf, sizeof(buf), "PSP2DC  %-17s %s", link, g_notice);
+    else
+        snprintf(buf, sizeof(buf), "PSP2DC  %-17s card: %s", link, g_card_have ? g_card_note : "none yet");
+    return buf;
 }
 
 int main(int argc, char *argv[])
@@ -387,7 +407,7 @@ int main(int argc, char *argv[])
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
-    int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i;
+    int usb_rc = 0, connected = 0, sel_used = 0, shot_due = 0, autoshot = 0, i, settings_due = 0;
     unsigned start_us = now_us();
     SceUID thid;
     SceIoStat ist;
@@ -401,13 +421,11 @@ int main(int argc, char *argv[])
     }
     (void)ist;
 
-    pspDebugScreenInit();
-    /* The debug screen clears the next text line at every newline, across the
-     * whole width: the status page's last lines reach the VMU picture's top
-     * rows and blanked them at each redraw until the next screen came (a
-     * flickering band, seen in Crazy Taxi 2, 2026-11-15). The lines are padded
-     * with spaces instead, and the picture is drawn again after the text. */
-    pspDebugScreenClearLineDisable();
+    /* Every page is drawn whole into the frame not on screen and shown at the
+     * next vblank (ui.c): the status text once blanked the VMU picture's top
+     * rows at each redraw, a flickering band (Crazy Taxi 2, 2026-11-15). */
+    ui_init();
+    settings_load();
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     sceCtrlSetSamplingCycle(0);
@@ -440,6 +458,22 @@ int main(int argc, char *argv[])
             if (!(last_buttons & PSP_CTRL_SELECT)) sel_used = 0;
             if (pressed & PSP_CTRL_SQUARE) { if (rec_on()) rec_stop(); else rec_start(); sel_used = 1; }
             if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; sel_used = 1; }
+            if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
+                g_page = (g_page + (pressed & PSP_CTRL_RIGHT ? 1 : PAGES - 1)) % PAGES;
+                settings_due = 1; sel_used = 1;
+            }
+            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+                int d = pressed & PSP_CTRL_DOWN ? 1 : -1;
+                if (g_page == PAGE_SAVES) {
+                    g_saves_first += d;
+                    if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
+                    if (g_saves_first < 0) g_saves_first = 0;
+                } else {
+                    g_theme = (g_theme + d + ui_theme_count) % ui_theme_count;
+                    settings_due = 1;
+                }
+                sel_used = 1;
+            }
             if (pressed & PSP_CTRL_CIRCLE) {
                 if (demo_on()) demo_stop();
                 else if (!connected) demo_start();
@@ -449,7 +483,12 @@ int main(int argc, char *argv[])
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
         } else {
-            if ((last_buttons & PSP_CTRL_SELECT) && !sel_used) g_stick_mode = (g_stick_mode + 1) % STICK_MODES;
+            if ((last_buttons & PSP_CTRL_SELECT) && !sel_used) {
+                static const char *names[STICK_MODES] = { "stick: the nub", "stick: the d-pad", "stick: none" };
+                g_stick_mode = (g_stick_mode + 1) % STICK_MODES;
+                notice(names[g_stick_mode]);
+                settings_due = 1;
+            }
             last_buttons = pad.Buttons;
         }
         map_input(&pad, &in);
@@ -498,8 +537,20 @@ int main(int argc, char *argv[])
             }
         }
         g_usb_restarts = usb_restarts;
-        if ((frame++ % 6) == 0) { show(usb_rc, &in, sent, errors); lcd_shown = ~0u; }
-        if (g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; lcd_draw(); }
+        if (settings_due) { settings_due = 0; settings_save(); }
+        frame++;
+        if (g_page == PAGE_STATUS) {
+            if (frame % 6 == 0 || g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; show(usb_rc, &in, sent, errors); }
+        } else if (g_page == PAGE_SAVES) {
+            if (frame % 4 == 0) {          /* (the icons animate) */
+                g_saves_count = ui_page_saves(g_card, g_card_have, g_saves_first, &ui_themes[g_theme],
+                                              now_us() / 1000, top_line());
+            }
+        } else if (frame % 30 == 0 || g_lcd_count != lcd_shown) {
+            lcd_shown = g_lcd_count;
+            ui_page_vmu(g_lcd, &ui_themes[g_theme], top_line(),
+                        "SELECT+ Left/Right page  Up/Down theme  Triangle shot");
+        }
         if (autoshot) {   /* 3, 6 and 10 s after the start */
             unsigned t = (now_us() - start_us) / 1000000;
             if ((autoshot == 1 && t >= 3) || (autoshot == 2 && t >= 6) || (autoshot == 3 && t >= 10)) {
@@ -507,7 +558,7 @@ int main(int argc, char *argv[])
                 autoshot = autoshot == 3 ? 0 : autoshot + 1;
             }
         }
-        if (shot_due) { shot_due = 0; shot_take(); }
+        if (shot_due) { shot_due = 0; shot_take(); notice(shot_note()); }
     }
     if (rec_on()) rec_stop();
     if (!g_no_usb) pspexpUsbStop();

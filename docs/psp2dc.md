@@ -279,6 +279,18 @@ Demo mode plays every recording in `capture/` in turn at its recorded pace, or a
 
 `scripts/dev/run-ppsspp.sh` installs `dist/PSP2DC` into PPSSPP and starts it; `scripts/dev/run-ppsspp.sh shot file.png` captures the emulator's window. PPSSPP's memory stick root is `~/.config/ppsspp`, so `ms0:/PSP2DC` is `~/.config/ppsspp/PSP2DC`. An empty file `dev_autoshot` there makes the application take screenshots by itself 3, 6 and 10 s after starting. Verified in PPSSPP on 15 November 2026: demo mode with the made-up screen, and screenshots written correctly. Recording needs the adapter and is untested.
 
+### 5.0a Pages and Themes
+
+Three pages, changed with SELECT + Left/Right; the page, the theme and the stick's source are kept in `ms0:/PSP2DC/settings.txt`.
+
+- **VMU:** the screen eight times its size (384x256), a status line above (link, the card's state, the theme's name; for two seconds after a change, what changed) and the keys below. SELECT + Up/Down changes the theme.
+- **Saves:** the memory card's files as the BIOS shows them: the game's icon (animated), the long and short descriptions, file name, date, size, and the blocks free. SELECT + Up/Down scrolls, three files at a time. It reads the card the application holds, so it is up to date with what the adapter has sent.
+- **Status:** the diagnostic page, with the VMU small.
+
+Themes: Classic (the VMU's grey-green, dots drawn apart like the real LCD), Backlit, Pocket (handheld green, dots apart), Amber, Phosphor, Paper.
+
+Every page is drawn whole into the frame buffer not on screen and shown at the next vblank, so nothing is seen half drawn. Verified in PPSSPP on 15 November 2026 with the real card (Crazy Taxi 2 and Sonic Adventure 2 saves, both icons correct); not yet on hardware. The icons' animation speed unit is not confirmed (taken as 1/15 s).
+
 ### 5.1 Controller Mapping
 
 The initial mapping will include:

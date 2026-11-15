@@ -1,6 +1,7 @@
 /* See tools.h. */
 #include <pspkernel.h>
 #include <pspge.h>
+#include <pspdisplay.h>
 #include <pspiofilemgr.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -214,14 +215,18 @@ int demo_frame(unsigned char out[PSP2DC_LCD_BYTES])
 }
 
 /* ---- screenshots -------------------------------------------------------
- * The debug screen's frame: 32 bits a pixel (A B G R from the top byte), 512
+ * The frame on screen (ui.c draws two in turn): 32 bits a pixel (A B G R from the top byte), 512
  * pixels a line, at the start of VRAM. A BMP is 24 bits, bottom line first. */
 static char g_shot_note[96] = "SELECT+Triangle takes a screenshot";
 
 int shot_take(void)
 {
     static unsigned char line[480 * 3];
-    const unsigned int *vram = (const unsigned int *)(0x40000000 | (unsigned int)sceGeEdramGetAddr());
+    const unsigned int *vram;
+    void *top = NULL;
+    int width = 512, format = 3;
+    sceDisplayGetFrameBuf(&top, &width, &format, PSP_DISPLAY_SETBUF_NEXTFRAME);   /* the one on screen */
+    vram = (const unsigned int *)(0x40000000 | (unsigned int)(top ? top : sceGeEdramGetAddr()));
     unsigned char head[54];
     unsigned size = 54 + sizeof(line) * 272;
     char path[128];
