@@ -89,6 +89,7 @@ void ui_text(int col, int row, unsigned colour, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    if (col >= 0 && col < 68 && (int)strlen(buf) > 68 - col) buf[68 - col] = 0;   /* (480 px, 7 a column) */
     pspDebugScreenSetTextColor(colour);
     pspDebugScreenSetXY(col, row);
     pspDebugScreenPuts(buf);
@@ -352,6 +353,74 @@ static void label(int x, int y, unsigned c, const char *s)
     for (; *s; s++, x += 7) pspDebugScreenPutChar(x, y, c, (unsigned char)*s);
 }
 
+/* a label kept within w pixels: cut, with an ellipsis, when longer */
+static void label_fit(int x, int y, unsigned c, const char *s, int w)
+{
+    int max = w / 7, n = (int)strlen(s), i;
+    if (n <= max) { label(x, y, c, s); return; }
+    for (i = 0; i < max - 1; i++, x += 7) pspDebugScreenPutChar(x, y, c, (unsigned char)s[i]);
+    for (i = 0; i < 3; i++) ui_fill(x + 1 + 2 * i, y + 6, 1, 1, c);
+}
+
+/* ---- the PSP's buttons, as small symbols ---------------------------------
+ * 11x11, drawn from the top left; the face buttons in the PlayStation's
+ * colours (ABGR), the d-pad as a cross with the arms named lit. */
+#define SYM_CROSS    0xFFE8B27Cu
+#define SYM_CIRCLE   0xFF6666FFu
+#define SYM_SQUARE   0xFFD89FE3u
+#define SYM_TRIANGLE 0xFFA0C81Cu
+enum { SYM_X, SYM_O, SYM_SQ, SYM_TRI, SYM_DPAD };
+enum { ARM_UP = 1, ARM_DOWN = 2, ARM_LEFT = 4, ARM_RIGHT = 8 };
+
+static void stroke(int x0, int y0, int x1, int y1, unsigned c)   /* two pixels wide */
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx - dy;
+    for (;;) {
+        ui_fill(x0, y0, 2, 1, c);
+        if (x0 == x1 && y0 == y1) break;
+        if (2 * err > -dy) { err -= dy; x0 += sx; }
+        if (2 * err < dx) { err += dx; y0 += sy; }
+    }
+}
+
+/* a small filled arrow, 7 across its base and 4 deep, pointing ARM_*, from
+ * the top left of its 7x7 cell */
+static void arrow(int dir, int x, int y, unsigned c)
+{
+    int i;
+    for (i = 0; i < 4; i++) {
+        int len = 7 - 2 * i;
+        if (dir == ARM_LEFT)  ui_fill(x + 3 - i, y + i, 1, len, c);   /* tip at the left */
+        if (dir == ARM_RIGHT) ui_fill(x + i, y + i, 1, len, c);
+        if (dir == ARM_UP)    ui_fill(x + i, y + 5 - i, len, 1, c);   /* rows 2 to 5, as down */
+        if (dir == ARM_DOWN)  ui_fill(x + i, y + 2 + i, len, 1, c);
+    }
+}
+
+static void sym(int kind, int x, int y, unsigned arms, unsigned dim_c, unsigned lit_c)
+{
+    switch (kind) {
+    case SYM_X:   stroke(x + 1, y + 1, x + 8, y + 9, SYM_CROSS); stroke(x + 8, y + 1, x + 1, y + 9, SYM_CROSS); break;
+    case SYM_O:   ring(x + 5, y + 5, 5, 2, SYM_CIRCLE); break;
+    case SYM_SQ:
+        ui_fill(x + 1, y + 1, 9, 2, SYM_SQUARE); ui_fill(x + 1, y + 8, 9, 2, SYM_SQUARE);
+        ui_fill(x + 1, y + 1, 2, 9, SYM_SQUARE); ui_fill(x + 8, y + 1, 2, 9, SYM_SQUARE);
+        break;
+    case SYM_TRI:
+        stroke(x + 5, y + 1, x, y + 9, SYM_TRIANGLE); stroke(x + 5, y + 1, x + 9, y + 9, SYM_TRIANGLE);
+        ui_fill(x, y + 8, 11, 2, SYM_TRIANGLE);
+        break;
+    case SYM_DPAD:
+        ui_fill(x, y + 4, 11, 3, dim_c); ui_fill(x + 4, y, 3, 11, dim_c);
+        if (arms & ARM_UP)    ui_fill(x + 4, y, 3, 4, lit_c);
+        if (arms & ARM_DOWN)  ui_fill(x + 4, y + 7, 3, 4, lit_c);
+        if (arms & ARM_LEFT)  ui_fill(x, y + 4, 4, 3, lit_c);
+        if (arms & ARM_RIGHT) ui_fill(x + 7, y + 4, 4, 3, lit_c);
+        break;
+    }
+}
+
 /* ---- the VMU, drawn ------------------------------------------------------
  * As the real one looks from the front: a case with a flat top and a
  * rounded bottom, lit from the top left (lighter above, darker below, a
@@ -519,46 +588,66 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_
     label(X + 183, Y + 244, ink, "B");
 }
 
+/* The controller as the Dreamcast sees it, in a panel 80 high from (x0, y0):
+ * L and R filling, then in one row the stick in its ring, the d-pad, Start
+ * and A B X Y in the Dreamcast's colours, lit when pressed. */
+#define PAD_H 80
 static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
 {
     const Psp2dcInput *in = h->in;
     unsigned b = in ? in->buttons : 0, base = t->text;
     int sx = in ? in->stick_x : 128, sy = in ? in->stick_y : 128, l = in ? in->trigger_l : 0, r = in ? in->trigger_r : 0;
+    int cy = y0 + 52;
     /* L and R: bars that fill */
-    ui_fill(x0 + 8, y0 + 22, 80, 8, dim(base));
-    ui_fill(x0 + 8, y0 + 22, l * 80 / 255, 8, base);
-    ui_fill(x0 + 122, y0 + 22, 80, 8, dim(base));
-    ui_fill(x0 + 122 + 80 - r * 80 / 255, y0 + 22, r * 80 / 255, 8, base);
-    label(x0 + 8, y0 + 12, base, "L");
-    label(x0 + 196, y0 + 12, base, "R");
+    label(x0 + 8, y0 + 19, base, "L");
+    ui_fill(x0 + 18, y0 + 21, 80, 5, dim(base));
+    ui_fill(x0 + 18, y0 + 21, l * 80 / 255, 5, base);
+    ui_fill(x0 + 116, y0 + 21, 80, 5, dim(base));
+    ui_fill(x0 + 116 + 80 - r * 80 / 255, y0 + 21, r * 80 / 255, 5, base);
+    label(x0 + 202, y0 + 19, base, "R");
     /* the stick: a ring and where it is */
-    ring(x0 + 40, y0 + 64, 24, 2, dim(base) | 0xFF000000);
-    ring(x0 + 40, y0 + 64, 24, 1, base);
-    disc(x0 + 40 + (sx - 128) * 18 / 128, y0 + 64 + (sy - 128) * 18 / 128, 7, base);
+    ring(x0 + 30, cy, 18, 2, dim(base) | 0xFF000000);
+    ring(x0 + 30, cy, 18, 1, base);
+    disc(x0 + 30 + (sx - 128) * 13 / 128, cy + (sy - 128) * 13 / 128, 5, base);
     /* the d-pad */
-    ui_fill(x0 + 28, y0 + 108, 26, 8, dim(base));
-    ui_fill(x0 + 37, y0 + 99, 8, 26, dim(base));
-    if (b & PSP2DC_BTN_UP)    ui_fill(x0 + 37, y0 + 99, 8, 9, base);
-    if (b & PSP2DC_BTN_DOWN)  ui_fill(x0 + 37, y0 + 116, 8, 9, base);
-    if (b & PSP2DC_BTN_LEFT)  ui_fill(x0 + 28, y0 + 108, 9, 8, base);
-    if (b & PSP2DC_BTN_RIGHT) ui_fill(x0 + 45, y0 + 108, 9, 8, base);
+    ui_fill(x0 + 64, cy - 3, 24, 7, dim(base));
+    ui_fill(x0 + 73, cy - 12, 7, 24, dim(base));
+    if (b & PSP2DC_BTN_UP)    ui_fill(x0 + 73, cy - 12, 7, 9, base);
+    if (b & PSP2DC_BTN_DOWN)  ui_fill(x0 + 73, cy + 4, 7, 8, base);
+    if (b & PSP2DC_BTN_LEFT)  ui_fill(x0 + 64, cy - 3, 9, 7, base);
+    if (b & PSP2DC_BTN_RIGHT) ui_fill(x0 + 80, cy - 3, 8, 7, base);
     /* Start */
-    round_rect(x0 + 92, y0 + 100, 26, 10, 5, b & PSP2DC_BTN_START ? base : dim(base));
-    label(x0 + 87, y0 + 114, base, "START");
+    round_rect(x0 + 108, cy - 8, 24, 8, 4, b & PSP2DC_BTN_START ? base : dim(base));
+    label(x0 + 103, cy + 3, half(base), "START");
     /* A B X Y in the Dreamcast's colours */
     {
         static const struct { int bit, dx, dy; unsigned c; char ch; } k[] = {
-            { PSP2DC_BTN_Y, 0, -18, 0xFF30C030, 'Y' }, { PSP2DC_BTN_X, -18, 0, 0xFF20C8F0, 'X' },
-            { PSP2DC_BTN_B, 18, 0, 0xFFE06020, 'B' },  { PSP2DC_BTN_A, 0, 18, 0xFF2020E0, 'A' },
+            { PSP2DC_BTN_Y, 0, -14, 0xFF30C030, 'Y' }, { PSP2DC_BTN_X, -14, 0, 0xFF20C8F0, 'X' },
+            { PSP2DC_BTN_B, 14, 0, 0xFFE06020, 'B' },  { PSP2DC_BTN_A, 0, 14, 0xFF2020E0, 'A' },
         };
         int i;
         for (i = 0; i < 4; i++) {
-            int cx = x0 + 170 + k[i].dx, cy = y0 + 76 + k[i].dy, on = (b & k[i].bit) != 0;
+            int cx = x0 + 180 + k[i].dx, ky = cy + k[i].dy, on = (b & k[i].bit) != 0;
             char s[2] = { k[i].ch, 0 };
-            disc(cx, cy, 9, on ? k[i].c : dim(k[i].c));
-            label(cx - 3, cy - 4, on ? 0xFF000000 : k[i].c, s);
+            disc(cx, ky, 7, on ? k[i].c : dim(k[i].c));
+            label(cx - 3, ky - 4, on ? 0xFF000000 : k[i].c, s);
         }
     }
+}
+
+/* Standalone: which PSP button is which VMU button, in a panel 56 high */
+#define MAP_H 56
+static void draw_map(const UiHome *h, const UiTheme *t, int x0, int y0)
+{
+    unsigned c = half(t->text);
+    int playing = !strcmp(h->standalone, "PLAYING"), r1 = y0 + 22, r2 = y0 + 38;
+    sym(SYM_DPAD, x0 + 10, r1 - 2, ARM_UP | ARM_DOWN | ARM_LEFT | ARM_RIGHT, dim(t->text), c);
+    label(x0 + 26, r1, c, "d-pad");
+    sym(SYM_X, x0 + 88, r1 - 2, 0, 0, 0);    label(x0 + 104, r1, c, "A");
+    sym(SYM_O, x0 + 130, r1 - 2, 0, 0, 0);   label(x0 + 146, r1, c, "B");
+    sym(SYM_SQ, x0 + 10, r2 - 2, 0, 0, 0);   label(x0 + 26, r2, c, "SLEEP");
+    sym(SYM_TRI, x0 + 88, r2 - 2, 0, 0, 0);
+    label(x0 + 104, r2, c, playing ? "hold 2s: leave" : "MODE");
 }
 
 void ui_page_home(const UiHome *h, const UiTheme *t)
@@ -567,7 +656,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     /* (ABGR) green connected, orange demo, yellow waiting, red nothing */
     unsigned dot = h->link == UI_LINK_UP ? 0xFF40D040 : h->link == UI_LINK_DEMO ? 0xFF288CF0
                  : h->link == UI_LINK_WAITING ? 0xFF28C8F0 : 0xFF3232DC;
-    int x0 = 252, n = 0, free_blocks = 0;
+    int x0 = 252, n = 0, free_blocks = 0, text_w = 204;
 
     ui_begin(t->bg);
     draw_vmu(h->lcd, t, h->icons, h->vmu_pressed);
@@ -576,55 +665,53 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     round_rect(x0, 10, 220, 30, 6, t->panel);
     disc(x0 + 16, 25, 6, dot);
     label(x0 + 30, 15, t->text, "PSP2DC");
-    label(x0 + 30, 26, t->text, h->link_text);
+    label_fit(x0 + 30, 26, t->text, h->link_text, 182);
     label(x0 + 212 - 7 * (int)strlen(t->name), 15, half(t->text), t->name);
 
-    if (h->standalone) {   /* no Dreamcast: the PSP is the VMU's buttons */
-        static const char *const map[] = { "d-pad     VMU d-pad", "Cross     A", "Circle    B",
-                                           "Square    SLEEP", "Triangle  MODE" };
-        int i;
-        round_rect(x0, 46, 220, 146, 6, t->panel);
-        label(x0 + 8, 52, t->text, "VMU ON ITS OWN");
-        label(x0 + 212 - 7 * (int)strlen(h->standalone), 52, 0xFF28C8F0, h->standalone);
-        for (i = 0; i < 5; i++) label(x0 + 12, 74 + i * 14, half(t->text), map[i]);
-        if (!strcmp(h->standalone, "PLAYING")) {
-            char cpu[40];
-            unsigned us = game_frame_us();
-            snprintf(cpu, sizeof(cpu), "VMU CPU %u.%u ms a frame", us / 1000, us / 100 % 10);
-            label(x0 + 12, 154, half(t->text), "Hold MODE 2 s to leave");
-            label(x0 + 12, 168, half(t->text), cpu);
-        } else {
-            label(x0 + 12, 154, half(t->text), "MODE: GAME > TIME > FILE");
-            label(x0 + 12, 168, half(t->text), "GAME: A plays  FILE: up/dn");
-        }
-        goto card_panel;
+    /* the middle panel, centred between the link and the card: the button
+     * map standalone, the controller connected */
+    {
+        int ph = h->standalone ? MAP_H : PAD_H, py = 46 + (146 - ph) / 2;
+        round_rect(x0, py, 220, ph, 6, t->panel);
+        label(x0 + 8, py + 6, t->text, h->standalone ? "STANDALONE" : "CONTROLLER");
+        if (h->standalone) {
+            label(x0 + 212 - 7 * (int)strlen(h->standalone), py + 6, 0xFF28C8F0, h->standalone);
+            draw_map(h, t, x0, py);
+        } else draw_pad(h, t, x0, py);
     }
-    /* the controller */
-    round_rect(x0, 46, 220, 146, 6, t->panel);
-    label(x0 + 8, 52, t->text, "CONTROLLER");
-    draw_pad(h, t, x0 + 4, 50);
 
-card_panel:
-    /* the memory card */
+    /* the memory card: the save's icon, when there is one, at the right */
     round_rect(x0, 198, 220, 50, 6, t->panel);
     label(x0 + 8, 204, t->text, "CARD");
-    if (h->card_name) label(x0 + 8 + 5 * 7, 204, 0xFF28C8F0, h->card_name);
     if (h->card_have) {
-        char s[40];
         n = card_files(h->card, files, 200, &free_blocks);
-        snprintf(s, sizeof(s), "%d save%s, %d blocks free", n, n == 1 ? "" : "s", free_blocks);
-        label(x0 + 8, 218, t->text, s);
         if (n && files[0].icons) {     /* the first save's icon, animated */
             int step = (files[0].speed > 0 ? files[0].speed : 8) * 1000 / 30;   /* n/30 s */
-            draw_icon(h->card, &files[0], (h->now_ms / step) % files[0].icons, x0 + 186, 206, 1);
+            draw_icon(h->card, &files[0], (h->now_ms / step) % files[0].icons, x0 + 184, 207, 1);
+            text_w = 172;
         }
+    }
+    if (h->card_name) label_fit(x0 + 8 + 5 * 7, 204, 0xFF28C8F0, h->card_name, text_w - 5 * 7);
+    if (h->card_have) {
+        char s[40];
+        snprintf(s, sizeof(s), "%d save%s, %d blocks free", n, n == 1 ? "" : "s", free_blocks);
+        label_fit(x0 + 8, 218, t->text, s, text_w);
     } else {
         label(x0 + 8, 218, t->text, "none yet");
     }
-    label(x0 + 8, 232, half(t->text), h->notice ? "" : h->card_note);
-    if (h->notice) label(x0 + 8, 232, t->text, h->notice);
+    if (h->notice) label_fit(x0 + 8, 232, t->text, h->notice, text_w);
+    else label_fit(x0 + 8, 232, half(t->text), h->card_note, text_w);
 
     /* the keys */
-    label(x0 + 4, 256, half(t->text), "SELECT+ <>page ^vtheme L/R card");
+    {   /* SELECT +: left/right the page, up/down the theme, L/R the card */
+        unsigned c = half(t->text);
+        int x = x0 + 4;
+        label(x, 256, c, "SELECT+");                           x += 7 * 7 + 3;
+        arrow(ARM_LEFT, x, 256, c); arrow(ARM_RIGHT, x + 7, 256, c);   x += 15;
+        label(x, 256, c, "page");                              x += 4 * 7 + 7;
+        arrow(ARM_UP, x, 256, c); arrow(ARM_DOWN, x + 9, 256, c);      x += 20;
+        label(x, 256, c, "theme");                             x += 5 * 7 + 7;
+        label(x, 256, c, "L/R card");
+    }
     ui_end();
 }

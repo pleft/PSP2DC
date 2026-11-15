@@ -283,6 +283,7 @@ Demo mode plays every recording in `capture/` in turn at its recorded pace, or a
 Three pages (home, saves, status), changed with SELECT + Left/Right; the page and the theme are kept in `ms0:/PSP2DC/settings.txt`.
 
 - **Home:** a drawing of the VMU after a photograph of the real one (off-white case between two seams, without the connector on top to save room, the screen in a stepped window, the lavender d-pad disc with its moulded cross, SLEEP and MODE, A and B), squeezed in height; its screen window nearly square as on the real one (about 1.2:1): the dots at its top, square, 192x128 (the dot area is given as 37 x 26 mm), and the LCD's icon row under them (FILE, GAME, CLOCK, FLASH, drawn after photographs of lit VMUs) as faint unlit ghosts, since the VMU drives them itself and the Dreamcast cannot; Classic uses the lit screen's light teal and blue-violet. Two earlier attempts were wrong: 192x160 from a photograph, and 192x135 from the dot area's published size, which leaves out the icon row, and beside it three panels: the link (a coloured dot: green connected, yellow waiting, orange demo, red nothing; the theme's name), the controller as the Dreamcast sees it right now (L and R filling, the stick moving in its ring, d-pad, Start, and A B X Y lit in the Dreamcast's colours when pressed), and the memory card (saves, blocks free, the first save's animated icon, its state or, for two seconds, what just changed). SELECT + Up/Down changes the theme. (The first version drew the VMU eight times its size across the whole screen; on hardware that was too much.)
+- **The right column, reworked (15 November 2026):** the middle panel was too large and wordy; the middle panel is centred between the link and the card and about a third of its old height. Standalone it is titled STANDALONE (it said "VMU on its own") with the mode at the right (TIME, FILE, GAME, PLAYING, SLEEP) and only the button map, drawn with the PSP's symbols in their colours (the d-pad, ✕ A, ○ B, □ SLEEP, △ MODE; while a game plays, △ "hold 2s: leave"); the two lines repeating the modes are gone, as is the VMU CPU time shown while playing (it was a measurement). Connected, the controller is drawn in one row (stick, d-pad, Start, A B X Y) under the L and R bars. The keys at the bottom are drawn with arrows (SELECT+ ◀▶ page, ▲▼ theme, L/R card). Every label is kept within its panel and cut with an ellipsis if longer, the messages are 24 characters or fewer, and the full-width lines of the other pages stop at the screen's edge (messages such as "both changed: Dreamcast's kept as card1-dc" ran off the screen before). The stick-source switch (SELECT tapped alone) was removed as unneeded.
 - **Saves:** the memory card's files as the BIOS shows them: the game's icon (animated), the long and short descriptions, file name, date, size, and the blocks free. SELECT + Up/Down scrolls, three files at a time. It reads the card the application holds, so it is up to date with what the adapter has sent.
 - **Status:** the diagnostic page, with the VMU small.
 
@@ -305,7 +306,7 @@ Every page is drawn whole into the frame buffer not on screen and shown at the n
 | Clock and alarm are Maple FT3 (Timer); the game machine can set the date and time; the alarm sounds the voltage buzzer, 300 Hz to 4 kHz with a settable duty ("planned") | VMU-16/17 | VMU beeps through the PSP |
 | Maple at 2 Mbps; all of it handled by the VMU's System-BIOS | VMU-15 | (background) |
 
-### 5.0c The VMU on Its Own (standalone)
+### 5.0c Standalone: the VMU Without a Dreamcast
 
 With no Dreamcast connected (no adapter, or no USB as in PPSSPP), the PSP behaves as a VMU taken out of the controller (`psp/app/vmu_sa.c`, after the Sega manual's mode settings, VMU-7). The PSP's buttons become the VMU's: d-pad, Cross = A, Circle = B, Square = SLEEP, Triangle = MODE (SLEEP and MODE sit side by side above A and B on the VMU) (SELECT is still the shift key). The drawn VMU's buttons sink while held.
 
@@ -349,7 +350,7 @@ The cards are files in `ms0:/PSP2DC/cards`: any `NAME.bin` of 128 KB is a card, 
 
 - **SELECT + L / R:** the previous or next card (by name); the panel and the top line show its name, and for two seconds "card: NAME (2 of 3)".
 - **SELECT + Start:** a new card, formatted as a Dreamcast formats one (200 blocks free), named `cardN` with the first free N, and changed to.
-- **On its own** (no Dreamcast) the change is immediate, the card in use written first if it changed; not while a VMU game runs.
+- **Standalone** (no Dreamcast) the change is immediate, the card in use written first if it changed; not while a VMU game runs.
 - **Connected,** the change looks to the Dreamcast like pulling the VMU out and putting another in (`CARD_EJECT`, since protocol 4): the PSP asks once nothing is on its way (no block pending, none in the last 2 s; otherwise "card busy: try again"), the adapter takes the card away and answers EMPTY, the PSP changes card and sends it, and the adapter shows it again a second later at the earliest.
 - **Reconnecting** to an adapter that still holds a card is 5.0f.
 - A file is tested for by opening it: `sceIoGetstat` said "not there" for files that were there under PPSSPP, and a new card must never overwrite an old one.
@@ -360,7 +361,7 @@ Checked in PPSSPP (moving the old card, changing with SELECT + L/R, making a car
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
 
-**What went wrong (15 November 2026).** Connected with `games.bin` in use, the PSP was unplugged, changed to `card1` on its own and plugged in again: the adapter's copy of `games` went into `card1` and was saved there; the same again with `card2`. Both lost their saves and became byte-for-byte the games card (a copy of the Memory Stick taken before anything else was changed confirmed it). `card1` was restored from a copy taken earlier that day; `card2`'s save had no copy. The adapter never knew which card it held, and the PSP never asked.
+**What went wrong (15 November 2026).** Connected with `games.bin` in use, the PSP was unplugged, changed to `card1` standalone and plugged in again: the adapter's copy of `games` went into `card1` and was saved there; the same again with `card2`. Both lost their saves and became byte-for-byte the games card (a copy of the Memory Stick taken before anything else was changed confirmed it). `card1` was restored from a copy taken earlier that day; `card2`'s save had no copy. The adapter never knew which card it held, and the PSP never asked.
 
 **Now** (`firmware/patches/0008`, `psp/app/card_sync.c`, `main.c` `card_decide`):
 
@@ -372,7 +373,7 @@ The adapter keeps the card in its RAM for as long as the Dreamcast is on, also w
 |---|---|
 | The copies are the same | Nothing comes. If the PSP has another card in use, that one goes in. |
 | Only the adapter's changed (the Dreamcast saved meanwhile) | It comes into its own card's file; then the PSP's card in use goes in. |
-| Only the PSP's changed (played or changed on its own) | The PSP's card in use goes in. |
+| Only the PSP's changed (played or changed standalone) | The PSP's card in use goes in. |
 | Both changed, or not known | It comes into a new card, `NAME-dc`, and nothing is written over; then the PSP's card in use goes in. |
 
 - Blocks from the adapter are taken only once asked for: an adapter still on protocol 4 sends its card unasked, and the PSP now drops it (and says "adapter protocol 4, PSP 5: update it").

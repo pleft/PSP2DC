@@ -574,36 +574,36 @@ static void card_decide(void)
         if (!in_use) { card_eject(mine, 1, 1); return; }   /* (in use: a copy left half come) */
         snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", a_name);
         card_send(0);
-        g_card_note = "the same as the adapter's";
+        g_card_note = "same as the adapter's";
         return;
     case SYNC_PUT_OURS:
         if (st.have_ours && st.ours == st.a) base_set(a_name, st.a);
         card_eject(mine, 1, 1);
         return;
     case SYNC_TAKE:
-        if (!in_use && card_change(a_name) < 0) { notice("card: could not change to the adapter's"); return; }
+        if (!in_use && card_change(a_name) < 0) { notice("could not open that card"); return; }
         if (!st.a_is_mine) snprintf(g_return_to, sizeof(g_return_to), "%s", mine);
         snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", a_name);
         card_send(1);
-        snprintf(msg, sizeof(msg), "%s: saves from the Dreamcast", a_name);
+        snprintf(msg, sizeof(msg), "saves from the Dreamcast");
         notice(msg);
         return;
     case SYNC_KEEP_BOTH:
         break;
     }
     /* both changed, or not known: the adapter's copy into a card of its own */
-    if (cards_unique(a_name, "-dc", kept) < 0) { notice("card: no name for the adapter's copy"); return; }
+    if (cards_unique(a_name, "-dc", kept) < 0) { notice("no name for the DC copy"); return; }
     card_lock();
     if (g_card_dirty && card_write() == 0) g_card_dirty = 0;
-    if (g_card_dirty) { card_unlock(); notice("card: could not save, kept as it is"); return; }
+    if (g_card_dirty) { card_unlock(); notice("could not save the card"); return; }
     if (st.have_ours && !in_use) memcpy(g_card, img, sizeof(img));   /* (every block is sent: only a start) */
     snprintf(g_card_name, sizeof(g_card_name), "%s", kept);
     card_unlock();
     snprintf(g_return_to, sizeof(g_return_to), "%s", mine);
     snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", a_name);   /* (not the card in use: no base) */
     card_send(1);
-    g_card_note = "the adapter's copy, kept apart";
-    snprintf(msg, sizeof(msg), "both changed: Dreamcast's kept as %s", kept);
+    g_card_note = "the Dreamcast's copy";
+    snprintf(msg, sizeof(msg), "Dreamcast copy: %s", kept);
     notice(msg);
 }
 
@@ -664,14 +664,14 @@ int main(int argc, char *argv[])
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     if (g_no_usb) {
-        /* no USB (PPSSPP): the VMU on its own, as with no Dreamcast */
+        /* no USB (PPSSPP): standalone, as with no Dreamcast */
     } else {
         usb_rc = usb_start();
         if ((unsigned)g_usb_kernel == 0x8002013A) {
             /* "library not linked": the driver is loaded but its library is
              * not there to call (PPSSPP loads the module, its functions are
              * stubs). Nothing can come over USB: demo mode. */
-            g_no_usb = 1;   /* the VMU on its own, as with no Dreamcast */
+            g_no_usb = 1;   /* standalone, as with no Dreamcast */
         } else {
             thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
             if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
@@ -713,14 +713,14 @@ int main(int argc, char *argv[])
                 } else if (n > 1) {
                     for (k = 0; k < n; k++) if (!strcasecmp(names[k], g_card_name)) cur = k;   /* (FAT names: any case) */
                     to = names[(cur + (pressed & PSP_CTRL_RTRIGGER ? 1 : n - 1)) % n];
-                } else notice("only one card: SELECT+Start makes another");
+                } else notice("only one card so far");
                 if (to && game_running()) { notice("leave the VMU game first"); to = NULL; }
                 if (to && !g_no_usb && pspexpUsbConnected()) {
                     /* the adapter lets go of the card first, once every block
                      * has reached us; the change happens on its answer */
                     if (g_switch_to[0] || g_return_to[0] || g_status.card_pending || g_card_dirty ||
                         now_us() - g_card_last_us < 2000000)
-                        notice("card busy: try again in a moment");
+                        notice("card busy, try again");
                     else {
                         card_eject(to, 0, 0);
                         notice("changing card...");
@@ -729,7 +729,7 @@ int main(int argc, char *argv[])
                     g_return_to[0] = 0;                  /* the player chose: nothing to go back to */
                     if (card_change(to) == 0) {
                         for (k = 0; k < n; k++) if (!strcasecmp(names[k], to)) cur = k;
-                        snprintf(msg, sizeof(msg), "card: %s (%d of %d)", to, cur + 1, n);
+                        snprintf(msg, sizeof(msg), "card %d of %d", cur + 1, n);
                         notice(msg);
                         settings_due = 1;
                     } else notice("could not read that card");
@@ -746,7 +746,7 @@ int main(int argc, char *argv[])
         } else last_buttons = pad.Buttons;
         map_input(&pad, &in);
 
-        /* No Dreamcast: the PSP is the VMU on its own (vmu_sa.c), its buttons
+        /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons
          * the VMU's. (SELECT, held, is still the shift key.) */
         standalone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
         vmu_held = 0;
@@ -809,15 +809,15 @@ int main(int argc, char *argv[])
                         g_adapter_card[0] = 0;
                         if (strcasecmp(g_switch_to, g_card_name)) {
                             if (card_change(g_switch_to) == 0) {
-                                snprintf(msg, sizeof(msg), "card: %s", g_switch_to);
+                                snprintf(msg, sizeof(msg), "card changed");
                                 settings_due = 1;
-                            } else snprintf(msg, sizeof(msg), "could not read %s: kept", g_switch_to);
+                            } else snprintf(msg, sizeof(msg), "could not read it: kept");
                             notice(msg);               /* (either way the adapter gets the card in use) */
                         }
                     } else if (g_switch_auto) {        /* ours: again in a moment */
                         snprintf(g_return_to, sizeof(g_return_to), "%s", g_switch_to);
                         g_return_after_us = now_us() + 1000000;
-                    } else notice("card busy: try again in a moment");
+                    } else notice("card busy, try again");
                     g_switch_to[0] = 0;
                     g_switch_auto = 0;
                 }
@@ -859,10 +859,7 @@ int main(int argc, char *argv[])
             }
             if (g_base_due) { g_base_due = 0; settings_due = 1; }
             if (g_status_count && g_adapter_version != PSP2DC_PROTOCOL_VERSION && !version_told) {
-                char msg[48];
-                snprintf(msg, sizeof(msg), "adapter protocol %u, PSP %d: update it", g_adapter_version,
-                         PSP2DC_PROTOCOL_VERSION);
-                notice(msg);
+                notice("update adapter firmware");   /* (both protocols: the status page) */
                 version_told = 1;
             }
             in.seq = seq++;
@@ -904,8 +901,8 @@ int main(int argc, char *argv[])
             h.link = demo_on() ? UI_LINK_DEMO : up ? UI_LINK_UP
                    : (!g_no_usb && pspexpUsbAttached()) ? UI_LINK_WAITING : UI_LINK_NONE;
             h.link_text = demo_on() ? "demo, no adapter" : up ? "connected to the adapter"
-                        : g_no_usb ? "no USB: VMU on its own" : h.link == UI_LINK_WAITING ? "cable in, waiting"
-                        : "VMU on its own";
+                        : g_no_usb ? "no USB: standalone" : h.link == UI_LINK_WAITING ? "cable in, waiting"
+                        : "standalone";
             h.in = &in;
             h.card = g_card;
             h.card_have = g_card_have;
