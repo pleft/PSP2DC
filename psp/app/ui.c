@@ -472,22 +472,20 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
     if (right) label(x0 + w - 6 - 7 * (int)strlen(right), 260, muted(t), right);
 }
 
-/* the tabs: L ◀ VMU Saves Cards System ▶ R; full: the whole width (the
- * "SELECT" cap fits), else a column (the VMU page) */
+/* the tabs: L VMU Saves Cards System R standalone, SELECT ◀ ... ▶
+ * connected; the same on every page, the VMU's too */
 static const char *const tab_names[UI_TABS] = { "VMU", "Saves", "Cards", "System" };
-static int draw_tabs(int x0, int y0, int w, int cur, const UiTheme *t, int full)
+static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
 {
-    int x = x0 + 4, k, tw, right_w = g_standalone ? 12 : 7;
+    int x = x0 + 4, k, tw;
     if (g_standalone) x += cap(x, y0 + 5, "L", t) + 3;
     else {
-        if (full) x += cap(x, y0 + 5, "SELECT", t) + 2;
+        x += cap(x, y0 + 5, "SELECT", t) + 2;
         arrow(ARM_LEFT, x, y0 + 5, t->text);
         x += 9;
     }
     {
-        int names = 0, pad;
-        for (k = 0; k < UI_TABS; k++) names += 7 * (int)strlen(tab_names[k]);
-        pad = full ? 9 : (x0 + w - 4 - right_w - 2 - x - names) / (2 * UI_TABS);
+        const int pad = 9;
         for (k = 0; k < UI_TABS; k++, x += tw) {
             tw = 7 * (int)strlen(tab_names[k]) + 2 * pad;
             if (k == cur) round_rect(x + 1, y0 + 2, tw - 2, 13, 3, t->accent);
@@ -504,7 +502,7 @@ void ui_header(int page, const UiTheme *t)
 {
     int x;
     round_rect(2, 1, 476, 17, 4, t->panel);
-    x = draw_tabs(2, 1, 476, page, t, 1) + 12;
+    x = draw_tabs(2, 1, page, t) + 12;
     disc(x + 4, 9, 4, link_colour(g_link));
     label_fit(x + 13, 6, t->text, g_status, 474 - x - 13);
 }
@@ -544,15 +542,6 @@ static void shape(int x0, int y0, int w, int h, int rt, int rb, unsigned c_top, 
     }
 }
 
-/* a round button: its shadow, its edge, its face lit from the top left */
-static void button(int cx, int cy, int r, unsigned face, unsigned bg)
-{
-    disc(cx + 1, cy + 2, r + 1, mix(bg, 0xFF000000, 6));
-    disc(cx, cy, r, mix(face, 0xFF000000, 5));
-    disc(cx - 1, cy - 1, r - 2, face);
-    disc(cx - r / 3, cy - r / 3, r / 3, mix(face, 0xFFFFFFFF, 6));
-}
-
 /* The LCD's four icons under the dots, after the Sega VMU manual's drawing
  * (Specifications, VMU-12: "File management", "Executable file initiation",
  * "Clock display", "Writing in progress"): a lined page with a sheet folded
@@ -589,31 +578,30 @@ static void draw_icon_row(int x0, int y0, int w, const UiTheme *t, unsigned lit)
     }
 }
 
-static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_lit, unsigned pressed)
+static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_lit)
 {
-    /* Laid out after photographs of the real one, without its connector and
-     * squeezed in height so its screen can be four times the LCD. The screen's
-     * window is nearly square (about 1.2:1 on a photograph of a VMU held
-     * square): the LCD holds a row of icons (FILE, GAME, CLOCK, FLASH) under
-     * the 48x32 dots, which the VMU drives itself (libElysianVMU, XRAM bank 2).
-     * So: the dots at the top, square, 192x128 (the dot area is given as
-     * 37 x 26 mm, its dots very nearly square), and the icon row under them
-     * drawn unlit (draw_icon_row). */
-    const int X = 8, Y = 4, W = 236, H = 264, WY = Y + 19;   /* WY: the screen window's top */
+    /* Laid out after photographs of the real one: the band at the top and
+     * the screen, four times the LCD; its buttons left out (the page's header
+     * sits above it, and the panel beside it says which PSP button is which).
+     * The screen's window is nearly square (about 1.2:1 on a photograph of a
+     * VMU held square): the LCD holds a row of icons (FILE, GAME, CLOCK,
+     * FLASH) under the 48x32 dots, which the VMU drives itself
+     * (libElysianVMU, XRAM bank 2). So: the dots at the top, square, 192x128
+     * (the dot area is given as 37 x 26 mm, its dots very nearly square), and
+     * the icon row under them (draw_icon_row). From y 23 to 250, beside the
+     * panels on the right. */
+    const int X = 8, Y = 23, W = 236, H = 227, WY = Y + 19;   /* WY: the screen window's top */
     unsigned body = t->body, lit = mix(body, 0xFFFFFFFF, 4), shade = mix(body, 0xFF000000, 2);
     unsigned edge = mix(body, 0xFF000000, 5), seam = mix(body, 0xFF000000, 3);
     unsigned ink = light(body) ? 0xFF5A5A5A : 0xFFB0B0B0;
-    unsigned lav = light(body) ? 0xFFCAB8AC : mix(0xFFCAB8AC, 0xFF000000, 9);   /* the buttons' lavender grey */
-    unsigned lav_lit = mix(lav, 0xFFFFFFFF, 4), lav_dark = mix(lav, 0xFF000000, 4);
-    const int DX = X + 52, DY = Y + 231;                    /* the d-pad's centre */
     int i;
 
     /* the case: a shadow, its edge, the face lit from above */
-    shape(X + 3, Y + 4, W, H, 14, 42, mix(t->bg, 0xFF000000, 8), mix(t->bg, 0xFF000000, 8));
-    shape(X, Y, W, H, 14, 42, edge, edge);
-    shape(X + 1, Y + 1, W - 2, H - 3, 13, 40, lit, shade);
+    shape(X + 3, Y + 4, W, H, 14, 28, mix(t->bg, 0xFF000000, 8), mix(t->bg, 0xFF000000, 8));
+    shape(X, Y, W, H, 14, 28, edge, edge);
+    shape(X + 1, Y + 1, W - 2, H - 3, 13, 26, lit, shade);
     /* the front panel between two seams, and the band at the top */
-    for (i = Y + 8; i < Y + H - 22; i++) {
+    for (i = Y + 8; i < Y + H - 16; i++) {
         g_back[i * LINE + X + 9] = seam;  g_back[i * LINE + X + 10] = lit;
         g_back[i * LINE + X + W - 11] = seam; g_back[i * LINE + X + W - 10] = lit;
     }
@@ -632,48 +620,6 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_
     ui_fill(X + 18, WY + 3, 200, 2, mix(t->paper, 0xFF000000, 5));                           /* the glass's inner shadow */
     ui_fill(X + 18, WY + 3, 2, 165, mix(t->paper, 0xFF000000, 5));
     ui_fill(X + 15, WY + 172, 206, 1, lit);                                                   /* the window's lower lip */
-    ui_fill(X + 10, WY + 176, W - 20, 1, seam);                                               /* the seam under the screen */
-
-    /* the d-pad: a disc in a well, the cross moulded into it */
-    disc(DX + 2, DY + 2, 31, mix(shade, 0xFF000000, 5));                                     /* the well */
-    disc(DX, DY, 28, lav_dark);
-    disc(DX - 1, DY - 1, 27, lav);
-    /* the cross: its outline, a shadow under and right, the face lit from above */
-    shape(DX - 11 + 1, DY - 25 + 2, 22, 50, 7, 7, lav_dark, lav_dark);
-    shape(DX - 25 + 1, DY - 11 + 2, 50, 22, 7, 7, lav_dark, lav_dark);
-    shape(DX - 11, DY - 25, 22, 50, 7, 7, mix(lav_dark, lav, 8), mix(lav_dark, lav, 8));
-    shape(DX - 25, DY - 11, 50, 22, 7, 7, mix(lav_dark, lav, 8), mix(lav_dark, lav, 8));
-    shape(DX - 10, DY - 24, 20, 48, 6, 6, lav_lit, lav);
-    shape(DX - 24, DY - 10, 48, 20, 6, 6, mix(lav_lit, lav, 6), mix(lav_lit, lav, 10));
-    ui_fill(DX - 10, DY - 10, 20, 20, mix(lav_lit, lav, 8));
-    disc(DX, DY, 2, lav_dark);                                                                /* the dot */
-
-    /* a held button is drawn sunk: darker, no light on it */
-    #define FACE(bit) (pressed & (bit) ? lav_dark : lav)
-    if (pressed & 0x0F) {                                       /* the d-pad's held arm */
-        if (pressed & 0x01) ui_fill(DX - 10, DY - 24, 20, 14, lav_dark);
-        if (pressed & 0x02) ui_fill(DX - 10, DY + 10, 20, 14, lav_dark);
-        if (pressed & 0x04) ui_fill(DX - 24, DY - 10, 14, 20, lav_dark);
-        if (pressed & 0x08) ui_fill(DX + 10, DY - 10, 14, 20, lav_dark);
-    }
-
-    /* SLEEP and MODE, small, labels above */
-    label(X + 98, Y + 199, ink, "SLEEP");
-    label(X + 142, Y + 199, ink, "MODE");
-    disc(X + 116, Y + 215, 8, mix(shade, 0xFF000000, 4));
-    disc(X + 116, Y + 215, 6, FACE(0x80));
-    disc(X + 114, Y + 213, 2, lav_lit);
-    disc(X + 156, Y + 215, 8, mix(shade, 0xFF000000, 4));
-    disc(X + 156, Y + 215, 6, FACE(0x40));
-    disc(X + 154, Y + 213, 2, lav_lit);
-
-    /* A and B, low and to the right, labels below; B sits higher than A, by
-     * about three quarters of a button's radius (photographs of real VMUs) */
-    if (pressed & 0x10) disc(X + 136, Y + 238, 13, lav_dark); else button(X + 136, Y + 238, 13, lav, body);
-    if (pressed & 0x20) disc(X + 186, Y + 228, 13, lav_dark); else button(X + 186, Y + 228, 13, lav, body);
-    #undef FACE
-    label(X + 133, Y + 254, ink, "A");
-    label(X + 183, Y + 244, ink, "B");
 }
 
 /* The controller as the Dreamcast sees it, in a panel 76 high from (x0, y0):
@@ -750,10 +696,8 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     int x0 = 252, n = 0, free_blocks = 0;
 
     ui_begin(t->bg);
-    draw_vmu(h->lcd, t, h->icons, h->vmu_pressed);
-
-    round_rect(x0, 2, 220, 17, 4, t->panel);
-    draw_tabs(x0, 2, 220, 0, t, 0);
+    ui_header(0, t);
+    draw_vmu(h->lcd, t, h->icons);
 
     /* the link: what it is, and what that means */
     round_rect(x0, 23, 220, 26, 6, t->panel);
@@ -816,7 +760,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     {   /* the keys that change the tab and the card (the System page has all of them) */
         static const UiKey alone[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K3(G_CAP, "SELECT", G_CAP, "L", G_CAP, "R", "card") };
         static const UiKey held[] = { K2(G_CAP, "SELECT", G_LR, 0, "tab"), K3(G_CAP, "SELECT", G_CAP, "L", G_CAP, "R", "card") };
-        draw_footer(x0, 220, g_standalone ? alone : held, 2, NULL, t);
+        draw_footer(2, 476, g_standalone ? alone : held, 2, NULL, t);
     }
     ui_end();
 }

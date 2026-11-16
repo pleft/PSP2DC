@@ -61,7 +61,6 @@ typedef struct {
     const char *notice;                /* a change just made, or NULL */
     unsigned now_ms;
     unsigned icons;                    /* lit LCD icons: 1 file, 2 game, 4 clock, 8 attention */
-    unsigned vmu_pressed;              /* the drawn VMU's buttons held: vmu_sa.h's SA_* bits */
     const char *standalone;            /* the VMU's own mode when no Dreamcast is there, or NULL */
 } UiHome;
 /* The VMU four times its size in a drawing of the VMU, the controller's

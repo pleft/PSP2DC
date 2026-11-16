@@ -1774,7 +1774,6 @@ int main(int argc, char *argv[])
              * being accessed"), here for a second after a block came */
             h.icons = standalone ? vmu_icons
                     : (up && g_card_last_us && now_us() - g_card_last_us < 1000000) ? SA_ICON_ATTENTION : 0;
-            h.vmu_pressed = standalone ? vmu_held : 0;
             h.standalone = standalone ? sa_mode_name() : NULL;
             h.now_ms = now_us() / 1000;
             ui_page_home(&h, &ui_themes[g_theme]);
