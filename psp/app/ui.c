@@ -394,12 +394,13 @@ static void sym(int kind, int x, int y, unsigned arms, unsigned dim_c, unsigned 
  * the PSP shows it (its symbol, the d-pad with the arms that count lit, or
  * its name in a key cap). */
 static unsigned mix(unsigned a, unsigned b, int k);
-static int g_standalone = 1, g_link;
+static int g_standalone = 1, g_link, g_menu;
 static const char *g_status = "";
 
-void ui_frame(int standalone, int link, const char *status)
+void ui_frame(int standalone, int menu, int link, const char *status)
 {
     g_standalone = standalone;
+    g_menu = menu;
     g_link = link;
     g_status = status ? status : "";
 }
@@ -423,15 +424,15 @@ static unsigned link_colour(int link)
 static void label_bold(int x, int y, unsigned c, const char *s) { label(x, y, c, s); label(x + 1, y, c, s); }
 
 /* a key named on it (L, R, START, SELECT), in a cap; returns its width */
-static int cap(int x, int y, const char *s, const UiTheme *t)
+static int cap_in(int x, int y, const char *s, unsigned c, unsigned tc)
 {
     int w = 7 * (int)strlen(s) + 5;
-    unsigned c = muted(t);
     ui_fill(x + 1, y - 2, w - 2, 1, c); ui_fill(x + 1, y + 9, w - 2, 1, c);
     ui_fill(x, y - 1, 1, 10, c);        ui_fill(x + w - 1, y - 1, 1, 10, c);
-    label(x + 3, y, t->text, s);
+    label(x + 3, y, tc, s);
     return w;
 }
+static int cap(int x, int y, const char *s, const UiTheme *t) { return cap_in(x, y, s, muted(t), t->text); }
 
 enum { G_NONE = -1, G_X, G_O, G_SQ, G_TRI, G_DPAD, G_UD, G_LR, G_RT, G_LT, G_CAP };
 /* a key's glyph, its text's top at y; returns its width */
@@ -474,34 +475,38 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
     if (right) label(x0 + w - 6 - 7 * (int)strlen(right), 260, muted(t), right);
 }
 
-/* the tabs: SELECT L VMU Saves Cards System R, the same on every page and
- * in both modes */
+/* The header, the same on every page. In the menu: the bar lit in the
+ * accent, L VMU Saves Cards System R, the page shown cut out of it. Playing:
+ * the bar dim, SELECT menu, the tabs faint but the VMU's (the page shown). */
 static const char *const tab_names[UI_TABS] = { "VMU", "Saves", "Cards", "System" };
 static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
 {
+    const int pad = 9;
     int x = x0 + 4, k, tw;
-    x += cap(x, y0 + 5, "SELECT", t) + 2;
-    x += cap(x, y0 + 5, "L", t) + 3;
-    {
-        const int pad = 9;
-        for (k = 0; k < UI_TABS; k++, x += tw) {
-            tw = 7 * (int)strlen(tab_names[k]) + 2 * pad;
-            if (k == cur) round_rect(x + 1, y0 + 2, tw - 2, 13, 3, t->accent);
-            label(x + pad, y0 + 5, k == cur ? on_colour(t->accent) : t->text, tab_names[k]);
-        }
+    unsigned on = on_colour(t->accent);
+    if (g_menu) x += cap_in(x, y0 + 5, "L", on, on) + 3;
+    else {
+        x += cap(x, y0 + 5, "SELECT", t) + 4;
+        label(x, y0 + 5, t->text, "menu");
+        x += 4 * 7 + 8;
     }
-    x += 2;
-    x += cap(x, y0 + 5, "R", t);
+    for (k = 0; k < UI_TABS; k++, x += tw) {
+        tw = 7 * (int)strlen(tab_names[k]) + 2 * pad;
+        if (g_menu && k == cur) round_rect(x + 1, y0 + 2, tw - 2, 13, 3, t->panel);
+        label(x + pad, y0 + 5, g_menu ? (k == cur ? strong(t) : on) : (k == cur ? t->text : faint(t)), tab_names[k]);
+    }
+    if (g_menu) x += 2 + cap_in(x + 2, y0 + 5, "R", on, on);
     return x;
 }
 
 void ui_header(int page, const UiTheme *t)
 {
     int x;
-    round_rect(2, 1, 476, 17, 4, t->panel);
+    round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
     x = draw_tabs(2, 1, page, t) + 12;
+    disc(x + 4, 9, 5, t->panel);           /* (the dot on a ring: it reads on the lit bar too) */
     disc(x + 4, 9, 4, link_colour(g_link));
-    label_fit(x + 13, 6, t->text, g_status, 474 - x - 13);
+    label_fit(x + 13, 6, g_menu ? on_colour(t->accent) : t->text, g_status, 474 - x - 13);
 }
 
 /* ---- the VMU, drawn ------------------------------------------------------
@@ -754,10 +759,10 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     if (h->notice) label_fit(x0 + 8, CARD_Y + 96, t->text, h->notice, 204);
     else label_fit(x0 + 8, CARD_Y + 96, muted(t), h->card_note, 204);
 
-    {   /* the keys that change the tab (the System page has all of them) */
-        static const UiKey keys[] = { K1(G_CAP, "SELECT", "+"), K2(G_CAP, "L", G_CAP, "R", "tab"),
-                                      K1(G_NONE, 0, "the card: on the Cards tab") };
-        draw_footer(2, 476, keys, 3, NULL, t);
+    {   /* playing: SELECT opens the menu; in it: back to playing, L R the tab */
+        static const UiKey play[] = { K1(G_CAP, "SELECT", "menu") };
+        static const UiKey menu[] = { K1(G_CAP, "SELECT", "play"), K2(G_CAP, "L", G_CAP, "R", "tab") };
+        if (g_menu) draw_footer(2, 476, menu, 2, NULL, t); else draw_footer(2, 476, play, 1, NULL, t);
     }
     ui_end();
 }
@@ -840,30 +845,36 @@ static void draw_box(const UiBox *b, const UiTheme *t)
 /* the keys line for UI_KEYS_*; right: the place in a list ("1-3 of 5") */
 static void draw_keys(int keys, const UiTheme *t, const char *right)
 {
-    /* the page's keys with SELECT held, it first; a box's without */
-    static const UiKey view[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "scroll"), K1(G_NONE, 0, "view only: the Dreamcast has the card") };
-    static const UiKey saves[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "actions") };
-    static const UiKey cards[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "open") };
+    /* the menu's keys: SELECT back to playing first, then the page's */
+    static const UiKey view[] = { K1(G_UD, 0, "scroll") };
+    static const UiKey saves[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "actions") };
+    static const UiKey cards[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
     static const UiKey menu[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey ok[] = { K1(G_X, 0, "OK") };
     static const UiKey edit[] = { K1(G_DPAD, 0, "key"), K1(G_X, 0, "type"), K1(G_SQ, 0, "delete"),
                                   K1(G_CAP, "START", "done"), K1(G_O, 0, "cancel") };
-    static const UiKey sys[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_LR, 0, "change") };
-    static const UiKey sys_open[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "open") };
-    static const UiKey det[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "OK"), K1(G_LT, 0, "back") };
+    static const UiKey sys[] = { K1(G_UD, 0, "choose"), K1(G_LR, 0, "change") };
+    static const UiKey sys_open[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
+    static const UiKey det[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
+    static const UiKey back[] = { K1(G_O, 0, "back") };
+    static const UiKey select_play = K1(G_CAP, "SELECT", "play");
+    UiKey all[8];
     const UiKey *k = ok;
-    int n = 1;
+    int n = 1, i;
     switch (keys) {
-    case UI_KEYS_VIEW:   k = view;   n = 3; break;
-    case UI_KEYS_SAVES:  k = saves;  n = 3; break;
-    case UI_KEYS_CARDS:  k = cards;  n = 3; break;
+    case UI_KEYS_VIEW:   k = view;   n = 1; break;
+    case UI_KEYS_SAVES:  k = saves;  n = 2; break;
+    case UI_KEYS_CARDS:  k = cards;  n = 2; break;
     case UI_KEYS_MENU:   k = menu;   n = 3; break;
     case UI_KEYS_EDIT:   k = edit;   n = 5; break;
-    case UI_KEYS_SYSTEM: k = sys;    n = 3; break;
-    case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 3; break;
-    case UI_KEYS_DETAILS: k = det;   n = 4; break;
+    case UI_KEYS_SYSTEM: k = sys;    n = 2; break;
+    case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 2; break;
+    case UI_KEYS_DETAILS: k = det;   n = 3; break;
+    case UI_KEYS_BACK:   k = back;   n = 1; break;
     }
-    draw_footer(2, 476, k, n, right, t);
+    all[0] = select_play;
+    for (i = 0; i < n && i < 7; i++) all[i + 1] = k[i];
+    draw_footer(2, 476, all, i + 1, right, t);
 }
 
 void ui_keys(int keys, const UiTheme *t) { draw_keys(keys, t, NULL); }
@@ -890,8 +901,6 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
     ui_header(1, t);
     if (!have) {
         page_title("No memory card", strong(t), NULL, t);
-        label(8, 48, t->text, "It comes from ms0:/PSP2DC/cards, or from the adapter");
-        label(8, 60, t->text, "once connected. The Cards tab makes one.");
         draw_keys(v->keys == UI_KEYS_VIEW ? UI_KEYS_VIEW : UI_KEYS_OK, t, NULL);
         ui_end();
         return 0;
@@ -900,8 +909,7 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
     snprintf(s, sizeof(s), "%d save%s, %d of 200 blocks free", n, n == 1 ? "" : "s", free_blocks);
     page_title(card_name ? card_name : "card", t->ok, s, t);
     if (!n) {
-        label(8, 52, t->text, "No saves on this card.");
-        if (v->keys != UI_KEYS_VIEW) label(8, 70, muted(t), "To import one: the Cards tab, this card's actions.");
+        label(8, 52, muted(t), "No saves");
     }
     for (i = v->first, row = 0; i < n && row < 3; i++, row++) {
         const SaveFile *f = &files[i];
@@ -939,7 +947,7 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
     char s[64];
     ui_begin(t->bg);
     ui_header(2, t);
-    snprintf(s, sizeof(s), "%d on the Memory Stick, in PSP2DC/cards", v->n);
+    snprintf(s, sizeof(s), "%d", v->n);
     page_title("Memory cards", strong(t), s, t);
     for (row = v->first, y = 38; row < rows && y + 30 <= 250; row++, y += 34) {
         if (row == v->sel) round_rect(2, y - 2, 476, 34, 6, t->accent);
@@ -947,9 +955,12 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
             if (row == v->sel) round_rect(4, y, 472, 30, 5, t->panel);
             else for (k = 4; k < 476; k += 8) { ui_fill(k, y, 4, 1, muted(t)); ui_fill(k, y + 29, 4, 1, muted(t)); }
             if (row != v->sel) { for (k = y; k < y + 30; k += 6) { ui_fill(4, k, 1, 3, muted(t)); ui_fill(475, k, 1, 3, muted(t)); } }
-            ui_fill(16, y + 13, 14, 4, t->accent); ui_fill(21, y + 8, 4, 14, t->accent);
-            label_bold(42, y + 6, strong(t), "New card");
-            label(42, y + 18, muted(t), "an empty memory card, put in use");
+            {
+                unsigned pc = v->new_off ? faint(t) : t->accent;
+                ui_fill(16, y + 13, 14, 4, pc); ui_fill(21, y + 8, 4, 14, pc);
+                label_bold(42, y + 6, v->new_off ? faint(t) : strong(t), "New card");
+                label(42, y + 18, v->new_off ? faint(t) : muted(t), "empty, put in use");
+            }
         } else {
             int i = row - 1, used = 200 - v->free[i];
             round_rect(4, y, 472, 30, 5, t->panel);
@@ -1004,9 +1015,8 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     static const UiKey dc2[] = { K1(G_DPAD, 0, "d-pad"), K1(G_CAP, "nub", "stick"), K1(G_CAP, "START", "Start") };
     static const UiKey dc3[] = { K2(G_CAP, "L", G_CAP, "R", "triggers") };
     static const UiKey vmu[] = { K1(G_DPAD, 0, ""), K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_TRI, 0, "MODE"), K1(G_SQ, 0, "SLEEP") };
-    static const UiKey sel1[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K1(G_UD, 0, "choose") };
-    static const UiKey sel2[] = { K1(G_RT, 0, "OK"), K1(G_LT, 0, "back"), K1(G_TRI, 0, "screenshot") };
-    static const UiKey menus[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
+    static const UiKey sel1[] = { K1(G_CAP, "SELECT", "menu / play"), K2(G_CAP, "L", G_CAP, "R", "tab") };
+    static const UiKey sel2[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back"), K1(G_TRI, 0, "shot") };
     const int L = 4, LW = 234, R = 242, RW = 236;
     int y, k, x;
     ui_begin(t->bg);
@@ -1036,13 +1046,10 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     panel_head(R + 8, y, "STANDALONE: THE VMU", t);  y += 14;
     for (k = 0, x = R + 10; k < 5; k++) x = key_item(&vmu[k], x, y, t->text, t) + (k ? 9 : 4);
     y += 20;
-    panel_head(R + 8, y, "HOLDING SELECT: EVERY TAB", t);  y += 14;
+    panel_head(R + 8, y, "THE MENU", t);  y += 14;
     for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel1[k], x, y, t->text, t) + 12;
     y += 15;
-    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&sel2[k], x, y, t->text, t) + 12;
-    y += 20;
-    panel_head(R + 8, y, "IN A BOX: NO SELECT NEEDED", t);  y += 14;
-    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&menus[k], x, y, t->text, t) + 12;
+    for (k = 0, x = R + 10; k < 4; k++) x = key_item(&sel2[k], x, y, t->text, t) + 10;
 
     draw_keys(sy->keys, t, NULL);
     ui_end();

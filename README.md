@@ -103,42 +103,42 @@ look like the new one.
 
 ## Using it
 
-Start PSP2DC from the PSP's Game menu. It has four tabs: **VMU**, **Saves**,
-**Cards** and **System**. The header shows the tabs, the link state and the
-card in use. The footer lists the keys that do something on the screen shown.
+Start PSP2DC from the PSP's Game menu. It starts on the VMU tab, playing.
 
-The keys are the same whether a Dreamcast is connected or not. The plain
-buttons belong to the game: the Dreamcast's pad when connected, the VMU on the
-VMU tab when standalone. Hold SELECT to work PSP2DC itself. SELECT is on the
-right, so its partners are the keys under the left hand. Nothing reaches the
-Dreamcast while SELECT is held.
+**SELECT switches between playing and the menu**, the same with or without a
+Dreamcast:
 
-| Key | Action |
+- **Playing:** the VMU tab is shown and the buttons belong to the game. When
+  connected, they are the Dreamcast pad: ✕ A, ○ B, □ X, △ Y, START, the d-pad,
+  the nub as the stick, and L / R as the triggers. When standalone, they are
+  the VMU's: the d-pad, ✕ A, ○ B, △ MODE and □ SLEEP. Hold △ for 2 s to leave
+  a running VMU game.
+- **Menu:** the header lights up and the buttons work PSP2DC. Nothing reaches
+  the Dreamcast while the menu is open.
+
+| Key (menu) | Action |
 |---|---|
-| SELECT + L / R | Previous / next tab |
-| SELECT + ▲ / ▼ | Choose in a list or the settings |
-| SELECT + ▶ | OK, open (on the Theme row: next theme) |
-| SELECT + ◀ | Back (on the Theme row: previous theme) |
-| SELECT + △ | Screenshot to `ms0:/PSP2DC/shots/` |
+| L / R | Previous / next tab: VMU, Saves, Cards, System |
+| ▲ / ▼ | Choose |
+| ✕ | OK |
+| ○ | Back |
+| ◀ / ▶ | Change the theme (System tab) |
+| △ | Screenshot to `ms0:/PSP2DC/shots/` |
+| SELECT | Back to playing |
 
-An open box (a menu, a question, the rename keyboard) also takes the plain
-buttons: ▲▼ choose, ✕ OK, ○ back. While one is open, nothing goes to the
-Dreamcast.
+Anything that can't be done right now is greyed out. For example, while
+connected the Dreamcast has the card, so only Info and *Use this card* remain.
+Results show for a moment in the header.
 
-When connected, the PSP's buttons are the Dreamcast pad: ✕ A, ○ B, □ X, △ Y,
-START, the d-pad, the nub as the stick, and L / R as the triggers.
-
-On the VMU tab when standalone: the d-pad, ✕ A, ○ B, △ MODE and □ SLEEP. Hold
-△ for 2 s to leave a running VMU game.
-
-To change the memory card, go to the Cards tab, choose the card and pick *Use
+To change the memory card, open the Cards tab, choose the card and pick *Use
 this card*. *New card* is the tab's first row.
 
 ### Memory cards
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any
 `NAME.bin` there is a card, so cards can be added from a computer. From the
-Cards and Saves tabs, standalone, you can:
+Cards and Saves tabs (standalone; while connected most of this is greyed
+out) you can:
 
 - Make, rename, duplicate, delete, defragment, and check and repair a card.
 - Copy, move, delete and import saves.

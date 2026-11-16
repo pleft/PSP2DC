@@ -36,6 +36,7 @@
 #include <psprtc.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include "pspexp_usb_driver.h"
 #include "../../protocol/psp2dc_protocol.h"
@@ -527,6 +528,7 @@ static unsigned dev_input(unsigned ms_since_start)
  * The box is one at a time (g_box): what it is about (a save or a card),
  * what it shows, and what each choice does. */
 static int g_alone = 1;                    /* standalone this frame (main loop) */
+static int g_menu;                         /* SELECT: the menu (1) or playing (0) */
 enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
        BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE };
 enum { SA_INFO, SA_COPY, SA_MOVE, SA_EXPORT, SA_DELETE, SAS };
@@ -565,10 +567,16 @@ static void box_lines(const char *title, const char *a, const char *b, const cha
     if (b) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", b);
     if (c) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", c);
 }
-static void result(const char *title, const char *a, const char *b, const char *c)
+/* what came of an action: a few words in the header, the box closed */
+static void say(const char *fmt, ...)
 {
-    box_lines(title, a, b, c);
-    g_box = BOX_RESULT;
+    char buf[48];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    notice(buf);
+    g_box = BOX_NONE;
 }
 
 /* a save's box: its description as the title (the file name when it has none) */
@@ -638,17 +646,12 @@ static int saves_landed(const char *to, const CardFile *f)
 static void saves_copy(const char *to, int move)
 {
     static unsigned char other[PSP2DC_CARD_BYTES];
-    char line[64];
     CardFile f;
     int rc;
-    if (!saves_file(&f) || !cards_read(to, other)) {
-        result(move ? "Move failed" : "Copy failed", "The card could not be read.", NULL, NULL);
-        return;
-    }
+    if (!saves_file(&f) || !cards_read(to, other)) { say(move ? "move failed" : "copy failed"); return; }
     rc = cardfs_copy(g_card, &f, other);
     if (rc == CARDFS_OK && cards_write(to, other) < 0) rc = CARDFS_FAIL;
     if (rc == CARDFS_OK && move && !saves_landed(to, &f)) rc = CARDFS_FAIL;
-    snprintf(line, sizeof(line), "%s to %s", f.name, to);
     if (rc == CARDFS_OK && move) {
         card_keep(g_card_name);
         card_lock();
@@ -657,16 +660,12 @@ static void saves_copy(const char *to, int move)
         g_card_last_us = now_us();
         g_card_note = "save moved";
         card_unlock();
-        result("Moved", line, NULL, NULL);
-    } else if (rc == CARDFS_OK) result("Copied", line, NULL, NULL);
-    else if (rc == CARDFS_SAME)
-        result("Already there", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
-    else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other))
-        result(move ? "Not moved" : "Not copied", line, "That card has a game already (one a card).",
-               move ? "It stays on this card." : NULL);
-    else if (rc == CARDFS_ROOM)
-        result("Not enough free memory", line, "Not enough free blocks there.", move ? "It stays on this card." : NULL);
-    else result(move ? "Move failed" : "Copy failed", line, move ? "It stays on this card." : NULL, NULL);
+        say("moved to %s", to);
+    } else if (rc == CARDFS_OK) say("copied to %s", to);
+    else if (rc == CARDFS_SAME) say("%s has it already", to);
+    else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other)) say("%s has a game", to);
+    else if (rc == CARDFS_ROOM) say("no room on %s", to);
+    else say(move ? "move failed" : "copy failed");
     g_cd_due = 1;
 }
 
@@ -676,7 +675,7 @@ static void saves_info(void)
     CardInfo in;
     static const char *const pic[4] = { "none", "16-bit colour", "256 colours", "16 colours" };
     char a[64], b[64], c[64], d[64], e[64], g[64];
-    if (!saves_file(&f) || !cardfs_info(g_card, &f, &in)) { result("No information", "Its header cannot be read.", NULL, NULL); return; }
+    if (!saves_file(&f) || !cardfs_info(g_card, &f, &in)) { say("no information"); return; }
     g_has_picture = cardfs_eyecatch(g_card, &f, g_picture) > 0;
     snprintf(g_box_title, sizeof(g_box_title), "%s", in.dc_desc[0] ? in.dc_desc : f.name);
     snprintf(a, sizeof(a), "File: %s", f.name);
@@ -704,13 +703,9 @@ static void import_list(const char *into)
 {
     g_nimports = cards_imports(g_imports, 64);
     if (into != g_box_card) snprintf(g_box_card, sizeof(g_box_card), "%s", into);   /* (the Cards page passes it) */
-    if (!g_nimports) {
-        result("Nothing to import", "Put .DCI files, or .VMS (with their", ".VMI), in ms0:/PSP2DC/saves", NULL);
-        return;
-    }
-    box_lines("Import a save", NULL, NULL, NULL);
-    snprintf(g_box_line[0], 64, "into %s, from ms0:/PSP2DC/saves:", into);
-    g_box_lines = 1;
+    if (!g_nimports) { say("nothing in PSP2DC/saves"); return; }
+    snprintf(g_box_title, sizeof(g_box_title), "Import into %s", into);
+    g_box_lines = 0;
     g_box = BOX_IMPORT;
     g_box_item = 0;
 }
@@ -719,11 +714,10 @@ static void import_one(const CardImport *im)
 {
     static unsigned char img[PSP2DC_CARD_BYTES], data[32 + 200 * 512];
     unsigned char vmi[108], date[8];
-    char name[13], line[64];
+    char name[13];
     ScePspDateTime t;
     int len, rc, i, k;
-    if (!card_get(g_box_card, img)) { result("Import failed", "The card could not be read.", NULL, NULL); return; }
-    if ((len = cards_import_read(im, data, sizeof(data), vmi)) <= 0) { result("Import failed", "The file could not be read.", NULL, NULL); return; }
+    if (!card_get(g_box_card, img) || (len = cards_import_read(im, data, sizeof(data), vmi)) <= 0) { say("import failed"); return; }
     if (im->dci) rc = cardfs_import_dci(img, data, len);
     else {
         /* without a VMI: named after the file, dated now */
@@ -745,15 +739,39 @@ static void import_one(const CardImport *im)
         date[7] = (unsigned char)((sceRtcGetDayOfWeek(t.year, t.month, t.day) + 6) % 7);   /* 0 Monday */
         rc = cardfs_import_vms(img, data, len, im->vmi ? vmi : NULL, name, date);
     }
-    snprintf(line, sizeof(line), "%s into %s", im->file, g_box_card);
-    if (rc == CARDFS_OK && card_put(g_box_card, img, "save imported") == 0) result("Imported", line, NULL, NULL);
-    else if (rc == CARDFS_SAME) result("Already there", line, "That card has a save of this name.", NULL);
-    else if (rc == CARDFS_ROOM) result("Not enough free memory", line, "No room there (or a game is there:", "a card holds one game).");
-    else result("Import failed", line, "Not a save or game file.", NULL);
+    if (rc == CARDFS_OK && card_put(g_box_card, img, "save imported") == 0) say("imported into %s", g_box_card);
+    else if (rc == CARDFS_SAME) say("%s has it already", g_box_card);
+    else if (rc == CARDFS_ROOM) say("no room on %s", g_box_card);
+    else say("not a save file");
     g_cd_due = 1;
 }
 
 /* ---- the Saves page ---- */
+static void cards_summary(void);
+static unsigned card_off(void);
+/* a save's actions that cannot be done now (greyed): connected, or while a
+ * VMU game runs, the card is not ours to change; copy-protected saves stay */
+static unsigned save_off(void)
+{
+    unsigned off = 0;
+    if (g_cd_due) cards_summary();
+    if (g_sv_file.prot || g_cd_n < 2) off |= 1u << SA_COPY | 1u << SA_MOVE;
+    if (!g_alone || game_running()) off |= 1u << SA_COPY | 1u << SA_MOVE | 1u << SA_EXPORT | 1u << SA_DELETE;
+    return off;
+}
+
+/* up or down a box's choices, over the greyed ones (-1: none to choose) */
+static void box_move(int dir, int n, unsigned off)
+{
+    int k;
+    if ((off & ((1u << n) - 1)) == (1u << n) - 1) { g_box_item = -1; return; }
+    for (k = 0; k < n; k++) {
+        if (g_box_item < 0) g_box_item = dir > 0 ? 0 : n - 1;
+        else g_box_item = (g_box_item + (dir > 0 ? 1 : n - 1)) % n;
+        if (!((off >> g_box_item) & 1)) return;
+    }
+}
+
 static void saves_input(unsigned pressed)
 {
     static CardFile f[200];
@@ -766,10 +784,6 @@ static void saves_input(unsigned pressed)
         if ((pressed & PSP_CTRL_UP) && g_sv_sel > 0) g_sv_sel--;
         if (g_sv_sel < g_saves_first) g_saves_first = g_sv_sel;
         if (g_sv_sel > g_saves_first + 2) g_saves_first = g_sv_sel - 2;
-        if ((pressed & PSP_CTRL_CROSS) && game_running()) {
-            result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL);
-            break;
-        }
         if ((pressed & PSP_CTRL_CROSS) && n) {
             g_sv_file = f[g_sv_sel];
             snprintf(g_box_title, sizeof(g_box_title), "%s", save_title());
@@ -778,13 +792,11 @@ static void saves_input(unsigned pressed)
             g_box_item = SA_INFO;
         }
         break;
-    case BOX_SAVE_ACTIONS:                 /* a copy-protected save cannot be copied or moved, as on the VMU */
-        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
-            do g_box_item = (g_box_item + (pressed & PSP_CTRL_DOWN ? 1 : SAS - 1)) % SAS;
-            while ((g_box_item == SA_COPY || g_box_item == SA_MOVE) && g_sv_file.prot);
-        }
+    case BOX_SAVE_ACTIONS: {               /* a copy-protected save cannot be copied or moved, as on the VMU */
+        unsigned off = save_off();
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) box_move(pressed & PSP_CTRL_DOWN ? 1 : -1, SAS, off);
         if (pressed & PSP_CTRL_CIRCLE) g_box = BOX_NONE;
-        else if (pressed & PSP_CTRL_CROSS) {
+        else if ((pressed & PSP_CTRL_CROSS) && g_box_item >= 0 && !((off >> g_box_item) & 1)) {
             if (g_box_item == SA_INFO) saves_info();
             else if (g_box_item == SA_COPY || g_box_item == SA_MOVE) {
                 char names[CARDS_MAX][CARD_NAME_MAX];
@@ -792,19 +804,17 @@ static void saves_input(unsigned pressed)
                 g_box_move = g_box_item == SA_MOVE;
                 for (k = g_sv_ncards = 0; k < m; k++)
                     if (strcasecmp(names[k], g_card_name)) memcpy(g_sv_cards[g_sv_ncards++], names[k], CARD_NAME_MAX);
-                if (!g_sv_ncards) result("No other card", "Make one on the Cards page", "(New card).", NULL);
-                else { box_lines(save_title(), g_box_move ? "Move to:" : "Copy to:", NULL, NULL); g_box = BOX_CARD_LIST; g_box_item = 0; }
+                if (!g_sv_ncards) say("no other card");
+                else { box_lines(g_box_move ? "Move to" : "Copy to", NULL, NULL, NULL); g_box = BOX_CARD_LIST; g_box_item = 0; }
             } else if (g_box_item == SA_EXPORT) {
                 CardFile cf;
-                char base[9], a[64], b[64];
-                if (saves_file(&cf) && cards_export(g_card, &cf, base) == 0) {
-                    snprintf(a, sizeof(a), "ms0:/PSP2DC/saves/%s.DCI", base);
-                    snprintf(b, sizeof(b), "and %s.VMS with %s.VMI", base, base);
-                    result("Exported", a, b, NULL);
-                } else result("Export failed", "The files could not be written.", NULL, NULL);
-            } else { box_lines(save_title(), "Delete it from this card?", NULL, NULL); g_box = BOX_SAVE_DELETE; g_box_item = 0; }
+                char base[9];
+                if (saves_file(&cf) && cards_export(g_card, &cf, base) == 0) say("exported as %s", base);
+                else say("export failed");
+            } else { box_lines("Delete this save?", NULL, NULL, NULL); g_box = BOX_SAVE_DELETE; g_box_item = 0; }
         }
         break;
+    }
     case BOX_CARD_LIST:
         if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_sv_ncards;
         if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_sv_ncards - 1) % g_sv_ncards;
@@ -817,7 +827,7 @@ static void saves_input(unsigned pressed)
             box_lines(save_title(), NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = SA_DELETE;
         } else if (pressed & PSP_CTRL_CROSS) {
             CardFile cf;
-            if (!saves_file(&cf)) { result("Delete failed", "The save is not there any more.", NULL, NULL); break; }
+            if (!saves_file(&cf)) { say("delete failed"); break; }
             card_keep(g_card_name);
             card_lock();
             cardfs_delete(g_card, &cf);
@@ -825,7 +835,7 @@ static void saves_input(unsigned pressed)
             g_card_last_us = now_us();
             g_card_note = "save deleted";
             card_unlock();
-            result("Deleted", cf.name, "(the card as it was is in ms0:/PSP2DC/backups)", NULL);
+            say("save deleted");
             g_cd_due = 1;
         }
         break;
@@ -872,10 +882,7 @@ static void box_view(UiBox *b)
         b->nitems = SAS;
         b->sep_items = 1u << SA_COPY | 1u << SA_DELETE;
         b->danger_items = 1u << SA_DELETE;
-        if (g_sv_file.prot) {
-            b->off_items = 1u << SA_COPY | 1u << SA_MOVE;
-            b->lines[0] = "Copy-protected: it stays on this card.";
-        }
+        b->off_items = save_off();
         break;
     case BOX_CARD_LIST:
         for (k = 0; k < g_sv_ncards && k < 12; k++) b->items[k] = g_sv_cards[k];
@@ -896,9 +903,7 @@ static void box_view(UiBox *b)
         b->nitems = CAS;
         b->sep_items = 1u << CA_RENAME | 1u << CA_BACKUP | 1u << CA_DEFRAG | 1u << CA_DELETE;
         b->danger_items = 1u << CA_DELETE;
-        if (g_card_have && !strcasecmp(g_box_card, g_card_name)) b->off_items |= 1u << CA_USE | 1u << CA_DELETE;
-        if (g_cd_n < 2) b->off_items |= 1u << CA_DELETE;
-        if (!g_alone) b->off_items |= ~(1u << CA_USE) & ((1u << CAS) - 1);
+        b->off_items = card_off();
         break;
     case BOX_RESTORE:
         for (k = 0; k < g_nbackups && k < 12; k++) {
@@ -929,10 +934,8 @@ static void saves_view(UiSaves *v, int standalone)
     if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
     if (g_saves_first < 0) g_saves_first = 0;
     v->first = g_saves_first;
-    v->sel = -1;
-    v->keys = UI_KEYS_VIEW;
-    if (!standalone) return;
     v->sel = g_sv_sel;
+    (void)standalone;
     v->keys = g_box == BOX_NONE ? UI_KEYS_SAVES : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
     box_view(&v->box);
 }
@@ -987,20 +990,32 @@ static int card_select(const char *to)
     return card_use(to);
 }
 
-/* what became of a card_select, in the box */
-static void card_selected(int rc, const char *name, const char *made)
+/* what became of a card_select, in the header */
+static void card_selected(int rc, const char *name)
 {
-    char line[64];
-    if (rc == 0) {
-        snprintf(line, sizeof(line), made ? "%s, empty, and in use now" : "%s is in use now", name);
-        result(made ? "New card" : "Card changed", line, NULL, NULL);
-    } else if (rc == 1) {
-        snprintf(line, sizeof(line), "%s goes into the Dreamcast now.", name);
-        result(made ? "New card" : "Changing card", line, made ? "(made empty)" : NULL, NULL);
-    } else if (rc == -2) {
-        snprintf(line, sizeof(line), made ? "%s is made, but the card in" : "%s stays out: the card in", name);
-        result("Card busy", line, "use was written just now.", "Try again in a moment.");
-    } else result(made ? "New card" : "Card not changed", made ? "It is made, but could not be read." : "It could not be read.", NULL, NULL);
+    if (rc == 0) say("%s in use", name);
+    else if (rc == 1) say("%s going in", name);
+    else if (rc == -2) say("card busy, try again");
+    else say("could not read %s", name);
+}
+
+/* a card's actions that cannot be done now (greyed): connected only Use;
+ * not the card in use while a VMU game runs on it; Restore with no
+ * backups, Import with nothing to import (both counted as the box opens) */
+static unsigned card_off(void)
+{
+    unsigned off = 0;
+    int in_use = g_card_have && !strcasecmp(g_box_card, g_card_name);
+    if (in_use) off |= 1u << CA_USE | 1u << CA_DELETE;
+    if (g_cd_n < 2) off |= 1u << CA_DELETE;
+    if (!g_nbackups) off |= 1u << CA_RESTORE;
+    if (!g_nimports) off |= 1u << CA_IMPORT;
+    if (game_running()) {
+        off |= 1u << CA_USE;
+        if (in_use) off |= ~(1u << CA_DUPLICATE | 1u << CA_BACKUP) & ((1u << CAS) - 1);
+    }
+    if (!g_alone) off |= ~(1u << CA_USE) & ((1u << CAS) - 1);
+    return off;
 }
 
 static void cards_input(unsigned pressed, int *settings_due)
@@ -1012,10 +1027,6 @@ static void cards_input(unsigned pressed, int *settings_due)
     if (g_cd_due) cards_summary();
     rows = g_cd_n + 1;
     g_box_back = 1;
-    if (g_box == BOX_NONE && (pressed & PSP_CTRL_CROSS) && game_running()) {
-        result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL);
-        return;
-    }
     switch (g_box) {
     case BOX_NONE:
         if ((pressed & PSP_CTRL_DOWN) && g_cd_sel < rows - 1) g_cd_sel++;
@@ -1024,40 +1035,34 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
         if (!(pressed & PSP_CTRL_CROSS)) break;
         if (g_cd_sel == 0) {               /* New card: made, and in use */
+            if (game_running()) break;     /* (greyed) */
             if (cards_new(made) == 0) {
                 int rc = card_select(made);
                 if (rc >= 0) *settings_due = 1;
                 cards_summary();
                 for (k = 0; k < g_cd_n; k++) if (!strcasecmp(g_cd_names[k], made)) g_cd_sel = k + 1;
-                card_selected(rc, made, made);
-            } else result("New card", "It could not be made.", NULL, NULL);
+                if (rc == 0) say("%s made, in use", made); else card_selected(rc, made);
+            } else say("could not make a card");
             break;
         }
         snprintf(g_box_card, sizeof(g_box_card), "%s", g_cd_names[g_cd_sel - 1]);
-        if (!g_alone && g_card_have && !strcasecmp(g_box_card, g_card_name)) {
-            result(g_box_card, "In the Dreamcast now. What else", "can be done with a card is done", "standalone (no Dreamcast).");
-            break;
-        }
-        box_lines(g_box_card, g_alone ? NULL : "Connected: the rest is done standalone.", NULL, NULL);
+        g_nbackups = cards_backups(g_backups, BACKUPS_MAX);
+        g_nimports = cards_imports(g_imports, 64);
+        box_lines(g_box_card, NULL, NULL, NULL);
         g_box = BOX_CARD_ACTIONS;
-        g_box_item = g_card_have && !strcasecmp(g_box_card, g_card_name) ? CA_IMPORT : CA_USE;
+        g_box_item = -1;
+        box_move(1, CAS, card_off());
         break;
     case BOX_CARD_ACTIONS: {
-        unsigned off = 0;
-        if (g_card_have && !strcasecmp(g_box_card, g_card_name)) off |= 1u << CA_USE | 1u << CA_DELETE;
-        if (g_cd_n < 2) off |= 1u << CA_DELETE;
-        if (!g_alone) off |= ~(1u << CA_USE) & ((1u << CAS) - 1);   /* connected: only Use */
-        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
-            do g_box_item = (g_box_item + (pressed & PSP_CTRL_DOWN ? 1 : CAS - 1)) % CAS;
-            while ((off >> g_box_item) & 1);
-        }
+        unsigned off = card_off();
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) box_move(pressed & PSP_CTRL_DOWN ? 1 : -1, CAS, off);
         if (pressed & PSP_CTRL_CIRCLE) { g_box = BOX_NONE; break; }
-        if (!(pressed & PSP_CTRL_CROSS)) break;
+        if (!(pressed & PSP_CTRL_CROSS) || g_box_item < 0 || ((off >> g_box_item) & 1)) break;
         switch (g_box_item) {
         case CA_USE: {
             int rc = card_select(g_box_card);
             if (rc >= 0) *settings_due = 1;
-            card_selected(rc, g_box_card, NULL);
+            card_selected(rc, g_box_card);
             break;
         }
         case CA_IMPORT: import_list(g_box_card); break;
@@ -1065,53 +1070,51 @@ static void cards_input(unsigned pressed, int *settings_due)
             snprintf(g_edit, sizeof(g_edit), "%s", g_box_card);
             for (k = 0; g_edit[k]; k++) if (g_edit[k] >= 'A' && g_edit[k] <= 'Z') g_edit[k] += 32;
             g_edit_key = 0;
-            snprintf(line, sizeof(line), "A new name for %s:", g_box_card);
-            box_lines("Rename", line, NULL, NULL);
+            snprintf(line, sizeof(line), "Rename %s", g_box_card);
+            box_lines(line, NULL, NULL, NULL);
             g_box = BOX_RENAME;
             break;
         case CA_DUPLICATE:
-            if (cards_duplicate(g_box_card, made) == 0) { snprintf(line, sizeof(line), "%s as %s", g_box_card, made); result("Duplicated", line, NULL, NULL); }
-            else result("Duplicate failed", "The copy could not be written.", NULL, NULL);
+            if (cards_duplicate(g_box_card, made) == 0) say("copied as %s", made);
+            else say("duplicate failed");
             g_cd_due = 1;
             break;
         case CA_BACKUP:
             if (card_get(g_box_card, img) && cards_backup(g_box_card, img, 0) == 0)
-                result("Backed up", g_box_card, "in ms0:/PSP2DC/backups", NULL);
-            else result("Backup failed", "It could not be written.", NULL, NULL);
+                say("backed up");
+            else say("backup failed");
             break;
         case CA_RESTORE:
-            g_nbackups = cards_backups(g_backups, BACKUPS_MAX);
-            if (!g_nbackups) { result("No backups yet", "Back up now makes one; one is made", "before anything is taken off a card.", NULL); break; }
-            box_lines("Restore into", g_box_card, "from which backup? (newest first)", NULL);
+            snprintf(line, sizeof(line), "Restore %s from", g_box_card);
+            box_lines(line, NULL, NULL, NULL);
             g_box = BOX_RESTORE;
             g_box_item = 0;
             for (k = 0; k < g_nbackups; k++) if (!strcasecmp(g_backups[k].card, g_box_card)) { g_box_item = k; break; }
             break;
         case CA_DEFRAG: {
             int before, after;
-            if (!card_get(g_box_card, img)) { result("Defragment failed", "The card could not be read.", NULL, NULL); break; }
+            if (!card_get(g_box_card, img)) { say("defragment failed"); break; }
             before = cardfs_game_room(img);
             card_keep(g_box_card);
-            if ((after = cardfs_defrag(img)) < 0) { result("Not defragmented", "A save's blocks are broken:", "Check and repair first.", NULL); break; }
-            if (card_put(g_box_card, img, "defragmented") < 0) { result("Defragment failed", "The card could not be written.", NULL, NULL); break; }
-            snprintf(line, sizeof(line), "Room for a game: %d blocks (was %d)", after, before);
-            result("Defragmented", g_box_card, line, "Every save is as it was.");
+            if ((after = cardfs_defrag(img)) < 0) { say("a save is broken"); break; }
+            if (card_put(g_box_card, img, "defragmented") < 0) { say("defragment failed"); break; }
+            say("game room %d, was %d", after, before);
             g_cd_due = 1;
             break;
         }
         case CA_CHECK:
-            if (!card_get(g_box_card, img)) { result("Check failed", "The card could not be read.", NULL, NULL); break; }
+            if (!card_get(g_box_card, img)) { say("check failed"); break; }
             cardfs_check(img, &ck);
-            snprintf(g_box_title, sizeof(g_box_title), "Check: %s", g_box_card);
+            if (!ck.n) { say("no problems found"); break; }
+            snprintf(g_box_title, sizeof(g_box_title), "%s", g_box_card);
             g_box_lines = 0;
-            if (!ck.n) snprintf(g_box_line[g_box_lines++], 64, "No problems found.");
-            for (k = 0; k < ck.n && g_box_lines < 6; k++) snprintf(g_box_line[g_box_lines++], 64, "%s", ck.text[k]);
-            if (ck.broken && g_box_lines < 7) snprintf(g_box_line[g_box_lines++], 64, "Broken saves: delete them on the Saves page.");
+            for (k = 0; k < ck.n && g_box_lines < 7; k++) snprintf(g_box_line[g_box_lines++], 64, "%s", ck.text[k]);
             if (ck.repairable) { g_box = BOX_REPAIR; g_box_item = 0; }
             else g_box = BOX_RESULT;
             break;
         case CA_DELETE:
-            box_lines(g_box_card, "Delete this card? (a backup is kept", "in ms0:/PSP2DC/backups)", NULL);
+            snprintf(line, sizeof(line), "Delete %s?", g_box_card);
+            box_lines(line, NULL, NULL, NULL);
             g_box = BOX_CARD_DELETE;
             g_box_item = 0;
             break;
@@ -1143,17 +1146,17 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RENAME; }
         else if (done) {
             int rc, in_use = g_card_have && !strcasecmp(g_box_card, g_card_name);
-            if (!g_edit[0]) { result("Not renamed", "A name needs a letter at least.", NULL, NULL); break; }
-            if (!strcasecmp(g_edit, g_box_card)) { result("Not renamed", "That is its name already.", NULL, NULL); break; }
+            if (!g_edit[0]) { notice("type a name"); break; }
+            if (!strcasecmp(g_edit, g_box_card)) { say("name unchanged"); break; }
             rc = cards_rename(g_box_card, g_edit);
             if (rc == 0) {
                 if (in_use) { snprintf(g_card_name, sizeof(g_card_name), "%s", g_edit); *settings_due = 1; }
                 if (!strcasecmp(g_base_name, g_box_card)) { snprintf(g_base_name, sizeof(g_base_name), "%s", g_edit); *settings_due = 1; }
-                snprintf(line, sizeof(line), "%s is %s now", g_box_card, g_edit);
-                result("Renamed", line, NULL, NULL);
+                say("renamed %s", g_edit);
                 cards_summary();                   /* (sorted again: the chosen row follows the card) */
                 for (k = 0; k < g_cd_n; k++) if (!strcasecmp(g_cd_names[k], g_edit)) g_cd_sel = k + 1;
-            } else result("Not renamed", rc == -2 ? "A card has that name already." : "It could not be renamed.", NULL, NULL);
+            } else if (rc == -2) notice("name taken");
+            else say("rename failed");
         }
         break;
     }
@@ -1163,11 +1166,10 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RESTORE; }
         else if (pressed & PSP_CTRL_CROSS) {
             k = g_box_item;
-            box_lines("Restore", NULL, NULL, NULL);
-            snprintf(g_box_line[0], 64, "%s: everything on it replaced", g_box_card);
-            snprintf(g_box_line[1], 64, "by %s of %s?", g_backups[k].card, g_backups[k].when);
-            snprintf(g_box_line[2], 64, "(it is backed up first)");
-            g_box_lines = 3;
+            snprintf(line, sizeof(line), "Restore %s?", g_box_card);
+            box_lines(line, NULL, NULL, NULL);
+            snprintf(g_box_line[0], 64, "%s %s", g_backups[k].card, g_backups[k].when);
+            g_box_lines = 1;
             g_box = BOX_RESTORE_ASK;
             g_restore = k;
             g_box_item = 0;
@@ -1178,11 +1180,10 @@ static void cards_input(unsigned pressed, int *settings_due)
         if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
             box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RESTORE;
         } else if (pressed & PSP_CTRL_CROSS) {
-            if (!cards_backup_read(&g_backups[g_restore], img)) { result("Restore failed", "The backup could not be read.", NULL, NULL); break; }
+            if (!cards_backup_read(&g_backups[g_restore], img)) { say("restore failed"); break; }
             card_keep(g_box_card);
-            if (card_put(g_box_card, img, "restored") < 0) { result("Restore failed", "The card could not be written.", NULL, NULL); break; }
-            snprintf(line, sizeof(line), "%s of %s", g_backups[g_restore].card, g_backups[g_restore].when);
-            result("Restored", g_box_card, line, NULL);
+            if (card_put(g_box_card, img, "restored") < 0) { say("restore failed"); break; }
+            say("restored");
             g_cd_due = 1;
         }
         break;
@@ -1190,14 +1191,11 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
         if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && g_box_item)) g_box = BOX_NONE;
         else if (pressed & PSP_CTRL_CROSS) {
-            if (!card_get(g_box_card, img)) { result("Repair failed", "The card could not be read.", NULL, NULL); break; }
+            if (!card_get(g_box_card, img)) { say("repair failed"); break; }
             card_keep(g_box_card);
             cardfs_repair(img, &ck);
-            if (card_put(g_box_card, img, "repaired") < 0) { result("Repair failed", "The card could not be written.", NULL, NULL); break; }
-            snprintf(g_box_title, sizeof(g_box_title), "Repaired: %s", g_box_card);
-            g_box_lines = 0;
-            for (k = 0; k < ck.n && g_box_lines < 7; k++) snprintf(g_box_line[g_box_lines++], 64, "%s", ck.text[k]);
-            g_box = BOX_RESULT;
+            if (card_put(g_box_card, img, "repaired") < 0) { say("repair failed"); break; }
+            say("repaired");
             g_cd_due = 1;
         }
         break;
@@ -1206,10 +1204,9 @@ static void cards_input(unsigned pressed, int *settings_due)
         if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
             box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_DELETE;
         } else if (pressed & PSP_CTRL_CROSS) {
-            if (g_card_have && !strcasecmp(g_box_card, g_card_name)) { result("Not deleted", "It is in use.", NULL, NULL); break; }
-            if (cards_backup(g_box_card, NULL, 1) < 0) { result("Not deleted", "Its backup could not be made.", NULL, NULL); break; }
-            if (cards_delete(g_box_card) < 0) { result("Delete failed", "The file could not be removed.", NULL, NULL); break; }
-            result("Card deleted", g_box_card, "Its backup: Restore a backup, on any card.", NULL);
+            if (g_card_have && !strcasecmp(g_box_card, g_card_name)) { say("in use"); break; }
+            if (cards_backup(g_box_card, NULL, 1) < 0 || cards_delete(g_box_card) < 0) { say("delete failed"); break; }
+            say("%s deleted", g_box_card);
             g_cd_due = 1;
             if (g_cd_sel > g_cd_n - 1) g_cd_sel = g_cd_n - 1;
         }
@@ -1248,7 +1245,9 @@ static void cards_view(UiCards *v, int standalone)
     if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
     v->first = g_cd_first;
     v->sel = g_cd_sel;
+    v->new_off = game_running();           /* (the card in use cannot change while one runs) */
     v->keys = g_box == BOX_NONE ? UI_KEYS_CARDS
+            : g_box == BOX_CARD_ACTIONS && g_box_item < 0 ? UI_KEYS_BACK   /* (all greyed) */
             : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
     box_view(&v->box);
     (void)standalone;
@@ -1448,37 +1447,13 @@ static void system_input(unsigned pressed, int *settings_due)
     if (pressed & PSP_CTRL_CROSS) system_do(0, settings_due);
 }
 
-/* A page's own keys (up, down, X OK, O back; left/right on the System
- * page's settings; the keyboard's), from SELECT + the d-pad or, while a box
- * is open, the buttons themselves. Connected the Saves page only scrolls. */
+/* the menu's buttons, to the page shown (up, down, X OK, O back; left/right
+ * on the System page's settings; the keyboard's) */
 static void page_keys(unsigned k, int *settings_due)
 {
-    if (g_page == PAGE_SAVES && g_alone) saves_input(k);
-    else if (g_page == PAGE_SAVES) {
-        int d = k & PSP_CTRL_DOWN ? 1 : k & PSP_CTRL_UP ? -1 : 0;
-        g_saves_first += d;
-        if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
-        if (g_saves_first < 0) g_saves_first = 0;
-    } else if (g_page == PAGE_CARDS) cards_input(k, settings_due);
+    if (g_page == PAGE_SAVES) saves_input(k);
+    else if (g_page == PAGE_CARDS) cards_input(k, settings_due);
     else if (g_page == PAGE_SYSTEM) system_input(k, settings_due);
-}
-
-/* SELECT + the d-pad, the same on every page in both modes: up and down
- * choose, right goes in (OK), left back, as in the VMU's FILE mode; on the
- * theme they change it, on the keyboard right is Done */
-static void page_select(unsigned d, int *settings_due)
-{
-    unsigned k = d & (PSP_CTRL_UP | PSP_CTRL_DOWN);
-    if (g_box == BOX_RENAME) {
-        if (d & PSP_CTRL_RIGHT) k |= PSP_CTRL_START;
-        if (d & PSP_CTRL_LEFT) k |= PSP_CTRL_CIRCLE;
-    } else if (g_page == PAGE_SYSTEM && !g_sys_details && g_box == BOX_NONE) {
-        k |= d & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT);
-    } else {
-        if (d & PSP_CTRL_RIGHT) k |= PSP_CTRL_CROSS;
-        if (d & PSP_CTRL_LEFT) k |= PSP_CTRL_CIRCLE;
-    }
-    if (k) page_keys(k, settings_due);
 }
 
 static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned errors)
@@ -1511,7 +1486,6 @@ int main(int argc, char *argv[])
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
     int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
-    unsigned page_last = 0;                /* the buttons last seen by a page that is not the VMU's */
     int standalone = 0, was_standalone = 0;
     unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
@@ -1536,6 +1510,7 @@ int main(int argc, char *argv[])
     scePowerSetClockFrequency(333, 333, 166);
     ui_init();
     settings_load();
+    g_page = PAGE_VMU;                     /* (it starts playing) */
     sa_before_delete(file_mode_delete);
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
@@ -1569,56 +1544,45 @@ int main(int argc, char *argv[])
         if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
         g_alone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
         if (g_alone != was_standalone) g_box = BOX_NONE;   /* (a box belongs to the mode it was opened in) */
-        if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
+        {
+            /* SELECT switches between playing and the menu, the same in both
+             * modes. Playing, the buttons are the game's (the Dreamcast's
+             * pad, or the VMU's standalone) and the VMU tab is shown; in the
+             * menu they are PSP2DC's: L/R the tab, the d-pad, X OK, O back,
+             * triangle a screenshot, and nothing goes to the Dreamcast.
+             * (SELECT sits on the right under the face buttons: a toggle
+             * rather than a key held with another.) */
             unsigned pressed = pad.Buttons & ~last_buttons;
-            /* SELECT held, the same in both modes: L/R the tab, the d-pad the
-             * page (page_select), triangle a screenshot. (SELECT sits on the
-             * right, under the face buttons: a second key for the left hand.) */
-            if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; }
-            if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
-                page_turn(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);
-                settings_due = 1;
+            last_buttons = pad.Buttons;
+            if (pressed & PSP_CTRL_SELECT) {
+                g_menu = !g_menu;
+                if (!g_menu) { g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0; }
+                combo = pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go */
+                settings_due = saves_due = 1;
             }
-            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT))
-                page_select(pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT), &settings_due);
-            if (pressed & ~PSP_CTRL_SELECT) saves_due = 1;   /* shown at once */
-            last_buttons = pad.Buttons;
-            combo = pad.Buttons & ~PSP_CTRL_SELECT;
-            pad.Buttons = 0;
-            pad.Lx = pad.Ly = 128;
-        } else {
-            unsigned pressed = pad.Buttons & ~last_buttons;
-            /* SELECT let go before the rest of a combination: those buttons
-             * are not pressed anew (no second action, nothing to the
-             * Dreamcast) until they are let go too */
-            last_buttons = pad.Buttons;
             combo &= pad.Buttons;
-            pad.Buttons &= ~combo;
-            pressed &= ~combo;
-            /* connected, an open box (the Cards page's) takes the buttons
-             * until it closes: nothing goes to the Dreamcast meanwhile */
-            if (!g_alone && g_box != BOX_NONE) {
-                if (pressed) { page_keys(pressed, &settings_due); saves_due = 1; }
+            pressed &= ~(combo | PSP_CTRL_SELECT);
+            if (g_menu) {
+                if (pressed & PSP_CTRL_TRIANGLE) shot_due = 1;
+                if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
+                    page_turn(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);
+                    settings_due = 1;
+                }
+                pressed &= ~(PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
+                if (pressed) page_keys(pressed, &settings_due);
+                if (pressed) saves_due = 1;   /* shown at once */
                 pad.Buttons = 0;
                 pad.Lx = pad.Ly = 128;
-            }
+            } else pad.Buttons &= ~(combo | PSP_CTRL_SELECT);
         }
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons
-         * the VMU's. (SELECT, held, is still the shift key.) */
+         * the VMU's, while playing (not in the menu). */
         standalone = g_alone;
         vmu_held = 0;
         if (standalone) {
-            unsigned b = pad.Buttons, pr = b & ~page_last;
-            /* the other pages: the VMU is not shown, so its buttons do
-             * nothing there, but an open box takes them (the page itself is
-             * worked with SELECT held, as connected) */
-            if (g_page != PAGE_VMU) {
-                if (pr && g_box != BOX_NONE) { page_keys(pr, &settings_due); saves_due = 1; }
-                page_last = b;
-                b = 0;
-            } else page_last = b;
+            unsigned b = pad.Buttons;   /* (none in the menu) */
             if (b & PSP_CTRL_UP) vmu_held |= SA_UP;
             if (b & PSP_CTRL_DOWN) vmu_held |= SA_DOWN;
             if (b & PSP_CTRL_LEFT) vmu_held |= SA_LEFT;
@@ -1755,7 +1719,7 @@ int main(int argc, char *argv[])
         frame++;
         {
             const char *lt, *lh;
-            ui_frame(standalone, link_state(&lt, &lh), top_line());
+            ui_frame(standalone, g_menu, link_state(&lt, &lh), top_line());
         }
         if (g_page == PAGE_SYSTEM && g_sys_details) {
             if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {

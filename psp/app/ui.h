@@ -43,11 +43,11 @@ void ui_lcd_dots(const unsigned char *lcd, int x, int y, int sx, int sy, const U
 /* The pages */
 enum { UI_LINK_NONE, UI_LINK_WAITING, UI_LINK_UP, UI_LINK_DEMO };
 
-/* What every page shows the same way, set once a frame: whether the PSP's
- * buttons work the pages (standalone) or are the Dreamcast's (then SELECT
- * held works them), the link, and the line beside the tabs (the card in use,
- * or a message just given). */
-void ui_frame(int standalone, int link, const char *status);
+/* What every page shows the same way, set once a frame: standalone or not,
+ * the menu or playing (SELECT switches: the header and the keys show
+ * which), the link, and the line beside the tabs (the card in use, or a
+ * message just given). */
+void ui_frame(int standalone, int menu, int link, const char *status);
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
     int link;                          /* UI_LINK_* */
@@ -87,15 +87,16 @@ typedef struct {
 extern const char *const ui_kb_rows[3];
 
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
- * Cards, 3 System), the keys that change them (SELECT + L R), and at their
- * right the link and the status line. */
+ * Cards, 3 System), and at their right the link and the status line. In the
+ * menu the bar is lit, L and R beside the tabs; playing it is dim, with
+ * SELECT to open the menu. */
 #define UI_TABS 4
 void ui_header(int page, const UiTheme *t);
 /* the line of keys at the bottom (UI_KEYS_*), for a page drawn elsewhere */
 void ui_keys(int keys, const UiTheme *t);
 /* the line of keys at the bottom of a page: only the keys that do something now */
 enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
-       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS };
+       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS, UI_KEYS_BACK };
 
 /* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {
@@ -116,6 +117,7 @@ typedef struct {
     int saves[UI_CARDS_MAX], free[UI_CARDS_MAX], in_use[UI_CARDS_MAX];
     const char *game[UI_CARDS_MAX];    /* its game's name, or NULL */
     int first, sel;                    /* rows: 0 is "New card", 1 + i card i; sel -1: view only */
+    int new_off;                       /* "New card" cannot be used now (greyed) */
     UiBox box;
     int keys;
 } UiCards;
