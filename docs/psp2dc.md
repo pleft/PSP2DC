@@ -1,8 +1,8 @@
 
 # PSP Dreamcast Controller & VMU
 
-**Status:** Research and feasibility assessment (source-level review done, no hardware tests yet)  
-**Date:** November 2026 (revised 15 November 2026)  
+**Status:** Working on hardware: the PSP plays a real Dreamcast through the adapter, shows the VMU's screen and keeps the memory cards on its Memory Stick; standalone it is a VMU with its games. See section 10.  
+**Date:** November 2026 (revised 17 November 2026)  
 **Target hardware:** Sony PSP-1000, Raspberry Pi Pico (RP2040), Sega Dreamcast
 
 ## 1. Project Overview
@@ -688,10 +688,18 @@ Completed:
 - Wrote the PSP2DC protocol, the firmware's PSP host driver and a first PSP application; verified on hardware that controller data reaches the adapter and status messages come back.
 - Phase 1 passed: the RP2040 enumerates the PSP (PSPExp driver) at full speed.
 - Protocol 5: a card is never written over another on reconnecting (the 15 November incident repeated on hardware without loss); FILE mode copies and deletes on hardware.
+- The standalone VMU: TIME, FILE (copy, delete) and GAME mode, VMU games run by `vmu_core` (from libevmu) with the buzzer; Chao Adventure 2 and Alien Fighter played on hardware (5.0c, 5.0d).
+- Several cards on the Memory Stick; the Saves and Cards pages: info, copy, move, export, import (127 games in a scrolling list), backups, restore, defragment, check and repair (5.0e–5.0e3).
+- The interface (16 November 2026): SELECT switches between playing and the menu; one header and footer on every page, the status at the footer's right, the battery in the header; greyed choices; results in the middle of the screen; the buttons read by a thread of their own (5.0a, 5.0f's neighbours).
+- The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
+- Changing card while connected, through the adapter, since it moved to the Cards page (16 November 2026): not yet tried on hardware.
+- Colour VMU screens (5.0e4): working in PPSSPP, not yet on hardware nor with a Dreamcast's screens.
+- The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
+- Per-game cards through openMenu's GameID: not started.
 - Permanent (soldered) wiring.
 
 ## 11. First Major Milestone
