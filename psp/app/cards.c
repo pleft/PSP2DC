@@ -329,33 +329,36 @@ int cards_duplicate(const char *name, char out[CARD_NAME_MAX])
 
 int cards_imports(CardImport *out, int max)
 {
+    /* one pass over the folder: the VMIs are matched by name afterwards, not
+     * looked for one open at a time (127 games took ~250 opens, seconds) */
+    static char vmis[256][64];
     SceUID d = sceIoDopen(SAVES_DIR);
     SceIoDirent e;
-    char path[160];
-    int n = 0, i, j;
+    int n = 0, nv = 0, i, j;
     if (d < 0) return 0;
     memset(&e, 0, sizeof(e));
-    while (n < max && sceIoDread(d, &e) > 0) {
+    while (sceIoDread(d, &e) > 0) {
         int len = strlen(e.d_name), dci, vms;
         if (len < 5 || len >= (int)sizeof(out[0].file)) { memset(&e, 0, sizeof(e)); continue; }
         dci = !strcasecmp(e.d_name + len - 4, ".dci");
         vms = !strcasecmp(e.d_name + len - 4, ".vms");
-        if ((dci || vms) && e.d_stat.st_size > 0 && e.d_stat.st_size <= 32 + 200 * 512) {
-            CardImport *im = &out[n];
+        if (!strcasecmp(e.d_name + len - 4, ".vmi") && nv < 256) snprintf(vmis[nv++], 64, "%.*s", len - 4, e.d_name);
+        else if (n < max && (dci || vms) && e.d_stat.st_size > 0 && e.d_stat.st_size <= 32 + 200 * 512) {
+            CardImport *im = &out[n++];
             memset(im, 0, sizeof(*im));
             strcpy(im->file, e.d_name);
             im->dci = dci;
             im->size = (long)e.d_stat.st_size;
-            if (vms) {                     /* its VMI: the same name, .VMI or .vmi */
-                snprintf(path, sizeof(path), "%s/%.*s.VMI", SAVES_DIR, len - 4, e.d_name);
-                im->vmi = exists(path);
-                if (!im->vmi) { snprintf(path, sizeof(path), "%s/%.*s.vmi", SAVES_DIR, len - 4, e.d_name); im->vmi = exists(path); }
-            }
-            n++;
         }
         memset(&e, 0, sizeof(e));
     }
     sceIoDclose(d);
+    for (i = 0; i < n; i++)                /* a VMS's VMI: the same name (any case) */
+        if (!out[i].dci) {
+            int stem = (int)strlen(out[i].file) - 4;
+            for (j = 0; j < nv && !out[i].vmi; j++)
+                out[i].vmi = (int)strlen(vmis[j]) == stem && !strncasecmp(vmis[j], out[i].file, stem);
+        }
     for (i = 1; i < n; i++)
         for (j = i; j > 0 && strcasecmp(out[j - 1].file, out[j].file) > 0; j--) {
             CardImport t = out[j]; out[j] = out[j - 1]; out[j - 1] = t;

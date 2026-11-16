@@ -546,7 +546,7 @@ static int g_cd_n, g_cd_saves[CARDS_MAX], g_cd_free[CARDS_MAX];
 static char g_cd_game[CARDS_MAX][13];
 static int g_cd_due = 1;                   /* the cards' summaries to be read again */
 static char g_box_card[CARD_NAME_MAX];     /* the card the box is about */
-static CardImport g_imports[64];
+static CardImport g_imports[UI_BOX_ITEMS];
 static int g_nimports;
 static CardBackup g_backups[BACKUPS_MAX];
 static int g_nbackups;
@@ -701,7 +701,7 @@ static void saves_info(void)
 /* the saves to import, listed in the box */
 static void import_list(const char *into)
 {
-    g_nimports = cards_imports(g_imports, 64);
+    g_nimports = cards_imports(g_imports, UI_BOX_ITEMS);
     if (into != g_box_card) snprintf(g_box_card, sizeof(g_box_card), "%s", into);   /* (the Cards page passes it) */
     if (!g_nimports) { say("nothing in PSP2DC/saves"); return; }
     snprintf(g_box_title, sizeof(g_box_title), "Import into %s", into);
@@ -758,6 +758,22 @@ static unsigned save_off(void)
     if (g_sv_file.prot || g_cd_n < 2) off |= 1u << SA_COPY | 1u << SA_MOVE;
     if (!g_alone || game_running()) off |= 1u << SA_COPY | 1u << SA_MOVE | 1u << SA_EXPORT | 1u << SA_DELETE;
     return off;
+}
+
+/* a box that lists files or cards: how long the list is (0: not a list) */
+static int box_list_len(void)
+{
+    return g_box == BOX_IMPORT ? g_nimports : g_box == BOX_CARD_LIST ? g_sv_ncards
+         : g_box == BOX_RESTORE ? g_nbackups : 0;
+}
+/* L / R in a list: a page (nine) up or down */
+static void box_page(int dir)
+{
+    int n = box_list_len();
+    if (n <= 0) return;
+    g_box_item += dir * 9;
+    if (g_box_item > n - 1) g_box_item = n - 1;
+    if (g_box_item < 0) g_box_item = 0;
 }
 
 /* up or down a box's choices, over the greyed ones (-1: none to choose) */
@@ -854,11 +870,12 @@ static void saves_input(unsigned pressed)
 /* the import list's lines: each file, and what it holds */
 static const char *import_item(int k)
 {
-    static char lines[64][64];
+    static char lines[UI_BOX_ITEMS][64];
     const CardImport *im = &g_imports[k];
     long blocks = ((im->dci ? im->size - 32 : im->size) + 511) / 512;
-    snprintf(lines[k], 64, "%-22.22s %s, %ld block%s", im->file, im->dci ? "DCI" : im->vmi ? "VMS+VMI" : "VMS",
-             blocks, blocks == 1 ? "" : "s");
+    int stem = (int)strlen(im->file) - 4;  /* (the name without .VMS / .DCI) */
+    snprintf(lines[k], 64, "%-31.*s %-7s %3ld", stem < 31 ? stem : 31, im->file,
+             im->dci ? "DCI" : im->vmi ? "VMS+VMI" : "VMS", blocks);
     return lines[k];
 }
 
@@ -885,7 +902,7 @@ static void box_view(UiBox *b)
         b->off_items = save_off();
         break;
     case BOX_CARD_LIST:
-        for (k = 0; k < g_sv_ncards && k < 12; k++) b->items[k] = g_sv_cards[k];
+        for (k = 0; k < g_sv_ncards && k < UI_BOX_ITEMS; k++) b->items[k] = g_sv_cards[k];
         b->nitems = k;
         break;
     case BOX_SAVE_DELETE: case BOX_CARD_DELETE: case BOX_RESTORE_ASK:
@@ -895,7 +912,7 @@ static void box_view(UiBox *b)
         b->danger_items = 1u << 1;
         break;
     case BOX_IMPORT:
-        for (k = 0; k < g_nimports && k < 12; k++) b->items[k] = import_item(k);
+        for (k = 0; k < g_nimports && k < UI_BOX_ITEMS; k++) b->items[k] = import_item(k);
         b->nitems = k;
         break;
     case BOX_CARD_ACTIONS:
@@ -906,7 +923,7 @@ static void box_view(UiBox *b)
         b->off_items = card_off();
         break;
     case BOX_RESTORE:
-        for (k = 0; k < g_nbackups && k < 12; k++) {
+        for (k = 0; k < g_nbackups && k < UI_BOX_ITEMS; k++) {
             snprintf(backup_lines[k], 64, "%-14.14s %s%s", g_backups[k].card, g_backups[k].when,
                      g_backups[k].automatic ? " auto" : "");
             b->items[k] = backup_lines[k];
@@ -936,7 +953,8 @@ static void saves_view(UiSaves *v, int standalone)
     v->first = g_saves_first;
     v->sel = g_sv_sel;
     (void)standalone;
-    v->keys = g_box == BOX_NONE ? UI_KEYS_SAVES : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
+    v->keys = g_box == BOX_NONE ? UI_KEYS_SAVES : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK
+            : box_list_len() > 9 ? UI_KEYS_LIST : UI_KEYS_MENU;
     box_view(&v->box);
 }
 
@@ -1047,7 +1065,7 @@ static void cards_input(unsigned pressed, int *settings_due)
         }
         snprintf(g_box_card, sizeof(g_box_card), "%s", g_cd_names[g_cd_sel - 1]);
         g_nbackups = cards_backups(g_backups, BACKUPS_MAX);
-        g_nimports = cards_imports(g_imports, 64);
+        g_nimports = cards_imports(g_imports, UI_BOX_ITEMS);
         box_lines(g_box_card, NULL, NULL, NULL);
         g_box = BOX_CARD_ACTIONS;
         g_box_item = -1;
@@ -1248,7 +1266,8 @@ static void cards_view(UiCards *v, int standalone)
     v->new_off = game_running();           /* (the card in use cannot change while one runs) */
     v->keys = g_box == BOX_NONE ? UI_KEYS_CARDS
             : g_box == BOX_CARD_ACTIONS && g_box_item < 0 ? UI_KEYS_BACK   /* (all greyed) */
-            : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
+            : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK
+            : box_list_len() > 9 ? UI_KEYS_LIST : UI_KEYS_MENU;
     box_view(&v->box);
     (void)standalone;
 }
@@ -1567,7 +1586,8 @@ int main(int argc, char *argv[])
                 if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
                     page_turn(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);
                     settings_due = 1;
-                }
+                } else if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER))
+                    box_page(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);   /* (a long list: a page at a time) */
                 pressed &= ~(PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
                 if (pressed) page_keys(pressed, &settings_due);
                 if (pressed) saves_due = 1;   /* shown at once */

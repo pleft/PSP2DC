@@ -73,7 +73,8 @@ void ui_page_home(const UiHome *h, const UiTheme *t);
 typedef struct {
     const char *title;                 /* NULL: no box */
     const char *lines[8];              /* NULL-ended */
-    const char *items[12];
+#define UI_BOX_ITEMS 256
+    const char *items[UI_BOX_ITEMS];   /* (a long list scrolls, nine at a time) */
     int nitems, item;
     unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
     const unsigned short *picture;     /* a save's large picture, 72x56 ARGB4444, or NULL */
@@ -98,7 +99,7 @@ void ui_header(int page, const UiTheme *t);
 void ui_keys(int keys, const UiTheme *t);
 /* the line of keys at the bottom of a page: only the keys that do something now */
 enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
-       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS, UI_KEYS_BACK };
+       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS, UI_KEYS_BACK, UI_KEYS_LIST };
 
 /* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {

@@ -810,7 +810,8 @@ static void draw_box(const UiBox *b, const UiTheme *t)
         if (top < 0) top = 0;
         shown = 9;
     }
-    for (k = top + 1; k < top + shown; k++) if ((b->sep_items >> k) & 1) seps++;
+#define BIT(m, k) ((k) < 32 && (((m) >> (k)) & 1))
+    for (k = top + 1; k < top + shown; k++) if (BIT(b->sep_items, k)) seps++;
     h = 32 + lines * 14 + (lines && shown ? 4 : 0) + shown * 16 + seps * 7 + 8 + (b->edit ? 24 + UI_KB_ROWS * 20 : 0);
     if (b->picture && h < 32 + 116 + 10) h = 32 + 116 + 10;
     y0 = 20 + (234 - h) / 2;               /* centred between the header and the keys */
@@ -818,8 +819,13 @@ static void draw_box(const UiBox *b, const UiTheme *t)
     round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, t->accent);
     round_rect(x0, y0, w, h, 6, t->panel);
     {
-        char title[64];
+        char title[64], at[16] = "";
         int max = (w - 24) / 7;
+        if (b->nitems > 9 && b->item >= 0) {   /* a long list: where in it */
+            snprintf(at, sizeof(at), "%d/%d", b->item + 1, b->nitems);
+            label(x0 + w - 12 - 7 * (int)strlen(at), y0 + 9, muted(t), at);
+            max -= (int)strlen(at) + 2;
+        }
         snprintf(title, sizeof(title), "%s", b->title);
         if ((int)strlen(title) > max) title[max] = 0;
         label_bold(x0 + 12, y0 + 9, strong(t), title);
@@ -856,9 +862,9 @@ static void draw_box(const UiBox *b, const UiTheme *t)
         }
     }
     for (k = top; k < top + shown; k++, y0 += 16) {
-        int off = (b->off_items >> k) & 1, danger = (b->danger_items >> k) & 1;
+        int off = BIT(b->off_items, k), danger = BIT(b->danger_items, k);
         unsigned fill = danger ? t->danger : t->accent;
-        if (k > top && ((b->sep_items >> k) & 1)) { ui_fill(x0 + 14, y0 + 2, w - 28, 1, faint(t)); y0 += 7; }
+        if (k > top && BIT(b->sep_items, k)) { ui_fill(x0 + 14, y0 + 2, w - 28, 1, faint(t)); y0 += 7; }
         if (k == b->item) round_rect(x0 + 6, y0, w - 12, 15, 3, fill);
         label_fit(x0 + 14, y0 + 4,
                   k == b->item ? on_colour(fill) : off ? faint(t) : danger ? t->danger : t->text,
@@ -881,6 +887,7 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
     static const UiKey sys_open[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
     static const UiKey det[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey back[] = { K1(G_O, 0, "back") };
+    static const UiKey list[] = { K1(G_UD, 0, "choose"), K2(G_CAP, "L", G_CAP, "R", "page"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey select_play = K1(G_CAP, "SELECT", "play");
     UiKey all[8];
     const UiKey *k = ok;
@@ -895,6 +902,7 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
     case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 2; break;
     case UI_KEYS_DETAILS: k = det;   n = 3; break;
     case UI_KEYS_BACK:   k = back;   n = 1; break;
+    case UI_KEYS_LIST:   k = list;   n = 4; break;
     }
     all[0] = select_play;
     for (i = 0; i < n && i < 7; i++) all[i + 1] = k[i];
