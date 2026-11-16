@@ -366,7 +366,8 @@ static int card_upload(void)
     return 0;
 }
 
-static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned errors)
+static void details_view_rows(int standalone);
+static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned errors, int standalone)
 {
     PspExpUsbStats st;
     const char *link;
@@ -415,7 +416,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
     ui_lcd(g_lcd, 480 - 48 * 4 - 8, 250 - 32 * 4 - 4, 4, &ui_themes[g_theme]);
-    ui_keys(UI_KEYS_BACK, &ui_themes[g_theme]);
+    details_view_rows(standalone);
+    ui_keys(standalone ? UI_KEYS_DETAILS : UI_KEYS_DETAILS_HELD, &ui_themes[g_theme]);
     ui_end();
 }
 
@@ -1329,8 +1331,9 @@ static int link_state(const char **text, const char **hint)
 }
 
 /* ---- the System page: the settings, and the details ---- */
-enum { SYS_THEME, SYS_RECORD, SYS_DEMO, SYS_DETAILS, SYSS };
-static int g_sys_sel, g_sys_details;
+enum { SYS_THEME, SYS_DETAILS, SYSS };
+enum { DET_RECORD, DET_DEMO, DETS };      /* Details' tools, for testing: not for playing */
+static int g_sys_sel, g_sys_details, g_det_sel;
 
 static void page_turn(int d)
 {
@@ -1340,9 +1343,34 @@ static void page_turn(int d)
     g_sys_details = 0;
 }
 
-static int sys_off(int row)                /* a row that cannot be used now */
+static int det_off(int row)                /* a row of Details that cannot be used now */
 {
-    return row == SYS_DEMO && !demo_on() && !g_no_usb && pspexpUsbConnected();
+    return row == DET_DEMO && !demo_on() && !g_no_usb && pspexpUsbConnected();
+}
+
+/* Details' tools: recording the screens the Dreamcast draws on the VMU
+ * (capture/vmu-NNN.rec), and playing recordings back as if connected (the
+ * connected pages seen without an adapter) */
+static void details_do(void)
+{
+    if (g_det_sel == DET_RECORD) {
+        if (rec_on()) { rec_stop(); notice(rec_note()); } else { rec_start(); notice("recording the VMU"); }
+    } else if (!det_off(DET_DEMO)) {
+        if (demo_on()) demo_stop(); else { demo_start(); if (!demo_on()) notice(demo_note()); }
+    }
+}
+
+static void details_view_rows(int standalone)
+{
+    static const char *const rows[DETS] = { "Record the VMU", "Demo" };
+    static char rec[24];
+    const char *values[DETS];
+    if (rec_on()) snprintf(rec, sizeof(rec), "on, %u", rec_count()); else snprintf(rec, sizeof(rec), "off");
+    values[DET_RECORD] = rec;
+    values[DET_DEMO] = demo_on() ? "on" : "off";
+    ui_settings(4, 196, 268, "TOOLS, FOR TESTING", rows, values, DETS, g_det_sel,
+                det_off(DET_DEMO) ? 1u << DET_DEMO : 0, -1, &ui_themes[g_theme]);
+    (void)standalone;
 }
 
 /* a setting changed: d -1 or 1 (left or right), 0 for X */
@@ -1353,14 +1381,6 @@ static void system_do(int d, int *settings_due)
         g_theme = (g_theme + (d ? d : 1) + ui_theme_count) % ui_theme_count;
         *settings_due = 1;
         break;
-    case SYS_RECORD:
-        if (d) break;
-        if (rec_on()) { rec_stop(); notice(rec_note()); } else { rec_start(); notice("recording the VMU"); }
-        break;
-    case SYS_DEMO:
-        if (d || sys_off(SYS_DEMO)) break;
-        if (demo_on()) demo_stop(); else { demo_start(); if (!demo_on()) notice(demo_note()); }
-        break;
     case SYS_DETAILS:
         if (!d) g_sys_details = 1;
         break;
@@ -1369,7 +1389,13 @@ static void system_do(int d, int *settings_due)
 
 static void system_input(unsigned pressed, int *settings_due)
 {
-    if (g_sys_details) { if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_sys_details = 0; return; }
+    if (g_sys_details) {
+        if (pressed & PSP_CTRL_DOWN) g_det_sel = (g_det_sel + 1) % DETS;
+        if (pressed & PSP_CTRL_UP) g_det_sel = (g_det_sel + DETS - 1) % DETS;
+        if (pressed & PSP_CTRL_CROSS) details_do();
+        if (pressed & PSP_CTRL_CIRCLE) g_sys_details = 0;
+        return;
+    }
     if (pressed & PSP_CTRL_DOWN) g_sys_sel = (g_sys_sel + 1) % SYSS;
     if (pressed & PSP_CTRL_UP) g_sys_sel = (g_sys_sel + SYSS - 1) % SYSS;
     if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) system_do(pressed & PSP_CTRL_RIGHT ? 1 : -1, settings_due);
@@ -1378,7 +1404,7 @@ static void system_input(unsigned pressed, int *settings_due)
 
 static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned errors)
 {
-    static char l0[64], l1[64], l2[64], rec[24];
+    static char l0[64], l1[64], l2[64];
     int k = 0;
     memset(v, 0, sizeof(*v));
     v->link = link_state(&v->link_text, &v->link_hint);
@@ -1391,14 +1417,9 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     v->lines[k++] = l1;
     if (v->link == UI_LINK_UP) { snprintf(l2, sizeof(l2), "%u inputs sent, %u errors", sent, errors); v->lines[k++] = l2; }
     v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
-    v->rows[SYS_RECORD] = "Record the VMU";
-    if (rec_on()) snprintf(rec, sizeof(rec), "on, %u", rec_count()); else snprintf(rec, sizeof(rec), "off");
-    v->values[SYS_RECORD] = rec;
-    v->rows[SYS_DEMO] = "Demo";            v->values[SYS_DEMO] = demo_on() ? "on" : "off";
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
-    if (sys_off(SYS_DEMO)) v->off_rows |= 1u << SYS_DEMO;
     v->keys = standalone ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_HELD;
 }
 
@@ -1487,10 +1508,11 @@ int main(int argc, char *argv[])
                     if (g_cd_first > g_cd_n + 1 - 6) g_cd_first = g_cd_n + 1 - 6;
                     if (g_cd_first < 0) g_cd_first = 0;
                     g_cd_sel = g_cd_first;
-                } else if (g_page == PAGE_SYSTEM && !g_sys_details) g_sys_sel = (g_sys_sel + d + SYSS) % SYSS;
+                } else if (g_page == PAGE_SYSTEM && g_sys_details) g_det_sel = (g_det_sel + d + DETS) % DETS;
+                else if (g_page == PAGE_SYSTEM) g_sys_sel = (g_sys_sel + d + SYSS) % SYSS;
             }
             if ((pressed & PSP_CTRL_CROSS) && g_page == PAGE_SYSTEM) {
-                if (g_sys_details) g_sys_details = 0; else system_do(0, &settings_due);
+                if (g_sys_details) details_do(); else system_do(0, &settings_due);
             }
             if ((pressed & PSP_CTRL_CIRCLE) && g_page == PAGE_SYSTEM) g_sys_details = 0;
             if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_START)) {
@@ -1696,7 +1718,7 @@ int main(int argc, char *argv[])
             if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {
                 lcd_shown = g_lcd_count;
                 saves_due = 0;
-                show(usb_rc, &in, sent, errors);
+                show(usb_rc, &in, sent, errors, standalone);
             }
         } else if (g_page == PAGE_SYSTEM) {
             if (frame % 10 == 0 || saves_due) {

@@ -908,7 +908,9 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
                                   K1(G_CAP, "START", "done"), K1(G_O, 0, "cancel") };
     static const UiKey sys[] = { K1(G_UD, 0, "choose"), K1(G_LR, 0, "change"), K1(G_X, 0, "OK") };
     static const UiKey sys_held[] = { K2(G_CAP, "SELECT", G_UD, 0, "choose"), K2(G_CAP, "SELECT", G_X, 0, "OK") };
-    static const UiKey back[] = { K1(G_X, 0, "back") };
+    static const UiKey det[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
+    static const UiKey det_held[] = { K2(G_CAP, "SELECT", G_UD, 0, "choose"), K2(G_CAP, "SELECT", G_X, 0, "OK"),
+                                      K2(G_CAP, "SELECT", G_O, 0, "back") };
     const UiKey *k = ok;
     int n = 1;
     switch (keys) {
@@ -919,7 +921,8 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
     case UI_KEYS_EDIT:   k = edit;   n = 5; break;
     case UI_KEYS_SYSTEM: k = sys;    n = 3; break;
     case UI_KEYS_SYSTEM_HELD: k = sys_held; n = 2; break;
-    case UI_KEYS_BACK:   k = back;   n = 1; break;
+    case UI_KEYS_DETAILS: k = det;   n = 3; break;
+    case UI_KEYS_DETAILS_HELD: k = det_held; n = 3; break;
     }
     draw_footer(2, 476, k, n, right, t);
 }
@@ -1041,6 +1044,25 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
  * standalone, in the menus, and with SELECT held. */
 static void panel_head(int x, int y, const char *s, const UiTheme *t) { label(x, y, muted(t), s); }
 
+void ui_settings(int x0, int y0, int w, const char *head, const char *const *rows, const char *const *values,
+                 int n, int sel, unsigned offs, int arrows_row, const UiTheme *t)
+{
+    int k, y;
+    round_rect(x0, y0, w, 26 + n * 18 + 4, 6, t->panel);
+    panel_head(x0 + 8, y0 + 6, head, t);
+    for (k = 0, y = y0 + 20; k < n; k++, y += 18) {
+        int on = k == sel, off = (offs >> k) & 1, arrows = k == arrows_row && !off;
+        unsigned c = on ? on_colour(t->accent) : off ? faint(t) : t->text;
+        if (on) round_rect(x0 + 4, y - 4, w - 8, 16, 3, t->accent);
+        label_fit(x0 + 10, y, c, rows[k], 120);
+        if (values[k]) {
+            int vw = 7 * (int)strlen(values[k]);
+            if (arrows) { arrow(ARM_LEFT, x0 + w - 26 - vw, y, c); arrow(ARM_RIGHT, x0 + w - 14, y, c); }
+            label_fit(x0 + w - (arrows ? 18 : 10) - vw, y, c, values[k], 110);
+        }
+    }
+}
+
 void ui_page_system(const UiSystem *sy, const UiTheme *t)
 {
     static const UiKey dc[] = { K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_SQ, 0, "X"), K1(G_TRI, 0, "Y") };
@@ -1064,23 +1086,8 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     label_fit(L + 26, 54, muted(t), sy->link_hint ? sy->link_hint : "", LW - 34);
     for (k = 0, y = 68; k < 4 && sy->lines[k]; k++, y += 12) label_fit(L + 8, y, t->text, sy->lines[k], LW - 16);
 
-    /* the settings */
-    round_rect(L, 110, LW, 140, 6, t->panel);
-    panel_head(L + 8, 116, "SETTINGS", t);
-    for (k = 0, y = 130; k < sy->nrows; k++, y += 18) {
-        int on = k == sy->sel, off = (sy->off_rows >> k) & 1;
-        unsigned c = on ? on_colour(t->accent) : off ? faint(t) : t->text;
-        if (on) round_rect(L + 4, y - 4, LW - 8, 16, 3, t->accent);
-        label_fit(L + 10, y, c, sy->rows[k], 120);
-        if (sy->values[k]) {
-            int w = 7 * (int)strlen(sy->values[k]);
-            if (k == 0 && !off) {          /* the theme: ◀ name ▶ */
-                arrow(ARM_LEFT, L + LW - 26 - w, y, c);
-                arrow(ARM_RIGHT, L + LW - 14, y, c);
-            }
-            label_fit(L + LW - (k == 0 ? 18 : 10) - w, y, c, sy->values[k], 110);
-        }
-    }
+    /* the settings (the theme first: ◀ name ▶) */
+    ui_settings(L, 110, LW, "SETTINGS", sy->rows, sy->values, sy->nrows, sy->sel, sy->off_rows, 0, t);
 
     /* every key */
     round_rect(R, 22, RW, 228, 6, t->panel);

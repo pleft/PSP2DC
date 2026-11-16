@@ -96,7 +96,7 @@ void ui_header(int page, const UiTheme *t);
 void ui_keys(int keys, const UiTheme *t);
 /* the line of keys at the bottom of a page: only the keys that do something now */
 enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
-       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_HELD, UI_KEYS_BACK };
+       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_HELD, UI_KEYS_DETAILS, UI_KEYS_DETAILS_HELD };
 
 /* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {
@@ -134,5 +134,9 @@ typedef struct {
     int keys;
 } UiSystem;
 void ui_page_system(const UiSystem *s, const UiTheme *t);
+/* a panel of settings at x, y, w wide: a name and its value a row, the
+ * chosen one lit, greyed those in off; arrows_row (or -1) shows ◀ value ▶ */
+void ui_settings(int x, int y, int w, const char *head, const char *const *rows, const char *const *values,
+                 int n, int sel, unsigned off, int arrows_row, const UiTheme *t);
 
 #endif
