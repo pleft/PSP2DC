@@ -54,6 +54,9 @@ void ui_frame(int standalone, int menu, int link, const char *card, const char *
 /* what an action came to, in a few words: shown in the middle of the screen
  * over any page (NULL: nothing) */
 void ui_toast(const char *s);
+/* the PSP's battery, at the header's right: percent (< 0: none shown), and
+ * whether it is charging */
+void ui_battery(int percent, int charging);
 /* the debug font's text (pspDebugScreen) moved px pixels right, clear of
  * the menu's frame (Details) */
 void ui_text_margin(int px);

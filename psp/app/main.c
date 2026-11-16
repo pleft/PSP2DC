@@ -1866,6 +1866,16 @@ int main(int argc, char *argv[])
         frame++;
         {
             const char *lt, *lh;
+            {   /* the battery, every two seconds */
+                static unsigned batt_at;
+                static int pct = -1, chg;
+                if (!batt_at || now_us() - batt_at > 2000000) {
+                    batt_at = now_us() | 1;
+                    pct = scePowerIsBatteryExist() > 0 ? scePowerGetBatteryLifePercent() : -1;
+                    chg = scePowerIsBatteryCharging() > 0;
+                }
+                ui_battery(pct, chg);
+            }
             ui_frame(standalone, g_menu, link_state(&lt, &lh), g_card_have ? g_card_name : NULL,
                      g_card_have ? g_card_note : "no memory card yet", notice_now());
             ui_toast(g_toast_at && now_us() - g_toast_at < 2000000 ? g_toast : NULL);

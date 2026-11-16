@@ -435,6 +435,8 @@ The logic is in `psp/app/cardfs.c` and `cards.c`; `scripts/dev/cardfs-test2.c` t
 
 **Pauses while a VMU game plays (16 November 2026).** Alien Fighter paused now and then on hardware. The main loop restarted the PSP's USB itself when the cable was in but no adapter synced for 5 s: `pspexpUsbStop`, a 0.5 s wait and `usb_start` (up to three tries, 0.5 s apart on failure), every 5 s for as long as the cable went to something that never syncs, such as the Mac after copying files. The whole loop, the VMU game with it, stood still each time. The restart now runs in a thread of its own (`usb_restart_thread`), and the wait between restarts doubles (5, 10, 20, 40 s, then a minute) until a link comes up. In PPSSPP (no USB there) Alien Fighter played with the longest loop turn 16 ms and none over 20 ms, VMU CPU 0.8 ms a frame; screenshots taken during play (a 390 KB file each) made 100 ms turns, so they must not be taken while measuring.
 
+**Header centred, battery shown (16 November 2026).** The tabs are centred in the header (the menu's L … R, or playing's SELECT menu and the tabs), and the PSP's battery is at its right: an outline filled to the level and the percent (`scePowerGetBatteryLifePercent`, read every two seconds, only when `scePowerIsBatteryExist`), the fill green while charging (`scePowerIsBatteryCharging`) and red under 15 %. Checked in PPSSPP (which reports 100 %) on Classic and Paper, playing and in the menu.
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.

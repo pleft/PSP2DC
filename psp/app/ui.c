@@ -71,6 +71,8 @@ static unsigned g_frame_colour;            /* the theme's accent, from the heade
 static const UiTheme *g_page_theme;        /* (from the header: the toast's colours) */
 static const char *g_toast;
 void ui_toast(const char *s) { g_toast = s; }
+static int g_batt = -1, g_batt_charging;
+void ui_battery(int percent, int charging) { g_batt = percent; g_batt_charging = charging; }
 void ui_text_margin(int px) { pspDebugScreenSetBase((u32 *)(g_back + px)); }
 static void round_rect(int x, int y, int w, int h, int r, unsigned c);
 static void label_bold(int x, int y, unsigned c, const char *s);
@@ -571,12 +573,27 @@ static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
 
 void ui_header(int page, const UiTheme *t)
 {
-    int x;
+    /* the tabs centred (the menu: L ... R; playing: SELECT menu and the
+     * tabs), the battery at the right; the status is at the footer's right */
+    int tabs = 7 * 19 + 2 * 9 * UI_TABS;   /* the four names and their padding */
+    int w = g_menu ? 12 + 3 + tabs + 2 + 12 : 47 + 4 + 4 * 7 + 8 + tabs;
+    unsigned fg = g_menu ? on_colour(t->accent) : t->text;
     g_frame_colour = t->accent;
     g_page_theme = t;
     round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
-    x = draw_tabs(2, 1, page, t);          /* (the status is at the footer's right) */
-    (void)x;
+    draw_tabs(240 - w / 2 - 4, 1, page, t);
+    if (g_batt >= 0) {                     /* an outline filled to the level, then the percent */
+        char s[8];
+        int bx, fill = g_batt > 100 ? 100 : g_batt;
+        unsigned fc = g_batt_charging ? t->ok : g_batt < 15 ? t->danger : fg;
+        snprintf(s, sizeof(s), "%d%%", g_batt);
+        bx = 472 - 7 * (int)strlen(s) - 4 - 20;
+        ui_fill(bx, 5, 18, 1, fg); ui_fill(bx, 13, 18, 1, fg);
+        ui_fill(bx, 5, 1, 9, fg);  ui_fill(bx + 17, 5, 1, 9, fg);
+        ui_fill(bx + 18, 7, 2, 5, fg);
+        if (fill) ui_fill(bx + 2, 7, (14 * fill + 99) / 100, 5, fc);
+        label(472 - 7 * (int)strlen(s), 6, fg, s);
+    }
 }
 
 /* ---- the VMU, drawn ------------------------------------------------------
