@@ -571,7 +571,8 @@ static void input_take(SceCtrlData *pad)
 
 static int g_menu;                         /* SELECT: the menu (1) or playing (0) */
 enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
-       BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE };
+       BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE,
+       BOX_IMPORT_REPLACE };
 enum { SA_INFO, SA_COPY, SA_MOVE, SA_EXPORT, SA_DELETE, SAS };
 enum { CA_USE, CA_IMPORT, CA_RENAME, CA_DUPLICATE, CA_BACKUP, CA_RESTORE, CA_DEFRAG, CA_CHECK, CA_DELETE, CAS };
 static int g_box, g_box_item, g_box_move;
@@ -756,34 +757,68 @@ static void import_list(const char *into)
     g_box_item = 0;
 }
 
+/* The card with a new game in place of its old one, ready once the player
+ * says yes (BOX_IMPORT_REPLACE): made first, so it is asked only when the
+ * import would then go through. */
+static unsigned char g_replace_img[PSP2DC_CARD_BYTES];
+static int g_replace_from;                 /* the import list's line, to go back to */
+
+static int import_into(unsigned char *img, const CardImport *im, const unsigned char *data, int len,
+                       const unsigned char *vmi)
+{
+    unsigned char date[8];
+    char name[13];
+    ScePspDateTime t;
+    int i, k;
+    if (im->dci) return cardfs_import_dci(img, data, len);
+    /* without a VMI: named after the file, dated now */
+    for (i = k = 0; im->file[i] && im->file[i] != '.' && k < 12; i++) {
+        char ch = im->file[i];
+        if (ch >= 'a' && ch <= 'z') ch -= 32;
+        name[k++] = (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ? ch : '_';
+    }
+    name[k] = 0;
+    memset(&t, 0, sizeof(t));
+    sceRtcGetCurrentClockLocalTime(&t);
+    date[0] = (unsigned char)((t.year / 1000) << 4 | (t.year / 100) % 10);
+    date[1] = (unsigned char)(((t.year / 10) % 10) << 4 | t.year % 10);
+    date[2] = (unsigned char)((t.month / 10) << 4 | t.month % 10);
+    date[3] = (unsigned char)((t.day / 10) << 4 | t.day % 10);
+    date[4] = (unsigned char)((t.hour / 10) << 4 | t.hour % 10);
+    date[5] = (unsigned char)((t.minute / 10) << 4 | t.minute % 10);
+    date[6] = (unsigned char)((t.second / 10) << 4 | t.second % 10);
+    date[7] = (unsigned char)((sceRtcGetDayOfWeek(t.year, t.month, t.day) + 6) % 7);   /* 0 Monday */
+    return cardfs_import_vms(img, data, len, im->vmi ? vmi : NULL, name, date);
+}
+
 static void import_one(const CardImport *im)
 {
     static unsigned char img[PSP2DC_CARD_BYTES], data[32 + 200 * 512];
-    unsigned char vmi[108], date[8];
-    char name[13];
-    ScePspDateTime t;
-    int len, rc, i, k;
+    static CardFile f[200];
+    unsigned char vmi[108];
+    int len, rc, n, k;
     if (!card_get(g_box_card, img) || (len = cards_import_read(im, data, sizeof(data), vmi)) <= 0) { say("import failed"); return; }
-    if (im->dci) rc = cardfs_import_dci(img, data, len);
-    else {
-        /* without a VMI: named after the file, dated now */
-        for (i = k = 0; im->file[i] && im->file[i] != '.' && k < 12; i++) {
-            char ch = im->file[i];
-            if (ch >= 'a' && ch <= 'z') ch -= 32;
-            name[k++] = (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ? ch : '_';
+    memcpy(g_replace_img, img, sizeof(img));
+    rc = import_into(img, im, data, len, vmi);
+    if (rc == CARDFS_ROOM && cardfs_has_game(g_replace_img)) {
+        /* a card holds one game: try it with the card's game taken off, and
+         * if it then goes in, ask before replacing it */
+        n = cardfs_list(g_replace_img, f, 200);
+        for (k = 0; k < n && f[k].type != 0xCC; k++) ;
+        if (k < n) {
+            char title[48];
+            cardfs_delete(g_replace_img, &f[k]);
+            if (import_into(g_replace_img, im, data, len, vmi) == CARDFS_OK) {
+                int e = (int)strlen(f[k].name);
+                while (e > 0 && f[k].name[e - 1] == ' ') e--;   /* (names are padded with spaces) */
+                snprintf(title, sizeof(title), "Replace the game %.*s?", e, f[k].name);
+                g_replace_from = g_box_item;
+                box_lines(title, NULL, NULL, NULL);
+                g_box = BOX_IMPORT_REPLACE;
+                g_box_item = 0;            /* No first */
+                return;
+            }
         }
-        name[k] = 0;
-        memset(&t, 0, sizeof(t));
-        sceRtcGetCurrentClockLocalTime(&t);
-        date[0] = (unsigned char)((t.year / 1000) << 4 | (t.year / 100) % 10);
-        date[1] = (unsigned char)(((t.year / 10) % 10) << 4 | t.year % 10);
-        date[2] = (unsigned char)((t.month / 10) << 4 | t.month % 10);
-        date[3] = (unsigned char)((t.day / 10) << 4 | t.day % 10);
-        date[4] = (unsigned char)((t.hour / 10) << 4 | t.hour % 10);
-        date[5] = (unsigned char)((t.minute / 10) << 4 | t.minute % 10);
-        date[6] = (unsigned char)((t.second / 10) << 4 | t.second % 10);
-        date[7] = (unsigned char)((sceRtcGetDayOfWeek(t.year, t.month, t.day) + 6) % 7);   /* 0 Monday */
-        rc = cardfs_import_vms(img, data, len, im->vmi ? vmi : NULL, name, date);
     }
     if (rc == CARDFS_OK && card_put(g_box_card, img, "save imported") == 0) say("imported into %s", g_box_card);
     else if (rc == CARDFS_SAME) say("%s has it already", g_box_card);
@@ -951,9 +986,10 @@ static void box_view(UiBox *b)
         for (k = 0; k < g_sv_ncards && k < UI_BOX_ITEMS; k++) b->items[k] = g_sv_cards[k];
         b->nitems = k;
         break;
-    case BOX_SAVE_DELETE: case BOX_CARD_DELETE: case BOX_RESTORE_ASK:
+    case BOX_SAVE_DELETE: case BOX_CARD_DELETE: case BOX_RESTORE_ASK: case BOX_IMPORT_REPLACE:
         b->items[0] = "No, keep it";
-        b->items[1] = g_box == BOX_RESTORE_ASK ? "Yes, restore it" : "Yes, delete it";
+        b->items[1] = g_box == BOX_RESTORE_ASK ? "Yes, restore it" : g_box == BOX_IMPORT_REPLACE ? "Yes, replace it"
+                    : "Yes, delete it";
         b->nitems = 2;
         b->danger_items = 1u << 1;
         break;
@@ -1042,7 +1078,6 @@ static void card_eject(const char *to, int automatic, int discard);
  * the change happens on its answer: 1 begun, -2 busy (try again). */
 static int card_select(const char *to)
 {
-    if (game_running()) { notice("leave the VMU game first"); return -1; }
     if (!g_no_usb && pspexpUsbConnected()) {
         if (g_switch_to[0] || g_return_to[0] || g_status.card_pending || g_card_dirty ||
             now_us() - g_card_last_us < 2000000) { notice("card busy, try again"); return -2; }
@@ -1074,10 +1109,9 @@ static unsigned card_off(void)
     if (g_cd_n < 2) off |= 1u << CA_DELETE;
     if (!g_nbackups) off |= 1u << CA_RESTORE;
     if (!g_nimports) off |= 1u << CA_IMPORT;
-    if (game_running()) {
-        off |= 1u << CA_USE;
-        if (in_use) off |= ~(1u << CA_DUPLICATE | 1u << CA_BACKUP) & ((1u << CAS) - 1);
-    }
+    /* a VMU game running holds the card in use: what would change it waits;
+     * Use and New card end the game (saved to its card) and go on */
+    if (game_running() && in_use) off |= ~(1u << CA_DUPLICATE | 1u << CA_BACKUP) & ((1u << CAS) - 1);
     if (!g_alone) off |= ~(1u << CA_USE) & ((1u << CAS) - 1);
     return off;
 }
@@ -1099,7 +1133,6 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
         if (!(pressed & PSP_CTRL_CROSS)) break;
         if (g_cd_sel == 0) {               /* New card: made, and in use */
-            if (game_running()) break;     /* (greyed) */
             if (cards_new(made) == 0) {
                 int rc = card_select(made);
                 if (rc >= 0) *settings_due = 1;
@@ -1281,6 +1314,20 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_IMPORT; }
         else if (pressed & PSP_CTRL_CROSS) import_one(&g_imports[g_box_item]);
         break;
+    case BOX_IMPORT_REPLACE:               /* No first; yes: the card made by import_one, its old game backed up */
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
+        if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
+            snprintf(g_box_title, sizeof(g_box_title), "Import into %s", g_box_card);
+            g_box_lines = 0;
+            g_box = BOX_IMPORT;
+            g_box_item = g_replace_from;
+        } else if (pressed & PSP_CTRL_CROSS) {
+            card_keep(g_box_card);
+            if (card_put(g_box_card, g_replace_img, "game replaced") == 0) say("game replaced on %s", g_box_card);
+            else say("import failed");
+            g_cd_due = 1;
+        }
+        break;
     default:
         if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_box = BOX_NONE;
         break;
@@ -1309,7 +1356,7 @@ static void cards_view(UiCards *v, int standalone)
     if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
     v->first = g_cd_first;
     v->sel = g_cd_sel;
-    v->new_off = game_running();           /* (the card in use cannot change while one runs) */
+    v->new_off = 0;
     v->keys = g_box == BOX_NONE ? UI_KEYS_CARDS
             : g_box == BOX_CARD_ACTIONS && g_box_item < 0 ? UI_KEYS_BACK   /* (all greyed) */
             : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK
