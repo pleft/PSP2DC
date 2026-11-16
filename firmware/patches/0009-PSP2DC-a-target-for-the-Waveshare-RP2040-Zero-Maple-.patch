@@ -1,0 +1,104 @@
+From 058608562e1e424e741fdd499221d87186fbbe8a Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Mon, 16 Nov 2026 22:17:49 +0200
+Subject: [PATCH 9/9] PSP2DC: a target for the Waveshare RP2040-Zero (Maple
+ GP14/GP15, as USB4Maple)
+
+usb2dc_psp2dc_rp2040zero: the SuperPico target's PSP2DC build (PSP host
+driver, memory card in RAM, no Bluetooth) on the RP2040-Zero, Maple on
+GP14/GP15 like joypad_dc_rp2040zero, the WS2812 on GP16, debug UART0 TX on
+GP0. The board ties USB-C VBUS to the 5V pin, so the Dreamcast's 5 V there
+powers the PSP's USB port.
+---
+ Makefile           |  6 ++++++
+ src/CMakeLists.txt | 43 +++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 17f88e22..cae1ade3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -76,6 +76,7 @@ CONSOLE_loopy := joypad_loopy
+ CONSOLE_dc := joypad_dc
+ CONSOLE_dc_rp2040zero := joypad_dc_rp2040zero
+ CONSOLE_dc_superpico := joypad_dc_superpico
++CONSOLE_dc_psp2dc_rp2040zero := joypad_dc_psp2dc_rp2040zero
+ CONSOLE_ami_rp2040zero := joypad_ami_rp2040zero
+ CONSOLE_ami_xiao := joypad_ami_xiao
+ CONSOLE_usb_pico := joypad_usb_pico
+@@ -165,6 +166,7 @@ APP_usb2loopy_kb2040 := kb2040 loopy usb2loopy_kb2040 USB/BT Loopy
+ APP_usb2dc_kb2040 := kb2040 dc usb2dc_kb2040 USB/BT Dreamcast
+ APP_usb2dc_rp2040zero := rp2040zero dc_rp2040zero usb2dc_rp2040zero USB/BT Dreamcast
+ APP_usb2dc_superpico := pico dc_superpico usb2dc_superpico USB/BT Dreamcast
++APP_usb2dc_psp2dc_rp2040zero := rp2040zero dc_psp2dc_rp2040zero usb2dc_psp2dc_rp2040zero PSP Dreamcast
+ APP_usb2ami_rp2040zero := rp2040zero ami_rp2040zero usb2ami_rp2040zero USB/BT Amiga/Atari
+ APP_usb2ami_xiao := seeed_xiao_rp2040 ami_xiao usb2ami_xiao USB/BT Amiga/Atari
+ APP_usb2neogeo_kb2040 := kb2040 neogeo usb2neogeo_kb2040 USB/BT NEOGEO
+@@ -672,6 +674,10 @@ usb2dc_rp2040zero:
+ usb2dc_superpico:
+ 	$(call build_app,usb2dc_superpico)
+ 
++.PHONY: usb2dc_psp2dc_rp2040zero
++usb2dc_psp2dc_rp2040zero:
++	$(call build_app,usb2dc_psp2dc_rp2040zero)
++
+ .PHONY: usb2ami_rp2040zero
+ usb2ami_rp2040zero:
+ 	$(call build_app,usb2ami_rp2040zero)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 5cfd57c4..b3567899 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -850,6 +850,49 @@ joypad_target_common(joypad_dc_superpico)
+ # RAM is what the 128 KB memory card image needs.
+ pico_generate_pio_header(joypad_dc_superpico ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
+ 
++# --- Dreamcast (Waveshare RP2040-Zero with a PSP, PSP2DC project) ---
++# The SuperPico target's PSP2DC build on the RP2040-Zero, wired as USB4Maple
++# and joypad_dc_rp2040zero: Maple A = GP14, Maple B = GP15. No buffers here,
++# so every pin is free. The board's schematic (Waveshare RP2040_Zero.pdf)
++# ties the USB-C VBUS straight to VSYS, the "5V" edge pin: the Dreamcast's
++# 5 V fed there powers the board and the USB port the PSP plugs into.
++#   Debug UART0 TX = GP0 (edge pin 1), 115200 8N1, no RX
++#   WS2812 on GP16 (on the board)
++add_executable(joypad_dc_psp2dc_rp2040zero)
++target_compile_definitions(joypad_dc_psp2dc_rp2040zero PRIVATE
++    MAPLE_PIN1=14 MAPLE_PIN5=15
++    CONFIG_PSP2DC=1               # host driver for a PSP running PSP2DC
++    CONFIG_VMU=1                  # memory card, RAM only: the PSP keeps it
++    WS2812_PIN=16                 # onboard NeoPixel
++    USE_BOOTSEL_BUTTON=1
++    BOARD_NAME="rp2040zero-psp2dc"
++    NO_CUSTOM_UART_PINS=1         # skip the KB2040 GP12/GP13 UART setup
++    PICO_DEFAULT_UART=0
++    PICO_DEFAULT_UART_TX_PIN=0
++    PICO_DEFAULT_UART_RX_PIN=-1
++)
++target_compile_options(joypad_dc_psp2dc_rp2040zero PRIVATE ${USB2DC_FORCE_CONFIG})
++target_sources(joypad_dc_psp2dc_rp2040zero PUBLIC ${COMMON_SOURCES}
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_device.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/maple_state_machine.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_sd.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_storage.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc/app.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/psp2dc/psp2dc_host.c
++)
++target_include_directories(joypad_dc_psp2dc_rp2040zero PUBLIC
++    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc
++    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast
++    ${CMAKE_CURRENT_SOURCE_DIR}/../../../protocol   # PSP2DC project: psp2dc_protocol.h
++)
++target_link_libraries(joypad_dc_psp2dc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_dma)
++pico_enable_stdio_uart(joypad_dc_psp2dc_rp2040zero 1)
++pico_enable_stdio_usb(joypad_dc_psp2dc_rp2040zero 0)
++joypad_target_common(joypad_dc_psp2dc_rp2040zero)
++# No Bluetooth: the USB port is the PSP's, and the RAM is the memory card's.
++pico_generate_pio_header(joypad_dc_psp2dc_rp2040zero ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
++
+ # --- NEOGEO ---
+ add_executable(joypad_neogeo)
+ target_compile_definitions(joypad_neogeo PRIVATE CONFIG_NEOGEO=1)
+-- 
+2.54.0 (Apple Git-157)
+

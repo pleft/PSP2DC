@@ -86,6 +86,31 @@ cables can use other colours.
 > GP17–GP22, GP26, GP27 and the LED (GP25) are free. See section 3.2 of the
 > design notes.
 
+### Or: a Waveshare RP2040-Zero
+
+A smaller adapter: the [RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm)
+wired the same way as USB4Maple, which joypad-os already supports. It has no
+buffers, so every pin is free. Not yet tried with PSP2DC.
+
+![Wiring: the RP2040-Zero and the Dreamcast plug](docs/wiring-rp2040zero.svg)
+
+| Dreamcast wire | Colour | RP2040-Zero pin |
+|---|---|---|
+| Data A (plug pin 1) | red | GP14 |
+| Data B (plug pin 5) | white | GP15 |
+| +5 V | blue | 5V |
+| Ground, sense | black, green | GND (the one edge pin, or the GND pad underneath) |
+| *(optional)* debug log | | GP0, to a USB-serial adapter's RX, 115200 8N1 |
+
+- **5 V:** in Waveshare's schematic the 5V pin and the USB-C port's VBUS are
+  one net, with no diode. The Dreamcast's 5 V therefore powers the board and
+  the PSP's USB port. It also means you must never plug the USB-C into a
+  computer while the Dreamcast powers the board: unplug the Dreamcast to
+  flash it.
+- **PSP cable:** a USB-C OTG adapter (USB-C plug to USB-A socket) and the
+  usual USB-A to Mini-USB cable.
+- **Firmware:** `scripts/build-firmware.sh rp2040zero`.
+
 ## Building
 
 ### PSP application
@@ -110,7 +135,8 @@ the [Arm GNU toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain-
 `arm-none-eabi-gcc` lacks newlib.
 
 ```sh
-scripts/build-firmware.sh      # writes build/psp2dc_superpico_<time>.uf2
+scripts/build-firmware.sh              # SuperPico: build/psp2dc_superpico_<time>.uf2
+scripts/build-firmware.sh rp2040zero   # RP2040-Zero: build/psp2dc_rp2040zero_<time>.uf2
 ```
 
 To flash, hold BOOTSEL while plugging the Pico into a computer, then copy the

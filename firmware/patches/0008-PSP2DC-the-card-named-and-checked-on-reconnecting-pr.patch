@@ -1,8 +1,8 @@
 From e132e3b1390352837b2eeb1ad4a5bf56ec1b2305 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 21:45:25 +0200
-Subject: [PATCH] PSP2DC: the card named and checked on reconnecting (protocol
- 5); preformat as a Dreamcast's
+Subject: [PATCH 8/9] PSP2DC: the card named and checked on reconnecting
+ (protocol 5); preformat as a Dreamcast's
 
 The adapter keeps its card in RAM while the PSP is away. Protocol 4 sent all
 of it to the PSP at the next HELLO, and the PSP took it as the card it had in
