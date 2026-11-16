@@ -243,6 +243,22 @@ static int usb_start(void)
     return -1;
 }
 
+/* the USB started afresh away from the main loop (see there) */
+static volatile int g_usb_restart_req, g_usb_rc;
+static int usb_restart_thread(SceSize args, void *argp)
+{
+    (void)args; (void)argp;
+    while (g_running) {
+        sceKernelDelayThread(100000);
+        if (!g_usb_restart_req) continue;
+        pspexpUsbStop();
+        sceKernelDelayThread(500000);
+        g_usb_rc = usb_start();
+        g_usb_restart_req = 0;
+    }
+    return 0;
+}
+
 static int exit_callback(int a, int b, void *c) { g_running = 0; sceKernelExitGame(); return 0; }
 static int callback_thread(SceSize args, void *argp)
 {
@@ -1586,9 +1602,9 @@ int main(int argc, char *argv[])
     SceCtrlData pad;
     Psp2dcInput in;
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u, combo = 0;
-    unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
+    unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0, restart_wait = 5000000;
     unsigned char seq = 0;
-    int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
+    int connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
     int standalone = 0, was_standalone = 0;
     unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
@@ -1632,7 +1648,7 @@ int main(int argc, char *argv[])
     if (g_no_usb) {
         /* no USB (PPSSPP): standalone, as with no Dreamcast */
     } else {
-        usb_rc = usb_start();
+        g_usb_rc = usb_start();
         if ((unsigned)g_usb_kernel == 0x8002013A) {
             /* "library not linked": the driver is loaded but its library is
              * not there to call (PPSSPP loads the module, its functions are
@@ -1640,6 +1656,8 @@ int main(int argc, char *argv[])
             g_no_usb = 1;   /* standalone, as with no Dreamcast */
         } else {
             thid = sceKernelCreateThread("rx", reader_thread, 0x18, 0x4000, 0, NULL);
+            if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
+            thid = sceKernelCreateThread("usbfix", usb_restart_thread, 0x30, 0x2000, 0, NULL);
             if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
         }
     }
@@ -1739,6 +1757,7 @@ int main(int argc, char *argv[])
         if (g_no_usb) {
             /* nothing to send */
         } else if (pspexpUsbConnected()) {
+            restart_wait = 5000000;           /* (a link: the next restart waits the least again) */
             if (demo_on()) demo_stop();       /* the real thing wins */
             unsigned gen = pspexpUsbGeneration();
             if (!connected || gen != generation) {   /* a new link: say who we are */
@@ -1824,14 +1843,18 @@ int main(int argc, char *argv[])
              * is not taken): the PSP's USB is started afresh. PSPExp's runtime
              * does the same when a board's syncs go unanswered; here it was a
              * driver left deaf after many attach/detach rounds (2026-11-15). */
+            /* Done by usb_restart_thread, not here: the stop, its 0.5 s wait
+             * and the start froze the whole loop, a VMU game too, every 5 s
+             * while the cable went to something that never syncs (a
+             * computer). The wait between restarts doubles, up to a minute,
+             * until a link comes up. */
             if (!pspexpUsbAttached()) waiting_since = 0;
             else if (!waiting_since) waiting_since = now_us() | 1;
-            else if (now_us() - waiting_since > 5000000) {
-                pspexpUsbStop();
-                sceKernelDelayThread(500000);
-                usb_rc = usb_start();
+            else if (!g_usb_restart_req && now_us() - waiting_since > restart_wait) {
+                g_usb_restart_req = 1;
                 usb_restarts++;
                 waiting_since = 0;
+                if (restart_wait < 60000000) restart_wait *= 2;
             }
         }
         g_usb_restarts = usb_restarts;
@@ -1847,7 +1870,7 @@ int main(int argc, char *argv[])
             if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {
                 lcd_shown = g_lcd_count;
                 saves_due = 0;
-                show(usb_rc, &in, sent, errors, standalone);
+                show(g_usb_rc, &in, sent, errors, standalone);
             }
         } else if (g_page == PAGE_SYSTEM) {
             if (frame % 10 == 0 || saves_due) {
