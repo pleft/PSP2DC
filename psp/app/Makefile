@@ -1,6 +1,6 @@
 # psp2dc_app.prx: the user-mode application over PSPExp's USB driver.
-# PSPEXP_USB is PSPExp's psp/transport-usb folder (header + libpspexpusb.a).
-PSPEXP_USB ?= ../../../PSPExp/psp/transport-usb
+# PSPEXP_USB is the USB driver's folder (its header + libpspexpusb.a), psp/usb.
+PSPEXP_USB ?= ../usb
 
 TARGET = psp2dc_app
 OBJS = main.o tools.o ui.o vmu_sa.o vmu_game.o vmu_core.o cards.o card_sync.o cardfs.o

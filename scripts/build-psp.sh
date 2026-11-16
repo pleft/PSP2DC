@@ -1,20 +1,16 @@
 #!/bin/sh
 # Builds the PSP side into dist/PSP2DC/ (copy that folder to ms0:/PSP/GAME/).
-# Needs the pspdev toolchain (../pspdev, or PSPDEV=...) and a built PSPExp
-# (../PSPExp, or PSPEXP=...) for its USB driver: pspexp_usb.prx, the stub
-# library and the header.
+# Needs the pspdev toolchain (../pspdev, or PSPDEV=...). The kernel USB driver
+# (psp/usb, from PSPExp) is built first: pspexp_usb.prx and its stub library.
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PSPDEV="${PSPDEV:-$ROOT/../pspdev}"
 export PATH="$PSPDEV/bin:$PATH"
-PSPEXP="${PSPEXP:-$ROOT/../PSPExp}"
-USB="$PSPEXP/psp/transport-usb"
+USB="$ROOT/psp/usb"
 
 command -v psp-gcc >/dev/null || { echo "psp-gcc not found (PSPDEV=$PSPDEV)" >&2; exit 1; }
-for f in pspexp_usb.prx libpspexpusb.a pspexp_usb_driver.h; do
-    [ -f "$USB/$f" ] || { echo "$USB/$f missing: build PSPExp first (scripts/build.sh there)" >&2; exit 1; }
-done
 
+make -C "$USB"
 make -C "$ROOT/psp/boot"
 make -C "$ROOT/psp/app" PSPEXP_USB="$USB"
 

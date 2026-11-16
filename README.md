@@ -71,8 +71,8 @@ Debug UART: GP20 (edge pin 30), 115200 8N1, transmit only.
 ### PSP application
 
 Needs the [pspdev](https://github.com/pspdev/pspdev) toolchain in `../pspdev`
-and a built PSPExp in `../PSPExp`, which provides the kernel USB driver
-`pspexp_usb.prx`. Other locations can be set with `PSPDEV=` and `PSPEXP=`.
+(or set `PSPDEV=`). The script builds the kernel USB driver (`psp/usb`), the
+boot module and the application.
 
 ```sh
 scripts/build-psp.sh
@@ -156,6 +156,7 @@ the PSP.
 |---|---|
 | `psp/boot/` | Kernel boot module and EBOOT, which load the USB driver and the app |
 | `psp/app/` | The application: UI, card handling, standalone VMU, VMU CPU core |
+| `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
 | `firmware/` | joypad-os patches for the `usb2dc_superpico` target |
 | `scripts/` | Build scripts |
@@ -187,7 +188,9 @@ wherever you keep them.
   the VMU screen handling.
 - [libevmu / ElysianVMU](https://github.com/gyrovorbis/libevmu) (MIT): the
   source of `psp/app/vmu_core.c`, which carries its licence.
-- PSPExp (MIT): the PSP's kernel USB driver and boot module.
+- PSPExp (MIT): the PSP's kernel USB driver in `psp/usb/`, copied unchanged.
+  Its descriptors and driver start follow PSPLink's usbhostfs (BSD,
+  `psp/usb/LICENSE.PSPLINK`).
 - [Superpico](https://github.com/zwenergy/Superpico): the adapter hardware.
 
 No licence has been chosen yet for PSP2DC's own code.

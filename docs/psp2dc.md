@@ -251,9 +251,9 @@ Limiting the USB host on this target to one device and no hub freed about 30 KB 
 
 ## 5. PSP Homebrew Application
 
-A dedicated PSP application is being developed using PSPSDK. A first version exists (`psp/boot`, `psp/app`): it sends the controller state every frame and shows a text status page with the link state, counters and the Dreamcast state being sent. Build it with `scripts/build-psp.sh` (needs `../pspdev` and a built `../PSPExp`); the result is `dist/PSP2DC/`, to be copied to `ms0:/PSP/GAME/PSP2DC/`.
+A dedicated PSP application is being developed using PSPSDK. A first version exists (`psp/boot`, `psp/app`): it sends the controller state every frame and shows a text status page with the link state, counters and the Dreamcast state being sent. Build it with `scripts/build-psp.sh` (needs `../pspdev`; PSPExp's USB driver is copied into `psp/usb`, unchanged, since 16 November 2026, and built there); the result is `dist/PSP2DC/`, to be copied to `ms0:/PSP/GAME/PSP2DC/`.
 
-In full: It consists of a user-mode application (display, UI, configuration) and a kernel-mode PRX containing the USB driver, so the PSP must run custom firmware. The USB driver and kernel boot module come from PSPExp.
+In full: It consists of a user-mode application (display, UI, configuration) and a kernel-mode PRX containing the USB driver, so the PSP must run custom firmware. The USB driver comes from PSPExp (copied into `psp/usb`); the boot module is shaped like PSPExp's.
 
 The application will:
 
