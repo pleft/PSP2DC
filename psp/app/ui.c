@@ -71,6 +71,7 @@ static unsigned g_frame_colour;            /* the theme's accent, from the heade
 static const UiTheme *g_page_theme;        /* (from the header: the toast's colours) */
 static const char *g_toast;
 void ui_toast(const char *s) { g_toast = s; }
+void ui_text_margin(int px) { pspDebugScreenSetBase((u32 *)(g_back + px)); }
 static void round_rect(int x, int y, int w, int h, int r, unsigned c);
 static void label_bold(int x, int y, unsigned c, const char *s);
 static unsigned on_colour(unsigned c);

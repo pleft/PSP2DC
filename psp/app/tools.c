@@ -218,7 +218,7 @@ int demo_frame(unsigned char out[PSP2DC_LCD_BYTES])
 /* ---- screenshots -------------------------------------------------------
  * The frame on screen (ui.c draws two in turn): 32 bits a pixel (A B G R from the top byte), 512
  * pixels a line, at the start of VRAM. A BMP is 24 bits, bottom line first. */
-static char g_shot_note[96] = "triangle in the menu takes a screenshot";
+static char g_shot_note[96] = "";
 
 int shot_take(void)
 {

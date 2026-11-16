@@ -395,6 +395,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     if (!g_no_usb) pspexpUsbGetStats(&st);
     ui_begin(0xFF000000);
     ui_header(3, &ui_themes[g_theme]);
+    ui_text_margin(6);                     /* (the menu's frame covered the first letters) */
     pspDebugScreenSetTextColor(0xFFFFFFFF);
     link = g_no_usb ? "no USB (emulator?)            "
          : pspexpUsbConnected() ? "CONNECTED to the adapter      "
@@ -425,8 +426,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            game_frame_us() / 1000, game_frame_us() / 100 % 10);
     printf("loop     longest %u ms in the last 5 s; over 20 ms: %u      \n",
            g_loop_shown_max_us / 1000, g_loop_shown_slow);
-    printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens" : rec_note());
-    printf("         %-44s\n", rec_on() ? "" : shot_note());
+    printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens"
+                                  : rec_note()[0] ? rec_note() : "recording off, demo off");
+    printf("shots    %-44s\n", shot_note()[0] ? shot_note() : "none yet (triangle, in the menu)");
     if (rec_on()) { pspDebugScreenSetXY(37, pspDebugScreenGetY() - 1); printf("%4u", rec_count()); pspDebugScreenSetXY(0, pspDebugScreenGetY() + 1); }
     printf("Dreamcast controller state\n");
     printf("  buttons  %c %c %c %c  %s   dpad %c%c%c%c      \n",
@@ -439,6 +441,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
     /* (no VMU screen here: Details is in the menu, where the VMU is not
      * played, and it covered the lines; the VMU tab shows it) */
+    ui_text_margin(0);                     /* (the panels and keys line up as elsewhere) */
     details_view_rows(standalone);
     ui_keys(UI_KEYS_DETAILS, &ui_themes[g_theme]);
     ui_end();
