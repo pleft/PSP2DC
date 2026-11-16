@@ -110,7 +110,7 @@ static void demo_load(void)
         char path[160], magic[8];
         int len = strlen(e.d_name), n;
         SceUID fd;
-        if (len < 5 || strcmp(e.d_name + len - 4, ".rec")) continue;
+        if (len < 5 || e.d_name[0] == '.' || strcmp(e.d_name + len - 4, ".rec")) continue;   /* (hidden: "._" from macOS) */
         snprintf(path, sizeof(path), "%s/%s", TOOLS_REC_DIR, e.d_name);
         if ((fd = sceIoOpen(path, PSP_O_RDONLY, 0)) < 0) continue;
         if (sceIoRead(fd, magic, 8) == 8 && !memcmp(magic, REC_MAGIC, 8)) {

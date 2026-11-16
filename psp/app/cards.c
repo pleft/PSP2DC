@@ -61,7 +61,9 @@ int cards_list(char names[CARDS_MAX][CARD_NAME_MAX])
     memset(&e, 0, sizeof(e));
     while (n < CARDS_MAX && sceIoDread(d, &e) > 0) {
         int len = strlen(e.d_name);
-        if (len > 4 && len - 4 < CARD_NAME_MAX && !strcasecmp(e.d_name + len - 4, ".bin")
+        /* (names starting with a dot are hidden files: macOS leaves a "._"
+         * file beside every file it copies onto the stick) */
+        if (e.d_name[0] != '.' && len > 4 && len - 4 < CARD_NAME_MAX && !strcasecmp(e.d_name + len - 4, ".bin")
             && e.d_stat.st_size == PSP2DC_CARD_BYTES) {
             int k, lower = 0;
             memcpy(names[n], e.d_name, len - 4);
@@ -259,7 +261,7 @@ int cards_backups(CardBackup *out, int max)
     while (n < max && sceIoDread(d, &e) > 0) {
         int len = strlen(e.d_name);
         char *at = strrchr(e.d_name, '@');
-        if (len > 4 && len < (int)sizeof(out[0].file) && at && !strcasecmp(e.d_name + len - 4, ".bin") &&
+        if (e.d_name[0] != '.' && len > 4 && len < (int)sizeof(out[0].file) && at && !strcasecmp(e.d_name + len - 4, ".bin") &&
             e.d_stat.st_size == PSP2DC_CARD_BYTES && at - e.d_name < CARD_NAME_MAX && strlen(at + 1) >= 19) {
             CardBackup *b = &out[n];
             memset(b, 0, sizeof(*b));
@@ -339,7 +341,7 @@ int cards_imports(CardImport *out, int max)
     memset(&e, 0, sizeof(e));
     while (sceIoDread(d, &e) > 0) {
         int len = strlen(e.d_name), dci, vms;
-        if (len < 5 || len >= (int)sizeof(out[0].file)) { memset(&e, 0, sizeof(e)); continue; }
+        if (len < 5 || len >= (int)sizeof(out[0].file) || e.d_name[0] == '.') { memset(&e, 0, sizeof(e)); continue; }   /* (hidden, "._" from macOS) */
         dci = !strcasecmp(e.d_name + len - 4, ".dci");
         vms = !strcasecmp(e.d_name + len - 4, ".vms");
         if (!strcasecmp(e.d_name + len - 4, ".vmi") && nv < 256) snprintf(vmis[nv++], 64, "%.*s", len - 4, e.d_name);
