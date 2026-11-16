@@ -46,7 +46,7 @@ The full design notes, test records and history are in
 |---|---|
 | PSP-1000 with custom firmware | Tested on 6.60 PRO-C. The USB driver is a kernel module. |
 | Watara SuperPico | The adapter: a Raspberry Pi Pico (RP2040) on a cartridge board. |
-| Dreamcast controller cable | Its four wires soldered to the Pico's pins (below). |
+| Dreamcast controller cable | Its five wires soldered to the Pico's pins (below). |
 | Micro-USB OTG adapter + Mini-USB cable | Pico (USB host) to PSP (USB device). |
 | 3.3 V USB-serial adapter | Optional: the firmware's debug log on GP20. |
 
@@ -67,7 +67,7 @@ adapter.
 | Data A (plug pin 1) | GP21, pin 27 |
 | Data B (plug pin 5) | GP22, pin 29 |
 | +5 V | VBUS, pin 40 |
-| Ground | GND, e.g. pin 28 |
+| Ground (the plug has two) | Two GND pins, e.g. 28 and 38 |
 | *(optional)* debug log | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
 
 - **+5 V to VBUS:** the console's 5 V powers the Pico and, through VBUS, the

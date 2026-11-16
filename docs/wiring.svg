@@ -81,7 +81,7 @@
 <text x="510" y="150" fill="#6b6b6b">VSYS</text>
 <circle cx="488" cy="170" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="174" text-anchor="end" font-size="10" fill="#fff">38</text>
-<text x="510" y="174" fill="#6b6b6b">GND</text>
+<text x="510" y="174" fill="#6b6b6b" font-weight="bold">GND</text>
 <circle cx="488" cy="194" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="198" text-anchor="end" font-size="10" fill="#fff">37</text>
 <text x="510" y="198" fill="#6b6b6b">3V3_EN</text>
@@ -141,6 +141,9 @@
 <polyline points="620,122 690,122 690,338 740,338" fill="none" stroke="#c0392b" stroke-width="2.5"/>
 <circle cx="754" cy="338" r="6" fill="#c0392b"/>
 <text x="768" y="342" fill="#c0392b" font-weight="bold">+5 V</text>
+<polyline points="620,170 670,170 670,362 740,362" fill="none" stroke="#333333" stroke-width="2.5"/>
+<circle cx="754" cy="362" r="6" fill="#333333"/>
+<text x="768" y="366" fill="#333333" font-weight="bold">ground</text>
 <line x1="620" y1="386" x2="740" y2="386" stroke="#1f5fbf" stroke-width="2.5"/>
 <circle cx="754" cy="386" r="6" fill="#1f5fbf"/>
 <text x="768" y="390" fill="#1f5fbf" font-weight="bold">data B (pin 5)</text>
@@ -157,6 +160,6 @@
 <text x="110" y="685" fill="#1e8449">■ free (direct pins)</text>
 <text x="290" y="685" fill="#c0392b">■ buffered on the SuperPico: never an output</text>
 <text x="20" y="707" fill="#1a1a1a">+5 V from the Dreamcast goes to VBUS (pin 40): it powers the Pico and the USB port the PSP plugs into.</text>
-<text x="20" y="725" fill="#1a1a1a">Ground: any of the Pico's GND pins (28 sits between the two data pins). Data A and B: GP21 and GP22,</text>
+<text x="20" y="725" fill="#1a1a1a">The plug's two grounds: each to a GND pin (any of the Pico's will do). Data A and B: GP21 and GP22,</text>
 <text x="20" y="743" fill="#1a1a1a">consecutive GPIOs, as the Maple code needs (set at build time: MAPLE_PIN1=21, MAPLE_PIN5=22).</text>
 </svg>
