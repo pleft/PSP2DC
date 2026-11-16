@@ -429,14 +429,16 @@ static void sym(int kind, int x, int y, unsigned arms, unsigned dim_c, unsigned 
  * the PSP shows it (its symbol, the d-pad with the arms that count lit, or
  * its name in a key cap). */
 static int g_standalone = 1, g_link;
-static const char *g_status = "";
+static const char *g_st_card, *g_st_note = "", *g_st_notice;
 
-void ui_frame(int standalone, int menu, int link, const char *status)
+void ui_frame(int standalone, int menu, int link, const char *card, const char *note, const char *notice)
 {
     g_standalone = standalone;
     g_menu = menu;
     g_link = link;
-    g_status = status ? status : "";
+    g_st_card = card;
+    g_st_note = note ? note : "";
+    g_st_notice = notice;
 }
 
 /* text on a colour: black on a light one, white on a dark one */
@@ -506,7 +508,40 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
     int x = x0 + 6, i;
     round_rect(x0, 255, w, 17, 4, t->panel);
     for (i = 0; i < n; i++) x = key_item(&k[i], x, 260, t->text, t) + 12;
-    if (right) label(x0 + w - 6 - 7 * (int)strlen(right), 260, muted(t), right);
+    (void)right;
+    /* the status, right-aligned in what is left: the link's dot, then a
+     * message just given as a pill in the accent, or the card in use (in the
+     * in-use green) and what became of it; cut with an ellipsis if long.
+     * In the header it went unnoticed (2026-11-16). */
+    {
+        int xr = x0 + w - 8, room = xr - x - 14, cw, nw;
+        if (room < 40) return;
+        if (g_st_notice) {
+            int pw = 7 * (int)strlen(g_st_notice) + 12;
+            if (pw > room) pw = room;
+            round_rect(xr - pw, 257, pw, 13, 4, t->accent);
+            label_fit(xr - pw + 6, 260, on_colour(t->accent), g_st_notice, pw - 12);
+            disc(xr - pw - 8, 263, 4, link_colour(g_link));
+            return;
+        }
+        if (!g_st_card) {
+            nw = 7 * (int)strlen(g_st_note);
+            if (nw > room) nw = room;
+            label_fit(xr - nw, 260, t->text, g_st_note, nw);
+            disc(xr - nw - 8, 263, 4, link_colour(g_link));
+            return;
+        }
+        cw = 7 * (int)strlen(g_st_card);
+        nw = 7 * ((int)strlen(g_st_note) + 3);      /* " · note" */
+        if (cw > room) cw = room;
+        if (cw + nw > room) nw = room - cw;
+        if (nw >= 7 * 5) {
+            ui_fill(xr - nw + 9, 263, 3, 3, muted(t));   /* (a dot between: drawn, the font has none) */
+            label_fit(xr - nw + 21, 260, t->text, g_st_note, nw - 21);
+        } else nw = 0;
+        label_bold(xr - nw - cw, 260, t->ok, g_st_card);
+        disc(xr - nw - cw - 8, 263, 4, link_colour(g_link));
+    }
 }
 
 /* The header, the same on every page. In the menu: the bar lit in the
@@ -539,10 +574,8 @@ void ui_header(int page, const UiTheme *t)
     g_frame_colour = t->accent;
     g_page_theme = t;
     round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
-    x = draw_tabs(2, 1, page, t) + 12;
-    disc(x + 4, 9, 5, t->panel);           /* (the dot on a ring: it reads on the lit bar too) */
-    disc(x + 4, 9, 4, link_colour(g_link));
-    label_fit(x + 13, 6, g_menu ? on_colour(t->accent) : t->text, g_status, 474 - x - 13);
+    x = draw_tabs(2, 1, page, t);          /* (the status is at the footer's right) */
+    (void)x;
 }
 
 /* ---- the VMU, drawn ------------------------------------------------------
@@ -978,7 +1011,8 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
     }
     draw_box(&v->box, t);
     if (n > 3) snprintf(s, sizeof(s), "%d-%d of %d", v->first + 1, v->first + (n - v->first < 3 ? n - v->first : 3), n);
-    draw_keys(v->keys, t, n > 3 ? s : NULL);
+    if (n > 3) label(472 - 7 * (int)strlen(s), 24, muted(t), s);   /* (where in the list, on the title line) */
+    draw_keys(v->keys, t, NULL);
     ui_end();
     return n;
 }
@@ -1026,7 +1060,8 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
     }
     draw_box(&v->box, t);
     if (rows > 6) snprintf(s, sizeof(s), "%d-%d of %d", v->first + 1, v->first + 6 < rows ? v->first + 6 : rows, rows);
-    draw_keys(v->keys, t, rows > 6 ? s : NULL);
+    if (rows > 6) label(472 - 7 * (int)strlen(s), 24, muted(t), s);
+    draw_keys(v->keys, t, NULL);
     ui_end();
 }
 

@@ -1061,13 +1061,9 @@ static void cards_summary(void)
     g_cd_due = 0;
 }
 
-static int card_use(const char *name)
+static int card_use(const char *name)    /* (the caller says what came of it) */
 {
-    char msg[48];
-    if (card_change(name) < 0) { notice("could not read that card"); return -1; }
-    snprintf(msg, sizeof(msg), "card: %s", name);
-    notice(msg);
-    return 0;
+    return card_change(name) < 0 ? -1 : 0;
 }
 
 static void card_eject(const char *to, int automatic, int discard);
@@ -1080,9 +1076,8 @@ static int card_select(const char *to)
 {
     if (!g_no_usb && pspexpUsbConnected()) {
         if (g_switch_to[0] || g_return_to[0] || g_status.card_pending || g_card_dirty ||
-            now_us() - g_card_last_us < 2000000) { notice("card busy, try again"); return -2; }
+            now_us() - g_card_last_us < 2000000) return -2;
         card_eject(to, 0, 0);
-        notice("changing card...");
         return 1;
     }
     g_return_to[0] = 0;                    /* the player chose: nothing to go back to */
@@ -1465,15 +1460,11 @@ static void card_decide(void)
     notice(msg);
 }
 
-/* What shows beside the tabs (ui_header, its dot the link): a message just
- * given, or the card in use and what became of it */
-static const char *top_line(void)
+/* a message just given (two seconds), or NULL: the status shows it in place
+ * of the card's (at the footer's right) */
+static const char *notice_now(void)
 {
-    static char buf[80];
-    if (g_notice_at && now_us() - g_notice_at < 2000000) snprintf(buf, sizeof(buf), "%s", g_notice);
-    else if (g_card_have) snprintf(buf, sizeof(buf), "%s, %s", g_card_name, g_card_note);
-    else snprintf(buf, sizeof(buf), "no memory card yet");
-    return buf;
+    return g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
 }
 
 /* The link: its colour (UI_LINK_*), and in words, what it is and what that means */
@@ -1848,7 +1839,8 @@ int main(int argc, char *argv[])
         frame++;
         {
             const char *lt, *lh;
-            ui_frame(standalone, g_menu, link_state(&lt, &lh), top_line());
+            ui_frame(standalone, g_menu, link_state(&lt, &lh), g_card_have ? g_card_name : NULL,
+                     g_card_have ? g_card_note : "no memory card yet", notice_now());
             ui_toast(g_toast_at && now_us() - g_toast_at < 2000000 ? g_toast : NULL);
         }
         if (g_page == PAGE_SYSTEM && g_sys_details) {

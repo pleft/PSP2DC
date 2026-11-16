@@ -431,6 +431,8 @@ The logic is in `psp/app/cardfs.c` and `cards.c`; `scripts/dev/cardfs-test2.c` t
 
 **A game in the way (16 November 2026).** "Use this card" and New card are no longer greyed while a VMU game runs: changing the card ends the game first, its flash written to its own card (`card_change` → `vmu_game_end`), as taking a VMU out would. Importing a game into a card that has one asks "Replace the game NAME?" (No first): the import is first tried on a copy of the card with its game taken off, and the question is asked only when it then goes in; Yes writes that copy, the card backed up before. Checked in PPSSPP: Chao Adventure 2 running on `games`, card2 put in use from the Cards page (the game ended, `games` backed up); Arrow imported into `games`, No going back to the list at Arrow, Yes replacing CHAO2 with ARROW, the card's two saves byte for byte the same.
 
+**The status at the footer (16 November 2026).** The status beside the tabs was easily missed. It moved to the footer's right end: the link's dot, the card in use in the in-use green and what became of it, after a small dot; a message just given (2 s) is a pill in the accent in its place. It is cut short, or left out, where the keys need the room (the keyboard's line). The header holds only the tabs. The place in a long list ("1-3 of 5") moved from the footer to the page's title line. Checked in PPSSPP on Classic and Paper, standalone and in demo (the orange dot).
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.

@@ -47,9 +47,10 @@ enum { UI_LINK_NONE, UI_LINK_WAITING, UI_LINK_UP, UI_LINK_DEMO };
 
 /* What every page shows the same way, set once a frame: standalone or not,
  * the menu or playing (SELECT switches: the header and the keys show
- * which), the link, and the line beside the tabs (the card in use, or a
- * message just given). */
-void ui_frame(int standalone, int menu, int link, const char *status);
+ * which), and the status at the footer's right: the link's dot, the card in
+ * use (NULL: none) and what became of it, or a message just given (NULL:
+ * none) in its place. */
+void ui_frame(int standalone, int menu, int link, const char *card, const char *note, const char *notice);
 /* what an action came to, in a few words: shown in the middle of the screen
  * over any page (NULL: nothing) */
 void ui_toast(const char *s);
