@@ -27,7 +27,7 @@ static int g_collect;
 static unsigned g_collected;
 
 static struct { unsigned crc, used; unsigned px[COLOUR_W * COLOUR_H]; } g_cache[CACHE];
-static unsigned g_tick;
+static unsigned g_tick, g_failed;
 
 /* the loader: one picture asked for at a time */
 static SceUID g_ask = -1;
@@ -136,10 +136,10 @@ const unsigned *colour_for(const unsigned char lcd[PSP2DC_LCD_BYTES])
             g_cache[old].crc = g_got_crc;
             g_cache[old].used = ++g_tick;
             memcpy(g_cache[old].px, g_out, sizeof(g_out));
-        } else {                           /* not a picture that can be read: out of the list, not tried again */
+        } else if (g_failed == g_got_crc) { /* failed twice: not a picture that can be read; out of the list */
             for (i = 0; i < g_nindex && g_index[i] != g_got_crc; i++) ;
             if (i < g_nindex) { memmove(g_index + i, g_index + i + 1, (g_nindex - i - 1) * sizeof(unsigned)); g_nindex--; }
-        }
+        } else g_failed = g_got_crc;       /* (once may be the stick busy: tried again) */
         g_got = 0;
     }
     crc = (unsigned)crc32(0L, lcd, PSP2DC_LCD_BYTES);
@@ -166,7 +166,11 @@ void colour_collect(const unsigned char lcd[PSP2DC_LCD_BYTES])
     char path[64];
     unsigned crc;
     int x, y, i;
+    unsigned char shot[PSP2DC_LCD_BYTES];
     if (!g_collect) return;
+    memcpy(shot, lcd, sizeof(shot));       /* (the reader thread may write a new screen meanwhile:
+                                            * the name and the pixels from the same one) */
+    lcd = shot;
     crc = (unsigned)crc32(0L, lcd, PSP2DC_LCD_BYTES);
     if (has(g_seen, g_nseen, crc) || g_nseen >= INDEX_MAX) return;
     for (y = 0; y < 32; y++)

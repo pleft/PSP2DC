@@ -253,6 +253,7 @@ static int usb_restart_thread(SceSize args, void *argp)
     while (g_running) {
         sceKernelDelayThread(100000);
         if (!g_usb_restart_req) continue;
+        if (pspexpUsbConnected() || !pspexpUsbAttached()) { g_usb_restart_req = 0; continue; }   /* (a link came meanwhile) */
         pspexpUsbStop();
         sceKernelDelayThread(500000);
         g_usb_rc = usb_start();
@@ -563,6 +564,7 @@ static int g_alone = 1;                    /* standalone this frame (main loop) 
  * pad itself lost quick taps on hardware (2026-11-16, MODE on the VMU). */
 static SceCtrlData g_in_now;               /* the latest sample */
 static unsigned g_in_made;                 /* buttons pressed since the main loop last looked */
+static unsigned g_in_broke;                /* ... and let go since then (a second tap is a new press) */
 static SceUID g_in_lock = -1;
 static volatile int g_in_running = 1;
 static int input_thread(SceSize args, void *argp)
@@ -574,6 +576,7 @@ static int input_thread(SceSize args, void *argp)
         sceCtrlReadBufferPositive(&s, 1);  /* waits for the next sample */
         sceKernelWaitSema(g_in_lock, 1, NULL);
         g_in_made |= s.Buttons & ~prev;
+        g_in_broke |= prev & ~s.Buttons;
         prev = s.Buttons;
         g_in_now = s;
         sceKernelSignalSema(g_in_lock, 1);
@@ -582,12 +585,13 @@ static int input_thread(SceSize args, void *argp)
 }
 /* this frame's pad: the latest sample, with every button pressed since the
  * last call held too (a tap already let go counts for one frame) */
-static void input_take(SceCtrlData *pad)
+static void input_take(SceCtrlData *pad, unsigned *broke)
 {
     sceKernelWaitSema(g_in_lock, 1, NULL);
     *pad = g_in_now;
     pad->Buttons |= g_in_made;
-    g_in_made = 0;
+    *broke = g_in_broke;
+    g_in_made = g_in_broke = 0;
     sceKernelSignalSema(g_in_lock, 1);
 }
 
@@ -831,7 +835,10 @@ static void import_one(const CardImport *im)
         if (k < n) {
             char title[48];
             cardfs_delete(g_replace_img, &f[k]);
-            if (import_into(g_replace_img, im, data, len, vmi) == CARDFS_OK) {
+            /* asked only when what goes in is a game: the card's game was
+             * taken off, so a game there now is the one imported (no room for
+             * a save is not a reason to take the game off) */
+            if (import_into(g_replace_img, im, data, len, vmi) == CARDFS_OK && cardfs_has_game(g_replace_img)) {
                 int e = (int)strlen(f[k].name);
                 while (e > 0 && f[k].name[e - 1] == ' ') e--;   /* (names are padded with spaces) */
                 snprintf(title, sizeof(title), "Replace the game %.*s?", e, f[k].name);
@@ -1624,7 +1631,7 @@ int main(int argc, char *argv[])
 {
     SceCtrlData pad;
     Psp2dcInput in;
-    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u, combo = 0;
+    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u, combo = 0, broke = 0;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0, restart_wait = 5000000;
     unsigned char seq = 0;
     int connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
@@ -1689,7 +1696,9 @@ int main(int argc, char *argv[])
     memset(&in, 0, sizeof(in));
     while (g_running) {
         sceDisplayWaitVblankStart();           /* once a frame */
-        input_take(&pad);                      /* (read by input_thread at every sample) */
+        input_take(&pad, &broke);              /* (read by input_thread at every sample) */
+        last_buttons &= ~broke;                /* let go since: pressed again is a new press */
+        combo &= ~broke;
         {
             static unsigned last_turn;
             unsigned t = now_us(), dt = last_turn ? t - last_turn : 0;
@@ -1712,13 +1721,14 @@ int main(int argc, char *argv[])
              * triangle a screenshot, and nothing goes to the Dreamcast.
              * (SELECT sits on the right under the face buttons: a toggle
              * rather than a key held with another.) */
-            unsigned pressed = pad.Buttons & ~last_buttons;
+            unsigned pressed = pad.Buttons & ~last_buttons, held_before = last_buttons;
             last_buttons = pad.Buttons;
             if (pressed && g_toast_at && now_us() - g_toast_at > 150000) g_toast_at = 0;   /* any button hides a result */
             if (pressed & PSP_CTRL_SELECT) {
                 g_menu = !g_menu;
                 if (!g_menu) { g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0; }
-                combo = pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go */
+                combo = held_before & pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go
+                                                                     * (one pressed with SELECT in the same turn counts) */
                 settings_due = saves_due = 1;
             }
             combo &= pad.Buttons;
@@ -1786,6 +1796,7 @@ int main(int argc, char *argv[])
             /* nothing to send */
         } else if (pspexpUsbConnected()) {
             restart_wait = 5000000;           /* (a link: the next restart waits the least again) */
+            g_usb_restart_req = 0;
             if (demo_on()) demo_stop();       /* the real thing wins */
             unsigned gen = pspexpUsbGeneration();
             if (!connected || gen != generation) {   /* a new link: say who we are */
@@ -1882,7 +1893,7 @@ int main(int argc, char *argv[])
                 g_usb_restart_req = 1;
                 usb_restarts++;
                 waiting_since = 0;
-                if (restart_wait < 60000000) restart_wait *= 2;
+                restart_wait = restart_wait * 2 > 60000000 ? 60000000 : restart_wait * 2;
             }
         }
         g_usb_restarts = usb_restarts;

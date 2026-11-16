@@ -84,7 +84,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t);
 typedef struct {
     const char *title;                 /* NULL: no box */
     const char *lines[8];              /* NULL-ended */
-#define UI_BOX_ITEMS 256
+#define UI_BOX_ITEMS 512
     const char *items[UI_BOX_ITEMS];   /* (a long list scrolls, nine at a time) */
     int nitems, item;
     unsigned off_items;                /* bits: choices that cannot be taken (greyed) */

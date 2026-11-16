@@ -542,7 +542,8 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
             ui_fill(xr - nw + 9, 263, 3, 3, muted(t));   /* (a dot between: drawn, the font has none) */
             label_fit(xr - nw + 21, 260, t->text, g_st_note, nw - 21);
         } else nw = 0;
-        label_bold(xr - nw - cw, 260, t->ok, g_st_card);
+        if (7 * (int)strlen(g_st_card) > cw) label_fit(xr - nw - cw, 260, t->ok, g_st_card, cw);   /* (cut to fit) */
+        else label_bold(xr - nw - cw, 260, t->ok, g_st_card);
         disc(xr - nw - cw - 8, 263, 4, link_colour(g_link));
     }
 }

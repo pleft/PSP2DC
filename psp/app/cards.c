@@ -333,7 +333,7 @@ int cards_imports(CardImport *out, int max)
 {
     /* one pass over the folder: the VMIs are matched by name afterwards, not
      * looked for one open at a time (127 games took ~250 opens, seconds) */
-    static char vmis[256][64];
+    static char vmis[512][64];
     SceUID d = sceIoDopen(SAVES_DIR);
     SceIoDirent e;
     int n = 0, nv = 0, i, j;
@@ -344,7 +344,7 @@ int cards_imports(CardImport *out, int max)
         if (len < 5 || len >= (int)sizeof(out[0].file) || e.d_name[0] == '.') { memset(&e, 0, sizeof(e)); continue; }   /* (hidden, "._" from macOS) */
         dci = !strcasecmp(e.d_name + len - 4, ".dci");
         vms = !strcasecmp(e.d_name + len - 4, ".vms");
-        if (!strcasecmp(e.d_name + len - 4, ".vmi") && nv < 256) snprintf(vmis[nv++], 64, "%.*s", len - 4, e.d_name);
+        if (!strcasecmp(e.d_name + len - 4, ".vmi") && nv < 512) snprintf(vmis[nv++], 64, "%.*s", len - 4, e.d_name);
         else if (n < max && (dci || vms) && e.d_stat.st_size > 0 && e.d_stat.st_size <= 32 + 200 * 512) {
             CardImport *im = &out[n++];
             memset(im, 0, sizeof(*im));
