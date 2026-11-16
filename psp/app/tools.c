@@ -38,7 +38,7 @@ static unsigned char *g_rec;
 static volatile unsigned g_rec_n;
 static volatile int g_rec_on;
 static unsigned g_rec_t0;
-static char g_rec_note[96] = "";   /* (SELECT+Square: a development aid, not in the help) */
+static char g_rec_note[96] = "";   /* (Details, Record the VMU: a development aid) */
 
 void rec_start(void)
 {
@@ -218,7 +218,7 @@ int demo_frame(unsigned char out[PSP2DC_LCD_BYTES])
 /* ---- screenshots -------------------------------------------------------
  * The frame on screen (ui.c draws two in turn): 32 bits a pixel (A B G R from the top byte), 512
  * pixels a line, at the start of VRAM. A BMP is 24 bits, bottom line first. */
-static char g_shot_note[96] = "SELECT+Triangle takes a screenshot";
+static char g_shot_note[96] = "triangle in the menu takes a screenshot";
 
 int shot_take(void)
 {

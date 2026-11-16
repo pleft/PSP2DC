@@ -437,7 +437,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            in->buttons & PSP2DC_BTN_LEFT ? 'L' : '.', in->buttons & PSP2DC_BTN_RIGHT ? 'R' : '.');
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
-    ui_lcd(g_lcd, 480 - 48 * 4 - 8, 250 - 32 * 4 - 4, 4, &ui_themes[g_theme]);
+    /* (no VMU screen here: Details is in the menu, where the VMU is not
+     * played, and it covered the lines; the VMU tab shows it) */
     details_view_rows(standalone);
     ui_keys(UI_KEYS_DETAILS, &ui_themes[g_theme]);
     ui_end();
