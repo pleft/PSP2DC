@@ -328,6 +328,7 @@ static void label_fit(int x, int y, unsigned c, const char *s, int w)
 #define SYM_TRIANGLE 0xFFA0C81Cu
 enum { SYM_X, SYM_O, SYM_SQ, SYM_TRI, SYM_DPAD };
 enum { ARM_UP = 1, ARM_DOWN = 2, ARM_LEFT = 4, ARM_RIGHT = 8 };
+static void shape(int x0, int y0, int w, int h, int rt, int rb, unsigned c_top, unsigned c_bottom);
 
 static void stroke(int x0, int y0, int x1, int y1, unsigned c)   /* two pixels wide */
 {
@@ -376,6 +377,30 @@ static void sym(int kind, int x, int y, unsigned arms, unsigned dim_c, unsigned 
         if (arms & ARM_RIGHT) ui_fill(x + 7, y + 4, 4, 3, lit_c);
         break;
     }
+}
+
+/* ---- the tabs: the four pages, the one shown lit --------------------------
+ * SELECT with left or right goes to the one beside; at the top of every page
+ * (on the VMU page, over the column beside the VMU). hint: "SELECT" before
+ * them, where there is room. */
+static const char *const tab_names[UI_TABS] = { "VMU", "Saves", "Cards", "Status" };
+
+static void draw_tabs(int x0, int y0, int w, int cur, const UiTheme *t, int hint)
+{
+    const unsigned hi = 0xFF28C8F0;
+    unsigned c = half(t->text);
+    int x = x0, k, tw;
+    if (hint) { label(x, y0 + 4, c, "SELECT"); x += 6 * 7 + 3; }
+    arrow(ARM_LEFT, x, y0 + 4, c);
+    x += 10;
+    tw = hint ? 58 : (x0 + w - 10 - x) / UI_TABS;
+    ui_fill(x0, y0 + 15, w, 1, dim(hi));
+    for (k = 0; k < UI_TABS; k++, x += tw) {
+        unsigned face = k == cur ? hi : t->panel;
+        shape(x + 1, y0, tw - 2, 15, 4, 0, face, face);
+        label(x + (tw - 7 * (int)strlen(tab_names[k])) / 2, y0 + 4, k == cur ? 0xFF000000 : c, tab_names[k]);
+    }
+    arrow(ARM_RIGHT, x + 2, y0 + 4, c);
 }
 
 /* ---- the VMU, drawn ------------------------------------------------------
@@ -545,10 +570,10 @@ static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_
     label(X + 183, Y + 244, ink, "B");
 }
 
-/* The controller as the Dreamcast sees it, in a panel 80 high from (x0, y0):
+/* The controller as the Dreamcast sees it, in a panel 76 high from (x0, y0):
  * L and R filling, then in one row the stick in its ring, the d-pad, Start
  * and A B X Y in the Dreamcast's colours, lit when pressed. */
-#define PAD_H 80
+#define PAD_H 76
 static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
 {
     const Psp2dcInput *in = h->in;
@@ -594,8 +619,8 @@ static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
 
 /* the card panel's place, the same connected or not (the middle panel is
  * centred above it) */
-#define CARD_Y 136
-#define CARD_H 114
+#define CARD_Y 140
+#define CARD_H 110
 
 /* Standalone: which PSP button is which VMU button, in a panel 56 high */
 #define MAP_H 56
@@ -623,17 +648,19 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     ui_begin(t->bg);
     draw_vmu(h->lcd, t, h->icons, h->vmu_pressed);
 
+    draw_tabs(x0, 4, 220, 0, t, 0);
+
     /* the link */
-    round_rect(x0, 10, 220, 30, 6, t->panel);
-    disc(x0 + 16, 25, 6, dot);
-    label(x0 + 30, 15, t->text, "PSP2DC");
-    label_fit(x0 + 30, 26, t->text, h->link_text, 182);
-    label(x0 + 212 - 7 * (int)strlen(t->name), 15, half(t->text), t->name);
+    round_rect(x0, 24, 220, 28, 6, t->panel);
+    disc(x0 + 16, 38, 6, dot);
+    label(x0 + 30, 29, t->text, "PSP2DC");
+    label_fit(x0 + 30, 40, t->text, h->link_text, 182);
+    label(x0 + 212 - 7 * (int)strlen(t->name), 29, half(t->text), t->name);
 
     /* the middle panel, centred between the link and the card: the button
      * map standalone, the controller connected */
     {
-        int ph = h->standalone ? MAP_H : PAD_H, py = 46 + (CARD_Y - 6 - 46 - ph) / 2;
+        int ph = h->standalone ? MAP_H : PAD_H, py = 58 + (CARD_Y - 6 - 58 - ph) / 2;
         round_rect(x0, py, 220, ph, 6, t->panel);
         label(x0 + 8, py + 6, t->text, h->standalone ? "STANDALONE" : "CONTROLLER");
         if (h->standalone) {
@@ -682,18 +709,26 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     if (h->notice) label_fit(x0 + 8, CARD_Y + 96, t->text, h->notice, 204);
     else label_fit(x0 + 8, CARD_Y + 96, half(t->text), h->card_note, 204);
 
-    {   /* SELECT +: left/right the page, up/down the theme, L/R the card */
+    {   /* SELECT +: left/right the tab, up/down the theme, L/R the card */
         unsigned c = half(t->text);
         int x = x0 + 4;
         label(x, 256, c, "SELECT+");                           x += 7 * 7 + 3;
         arrow(ARM_LEFT, x, 256, c); arrow(ARM_RIGHT, x + 7, 256, c);   x += 15;
-        label(x, 256, c, "page");                              x += 4 * 7 + 7;
+        label(x, 256, c, "tab");                               x += 3 * 7 + 7;
         arrow(ARM_UP, x, 256, c); arrow(ARM_DOWN, x + 9, 256, c);      x += 20;
         label(x, 256, c, "theme");                             x += 5 * 7 + 7;
         label(x, 256, c, "L/R card");
     }
     ui_end();
 }
+
+void ui_tabs(int page, const UiTheme *t, const char *status)
+{
+    draw_tabs(4, 0, 472, page, t, 1);
+    if (status) label_fit(306, 4, t->text, status, 170);
+}
+
+const char *const ui_kb_rows[3] = { "abcdefghijklm", "nopqrstuvwxyz", "0123456789-_" };
 
 /* ---- the box over a page, and the keys line, for the Saves and Cards pages */
 static void draw_box(const UiBox *b, const UiTheme *t)
@@ -710,7 +745,7 @@ static void draw_box(const UiBox *b, const UiTheme *t)
         if (top < 0) top = 0;
         shown = 9;
     }
-    h = 30 + (lines + shown + (b->edit ? 2 : 0)) * 16 + 6;
+    h = 30 + (lines + shown) * 16 + 6 + (b->edit ? 24 + UI_KB_ROWS * 20 : 0);
     if (b->picture && h < 30 + 116 + 10) h = 30 + 116 + 10;
     y0 = (272 - h) / 2;
     round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, hi);
@@ -728,14 +763,22 @@ static void draw_box(const UiBox *b, const UiTheme *t)
             }
     }
     for (k = 0; k < lines; k++, y0 += 16) label_fit(x0 + 14, y0 + 4, t->text, b->lines[k], tw);
-    if (b->edit) {                         /* the name, its chosen character lit */
-        int len = (int)strlen(b->edit), x = x0 + 14;
-        for (k = 0; k < len || k == b->cursor; k++, x += 9) {
-            char ch[2] = { k < len ? b->edit[k] : ' ', 0 };
-            if (k == b->cursor) ui_fill(x - 1, y0 + 2, 9, 12, hi);
-            label(x, y0 + 4, k == b->cursor ? 0xFF000000 : t->text, ch);
+    if (b->edit) {                         /* the name, then the keyboard, its chosen key lit */
+        int len = (int)strlen(b->edit), r, col;
+        ui_fill(x0 + 14, y0, w - 30, 16, 0xFF000000);
+        label(x0 + 18, y0 + 4, 0xFFFFFFFF, b->edit);
+        ui_fill(x0 + 18 + 7 * len, y0 + 12, 6, 2, hi);   /* where the next character goes */
+        y0 += 24;
+        for (r = 0; r < UI_KB_ROWS; r++, y0 += 20) {
+            int keys = r < 3 ? (int)strlen(ui_kb_rows[r]) : 2;
+            for (col = 0; col < keys; col++) {
+                int on = b->key == r * UI_KB_COLS + col, kx = x0 + 14 + col * (r < 3 ? 24 : 156), kw = r < 3 ? 22 : 154;
+                char s[2] = { r < 3 ? ui_kb_rows[r][col] : 0, 0 };
+                const char *txt = r < 3 ? s : col ? "Done" : "Delete";
+                round_rect(kx, y0, kw, 18, 3, on ? hi : t->frame);
+                label(kx + (kw - 7 * (int)strlen(txt)) / 2, y0 + 5, on ? 0xFF000000 : t->text, txt);
+            }
         }
-        y0 += 32;
     }
     for (k = top; k < top + shown; k++, y0 += 16) {
         int off = (b->off_items >> k) & 1;
@@ -752,16 +795,16 @@ static void draw_keys(int keys, const UiTheme *t, int from, int to, int n)
     if (keys == UI_KEYS_VIEW) {
         label(x, y, c, "view only: the Dreamcast has the card  SELECT+");  x += 46 * 7 + 3;
         arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
-        label(x, y, c, "page");
+        label(x, y, c, "tab");
         return;
     }
     if (keys == UI_KEYS_EDIT) {
-        arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);     x += 20;
-        label(x, y, c, "letter");                                 x += 6 * 7 + 8;
-        arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);  x += 15;
-        label(x, y, c, "move");                                   x += 4 * 7 + 8;
-        sym(SYM_X, x, y - 2, 0, 0, 0);  label(x + 14, y, c, "done");   x += 14 + 5 * 7;
-        sym(SYM_O, x, y - 2, 0, 0, 0);  label(x + 14, y, c, "cancel");
+        sym(SYM_DPAD, x, y - 2, ARM_UP | ARM_DOWN | ARM_LEFT | ARM_RIGHT, dim(t->text), c);  x += 15;
+        label(x, y, c, "key");                                    x += 3 * 7 + 10;
+        sym(SYM_X, x, y - 2, 0, 0, 0);   label(x + 14, y, c, "type");    x += 14 + 4 * 7 + 10;
+        sym(SYM_SQ, x, y - 2, 0, 0, 0);  label(x + 14, y, c, "delete");  x += 14 + 6 * 7 + 10;
+        label(x, y, c, "START done");                             x += 10 * 7 + 10;
+        sym(SYM_O, x, y - 2, 0, 0, 0);   label(x + 14, y, c, "cancel");
         return;
     }
     if (keys != UI_KEYS_OK) {
@@ -775,7 +818,7 @@ static void draw_keys(int keys, const UiTheme *t, int from, int to, int n)
     if (keys == UI_KEYS_BROWSE) {
         label(x, y, c, "SELECT+");              x += 7 * 7 + 3;
         arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);   x += 15;
-        label(x, y, c, "page");
+        label(x, y, c, "tab");
     }
     if (from > 0) {
         char more[16];
@@ -795,7 +838,7 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
     const unsigned hi = 0xFF28C8F0;    /* (ABGR) the yellow of the chosen */
     int n = 0, free_blocks = 0, i, row;
     ui_begin(t->bg);
-    ui_text(0, 0, t->text, "%s", top);
+    ui_tabs(1, t, top);
     if (!have) {
         ui_text(2, 4, t->text, "No memory card yet: it comes from ms0:/PSP2DC/cards");
         ui_text(2, 5, t->text, "or from the adapter once connected.");
@@ -841,7 +884,7 @@ void ui_page_cards(const UiCards *v, const UiTheme *t, const char *top)
     const unsigned hi = 0xFF28C8F0;
     int row, y, rows = v->n + 1;
     ui_begin(t->bg);
-    ui_text(0, 0, t->text, "%s", top);
+    ui_tabs(2, t, top);
     ui_text(0, 2, t->text, "MEMORY CARDS   %d card%s   ms0:/PSP2DC/cards", v->n, v->n == 1 ? "" : "s");
     for (row = v->first, y = 32; row < rows && y + 30 <= 256; row++, y += 34) {
         if (row == v->sel) {

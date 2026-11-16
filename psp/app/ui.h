@@ -66,9 +66,19 @@ typedef struct {
     int nitems, item;
     unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
     const unsigned short *picture;     /* a save's large picture, 72x56 ARGB4444, or NULL */
-    const char *edit;                  /* a name being edited, or NULL */
-    int cursor;                        /* the character being changed */
+    const char *edit;                  /* a name being typed (Rename), or NULL: the keyboard shown */
+    int key;                           /* the keyboard's key chosen: row * UI_KB_COLS + column */
 } UiBox;
+/* The keyboard under a name being typed: three rows of the characters a
+ * card's name may have (cards_name_ok), then Delete and Done. */
+#define UI_KB_COLS 13
+#define UI_KB_ROWS 4
+extern const char *const ui_kb_rows[3];
+
+/* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
+ * Cards, 3 Status); status, if not NULL, at the right of them. */
+#define UI_TABS 4
+void ui_tabs(int page, const UiTheme *t, const char *status);
 /* the line of keys at the bottom of the Saves and Cards pages */
 enum { UI_KEYS_VIEW, UI_KEYS_BROWSE, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT };
 

@@ -373,13 +373,13 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     memset(&st, 0, sizeof(st));
     if (!g_no_usb) pspexpUsbGetStats(&st);
     ui_begin(0xFF000000);
+    ui_tabs(3, &ui_themes[g_theme], NULL);
     pspDebugScreenSetTextColor(0xFFFFFFFF);
     link = g_no_usb ? "no USB (emulator?)            "
          : pspexpUsbConnected() ? "CONNECTED to the adapter      "
          : pspexpUsbAttached()  ? "cable in, waiting for adapter "
          :                        "waiting for the USB cable     ";
-    pspDebugScreenSetXY(0, 0);
-    printf("PSP2DC  -  the PSP as a Dreamcast controller\n\n");
+    pspDebugScreenSetXY(0, 2);
     if (g_usb_kernel < 0) {
         printf("usb start %s: driver %08X, then by hand (try %d)\n", usb_rc < 0 ? "FAILED" : "ok",
                (unsigned)g_usb_kernel, g_usb_tries);
@@ -415,7 +415,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
     printf("Cross=A Circle=B Square=X Triangle=Y\n");
-    printf("SELECT+Left/Right page  +Triangle shot\n");
+    printf("SELECT+Left/Right tab  +Triangle shot\n");
     printf("SELECT+L/R card  +Start new card\n");
     printf("SELECT+Circle demo   HOME quit");
     ui_lcd(g_lcd, 480 - 48 * 4 - 8, 272 - 32 * 4 - 8, 4, &ui_themes[g_theme]);
@@ -549,7 +549,7 @@ static int g_nimports;
 static CardBackup g_backups[BACKUPS_MAX];
 static int g_nbackups;
 static char g_edit[CARD_NAME_MAX];
-static int g_edit_cursor;
+static int g_edit_key;                     /* the Rename keyboard's key chosen (ui.h) */
 static int g_box_back;                     /* the page the box returns to: 0 Saves, 1 Cards */
 static int g_restore;                      /* the backup chosen */
 static unsigned short g_picture[72 * 56];  /* the save's large picture (Info), when it has one */
@@ -903,7 +903,7 @@ static void box_view(UiBox *b)
         break;
     case BOX_RENAME:
         b->edit = g_edit;
-        b->cursor = g_edit_cursor;
+        b->key = g_edit_key;
         break;
     }
 }
@@ -954,7 +954,6 @@ static int card_use(const char *name)
 static void cards_input(unsigned pressed, int *settings_due)
 {
     static unsigned char img[PSP2DC_CARD_BYTES];
-    static const char charset[] = "abcdefghijklmnopqrstuvwxyz0123456789-_";
     CardCheck ck;
     char line[64], made[CARD_NAME_MAX];
     int rows, k;
@@ -1006,8 +1005,9 @@ static void cards_input(unsigned pressed, int *settings_due)
         case CA_RENAME:
             snprintf(g_edit, sizeof(g_edit), "%s", g_box_card);
             for (k = 0; g_edit[k]; k++) if (g_edit[k] >= 'A' && g_edit[k] <= 'Z') g_edit[k] += 32;
-            g_edit_cursor = (int)strlen(g_edit) - 1;
-            box_lines("Rename", g_box_card, NULL, NULL);
+            g_edit_key = 0;
+            snprintf(line, sizeof(line), "A new name for %s:", g_box_card);
+            box_lines("Rename", line, NULL, NULL);
             g_box = BOX_RENAME;
             break;
         case CA_DUPLICATE:
@@ -1059,33 +1059,41 @@ static void cards_input(unsigned pressed, int *settings_due)
         }
         break;
     }
-    case BOX_RENAME: {
-        int len = (int)strlen(g_edit), pos = sizeof(charset) - 1;
-        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {   /* the letter: round the set, past the end a space (an end) */
-            const char *at = g_edit_cursor < len ? strchr(charset, g_edit[g_edit_cursor]) : NULL;
-            int i = at ? (int)(at - charset) : pos, nset = pos + 1;
-            i = (i + (pressed & PSP_CTRL_DOWN ? 1 : nset - 1)) % nset;
-            if (i == pos) { if (g_edit_cursor == len - 1 && len > 1) g_edit[g_edit_cursor] = 0; }
-            else {
-                if (g_edit_cursor >= len) { g_edit[g_edit_cursor + 1] = 0; }
-                g_edit[g_edit_cursor] = charset[i];
-            }
+    case BOX_RENAME: {                     /* the keyboard (ui.h): the d-pad a key, X types it */
+        int len = (int)strlen(g_edit), row = g_edit_key / UI_KB_COLS, col = g_edit_key % UI_KB_COLS, done = 0;
+        int keys = row < 3 ? (int)strlen(ui_kb_rows[row]) : 2;
+        if (pressed & PSP_CTRL_LEFT) col = (col + keys - 1) % keys;
+        if (pressed & PSP_CTRL_RIGHT) col = (col + 1) % keys;
+        if ((pressed & PSP_CTRL_DOWN) && row < UI_KB_ROWS - 1) {
+            row++;
+            if (row == 3) col = col * 2 / UI_KB_COLS;   /* Delete under the left half, Done the right */
+        } else if ((pressed & PSP_CTRL_UP) && row > 0) {
+            if (row == 3) col = col ? 9 : 3;
+            row--;
         }
-        len = (int)strlen(g_edit);
-        if ((pressed & PSP_CTRL_LEFT) && g_edit_cursor > 0) g_edit_cursor--;
-        if ((pressed & PSP_CTRL_RIGHT) && g_edit_cursor < len && g_edit_cursor < CARD_NAME_MAX - 2) {
-            g_edit_cursor++;
-            if (g_edit_cursor == len) { g_edit[len] = 'a'; g_edit[len + 1] = 0; }
+        if (row < 3 && col >= (int)strlen(ui_kb_rows[row])) col = (int)strlen(ui_kb_rows[row]) - 1;
+        g_edit_key = row * UI_KB_COLS + col;
+        if (pressed & PSP_CTRL_CROSS) {
+            if (row < 3) {
+                if (len < CARD_NAME_MAX - 1) { g_edit[len] = ui_kb_rows[row][col]; g_edit[len + 1] = 0; }
+            } else if (col == 0) { if (len) g_edit[len - 1] = 0; }
+            else done = 1;
         }
+        if ((pressed & PSP_CTRL_SQUARE) && len) g_edit[len - 1] = 0;
+        if (pressed & PSP_CTRL_START) done = 1;
         if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_box_card, NULL, NULL, NULL); g_box = BOX_CARD_ACTIONS; g_box_item = CA_RENAME; }
-        else if (pressed & PSP_CTRL_CROSS) {
-            int rc = cards_rename(g_box_card, g_edit), in_use = g_card_have && !strcasecmp(g_box_card, g_card_name);
+        else if (done) {
+            int rc, in_use = g_card_have && !strcasecmp(g_box_card, g_card_name);
+            if (!g_edit[0]) { result("Not renamed", "A name needs a letter at least.", NULL, NULL); break; }
+            if (!strcasecmp(g_edit, g_box_card)) { result("Not renamed", "That is its name already.", NULL, NULL); break; }
+            rc = cards_rename(g_box_card, g_edit);
             if (rc == 0) {
                 if (in_use) { snprintf(g_card_name, sizeof(g_card_name), "%s", g_edit); *settings_due = 1; }
                 if (!strcasecmp(g_base_name, g_box_card)) { snprintf(g_base_name, sizeof(g_base_name), "%s", g_edit); *settings_due = 1; }
                 snprintf(line, sizeof(line), "%s is %s now", g_box_card, g_edit);
                 result("Renamed", line, NULL, NULL);
-                g_cd_due = 1;
+                cards_summary();                   /* (sorted again: the chosen row follows the card) */
+                for (k = 0; k < g_cd_n; k++) if (!strcasecmp(g_cd_names[k], g_edit)) g_cd_sel = k + 1;
             } else result("Not renamed", rc == -2 ? "A card has that name already." : "It could not be renamed.", NULL, NULL);
         }
         break;
@@ -1177,6 +1185,8 @@ static void cards_view(UiCards *v, int standalone)
         v->in_use[i] = g_card_have && !strcasecmp(g_cd_names[i], g_card_name);
         v->game[i] = g_cd_game[i][0] ? g_cd_game[i] : NULL;
     }
+    if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;   /* (the chosen row in sight, wherever it moved) */
+    if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
     v->first = g_cd_first;
     v->sel = standalone ? g_cd_sel : -1;
     v->keys = !standalone ? UI_KEYS_VIEW : g_box == BOX_NONE ? UI_KEYS_BROWSE
@@ -1284,16 +1294,15 @@ static void card_decide(void)
     notice(msg);
 }
 
-/* The line at the top of the VMU and saves pages */
+/* What shows beside the tabs (ui_tabs): a change just made, or the link and
+ * the card in use */
 static const char *top_line(void)
 {
     static char buf[80];
-    const char *link = demo_on() ? "DEMO" : g_no_usb ? "no USB" : pspexpUsbConnected() ? "CONNECTED"
-                     : pspexpUsbAttached() ? "cable in, waiting" : "no cable";
-    if (g_notice_at && now_us() - g_notice_at < 2000000)
-        snprintf(buf, sizeof(buf), "PSP2DC  %-17s %s", link, g_notice);
-    else
-        snprintf(buf, sizeof(buf), "PSP2DC  %-17s %s: %s", link, g_card_name, g_card_have ? g_card_note : "none yet");
+    const char *link = demo_on() ? "demo" : g_no_usb ? "no USB" : pspexpUsbConnected() ? "connected"
+                     : pspexpUsbAttached() ? "cable in" : "standalone";
+    if (g_notice_at && now_us() - g_notice_at < 2000000) snprintf(buf, sizeof(buf), "%s", g_notice);
+    else snprintf(buf, sizeof(buf), "%s  %s", link, g_card_have ? g_card_name : "no card");
     return buf;
 }
 
