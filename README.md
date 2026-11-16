@@ -193,4 +193,8 @@ wherever you keep them.
   `psp/usb/LICENSE.PSPLINK`).
 - [Superpico](https://github.com/zwenergy/Superpico): the adapter hardware.
 
-No licence has been chosen yet for PSP2DC's own code.
+PSP2DC is released under the MIT licence: see [LICENSE](LICENSE). Files taken
+from other projects keep their own licences, as listed above: the firmware
+patches apply to joypad-os (Apache-2.0), `psp/app/vmu_core.c` carries
+libevmu's MIT notice, and parts of `psp/usb/main.c` are under PSPLink's BSD
+licence.
