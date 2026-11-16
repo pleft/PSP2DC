@@ -179,6 +179,26 @@ Results show for a moment in the header.
 To change the memory card, open the Cards tab, choose the card and pick *Use
 this card*. *New card* is the tab's first row.
 
+### Colour VMU screens
+
+Any VMU screen can be shown as a colour picture instead of its dots, for
+Dreamcast games, the VMU's own screens and VMU games alike, with nothing
+changed on the Dreamcast. Each 48×32 screen is identified by the CRC-32 of its
+192 bytes. A picture named after that CRC replaces it, and screens without one
+keep their dots.
+
+1. In the menu, open System → Details and switch **Collect screens** on.
+2. Play. Each new screen is saved as `ms0:/PSP2DC/colour/new/XXXXXXXX.png`:
+   black on white, 48×32, upright as you see it.
+3. Switch it off again and copy the files to a computer. Colour the ones you
+   want, either at 48×32 (drawn four times larger) or at 192×128 (drawn as
+   is), keeping the file name.
+4. Put the coloured files in `ms0:/PSP2DC/colour/`. They are picked up the
+   next time PSP2DC starts.
+
+System → **Colour screens** switches the pictures on or off, and shows how many
+there are.
+
 ### Memory cards
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any

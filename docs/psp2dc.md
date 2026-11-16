@@ -437,6 +437,17 @@ The logic is in `psp/app/cardfs.c` and `cards.c`; `scripts/dev/cardfs-test2.c` t
 
 **Header centred, battery shown (16 November 2026).** The tabs are centred in the header (the menu's L … R, or playing's SELECT menu and the tabs), and the PSP's battery is at its right: an outline filled to the level and the percent (`scePowerGetBatteryLifePercent`, read every two seconds, only when `scePowerIsBatteryExist`), the fill green while charging (`scePowerIsBatteryCharging`) and red under 15 %. Checked in PPSSPP (which reports 100 %) on Classic and Paper, playing and in the menu.
 
+### 5.0e4 Colour VMU Screens (17 November 2026)
+
+After DreamColor Plus's "Modo Colorido" (its matching undocumented), as a first "beyond the VMU" feature. Each screen is 192 bytes; zlib's CRC-32 of them names it, and `ms0:/PSP2DC/colour/XXXXXXXX.png` (48x32, drawn four times its size, or 192x128, drawn as it is; upright, as seen) is drawn in place of the dots in the VMU drawing. It applies to whatever the screen shows: the Dreamcast's, the VMU's own BIOS screens, VMU games. `psp/app/colour.c`:
+
+- At the start the folder is read once, names only, into a sorted list; whether a screen has a picture is a binary search, no file opened per frame.
+- A picture is read by a thread of its own (libpng's simplified API, `png_image_*`; libpng and zlib come with pspdev) into a cache of 24 (192x128 each, 96 KB); until it is in, the dots are drawn, so a screen never waits on the Memory Stick. A file that cannot be read (not PNG, another size) is dropped from the list and not tried again.
+- **Collect screens** (System → Details, a tool): each screen not yet in `colour/` or `colour/new/` is written as `colour/new/XXXXXXXX.png`, 48x32, black on white, upright; colour it and move it into `colour/`. A screen that changes every second (the VMU's clock) makes a file a second while collecting.
+- **Colour screens** (System, a setting kept as `colour=` in settings.txt): on (default) or off, and how many pictures there are.
+- The application module grew from 322 KB to 657 KB with libpng and zlib.
+- Checked in PPSSPP: screens collected from the standalone VMU (clock, FILE, GAME) came out upright; FILE coloured at 48x32 and GAME at 192x128 (a gradient) were shown in colour, the clock in dots; the setting off brought the dots back. Not yet tried on hardware nor with a Dreamcast's screens.
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
