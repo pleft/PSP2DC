@@ -1072,7 +1072,7 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     static const UiKey menus[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey sel1[] = { K1(G_LR, 0, "tab"), K2(G_CAP, "L", G_CAP, "R", "card") };
     static const UiKey sel2[] = { K1(G_CAP, "START", "new card"), K1(G_TRI, 0, "screenshot") };
-    static const UiKey sel3[] = { K1(G_UD, 0, "scroll a list") };
+    static const UiKey sel3[] = { K1(G_UD, 0, "scroll"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     const int L = 4, LW = 234, R = 242, RW = 236;
     int y, k, x;
     ui_begin(t->bg);
@@ -1110,7 +1110,7 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     y += 15;
     for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel2[k], x, y, t->text, t) + 12;
     y += 15;
-    key_item(&sel3[0], R + 10, y, t->text, t);
+    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&sel3[k], x, y, t->text, t) + 12;
 
     draw_keys(sy->keys, t, NULL);
     ui_end();

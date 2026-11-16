@@ -925,6 +925,8 @@ static void box_view(UiBox *b)
 static void saves_view(UiSaves *v, int standalone)
 {
     memset(v, 0, sizeof(*v));
+    if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
+    if (g_saves_first < 0) g_saves_first = 0;
     v->first = g_saves_first;
     v->sel = -1;
     v->keys = UI_KEYS_VIEW;
@@ -1368,7 +1370,7 @@ static void details_view_rows(int standalone)
     if (rec_on()) snprintf(rec, sizeof(rec), "on, %u", rec_count()); else snprintf(rec, sizeof(rec), "off");
     values[DET_RECORD] = rec;
     values[DET_DEMO] = demo_on() ? "on" : "off";
-    ui_settings(4, 196, 268, "TOOLS, FOR TESTING", rows, values, DETS, g_det_sel,
+    ui_settings(4, 188, 268, "TOOLS, FOR TESTING", rows, values, DETS, g_det_sel,
                 det_off(DET_DEMO) ? 1u << DET_DEMO : 0, -1, &ui_themes[g_theme]);
     (void)standalone;
 }
@@ -1427,7 +1429,7 @@ int main(int argc, char *argv[])
 {
     SceCtrlData pad;
     Psp2dcInput in;
-    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u;
+    unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u, combo = 0;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0;
     unsigned char seq = 0;
     int usb_rc = 0, connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
@@ -1503,6 +1505,8 @@ int main(int argc, char *argv[])
                     g_saves_first += d;
                     if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
                     if (g_saves_first < 0) g_saves_first = 0;
+                    if (g_sv_sel < g_saves_first) g_sv_sel = g_saves_first;
+                    if (g_sv_sel > g_saves_first + 2) g_sv_sel = g_saves_first + 2;
                 } else if (g_page == PAGE_CARDS) {
                     g_cd_first += d;
                     if (g_cd_first > g_cd_n + 1 - 6) g_cd_first = g_cd_n + 1 - 6;
@@ -1548,10 +1552,19 @@ int main(int argc, char *argv[])
                     } else notice("could not read that card");
                 }
             }
+            if (pressed & ~PSP_CTRL_SELECT) saves_due = 1;   /* shown at once */
             last_buttons = pad.Buttons;
+            combo = pad.Buttons & ~PSP_CTRL_SELECT;
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
-        } else last_buttons = pad.Buttons;
+        } else {
+            /* SELECT let go before the rest of a combination: those buttons
+             * are not pressed anew (no second action, nothing to the
+             * Dreamcast) until they are let go too */
+            last_buttons = pad.Buttons;
+            combo &= pad.Buttons;
+            pad.Buttons &= ~combo;
+        }
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons

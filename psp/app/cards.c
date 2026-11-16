@@ -63,8 +63,13 @@ int cards_list(char names[CARDS_MAX][CARD_NAME_MAX])
         int len = strlen(e.d_name);
         if (len > 4 && len - 4 < CARD_NAME_MAX && !strcasecmp(e.d_name + len - 4, ".bin")
             && e.d_stat.st_size == PSP2DC_CARD_BYTES) {
+            int k, lower = 0;
             memcpy(names[n], e.d_name, len - 4);
             names[n][len - 4] = 0;
+            /* a short (8.3) name comes back in capitals whatever it was
+             * written as: shown in small letters, as the cards are made */
+            for (k = 0; names[n][k]; k++) if (names[n][k] >= 'a' && names[n][k] <= 'z') lower = 1;
+            if (!lower) for (k = 0; names[n][k]; k++) if (names[n][k] >= 'A' && names[n][k] <= 'Z') names[n][k] += 32;
             n++;
         }
         memset(&e, 0, sizeof(e));
