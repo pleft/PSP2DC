@@ -58,6 +58,7 @@
 #define PSP2DC_MSG_CARD_STATE 0x12   /* the answer to HELLO and CARD_EJECT: the card the adapter holds */
 #define PSP2DC_MSG_CARD_SAVE  0x13   /* a quarter block of the card to keep (a CARD_PART payload) */
 #define PSP2DC_MSG_LCD    0x11   /* the VMU's screen, each time the Dreamcast draws one */
+#define PSP2DC_MSG_GAME_ID 0x14  /* a game's ID, from openMenu as it starts a disc (Psp2dcGameId) */
 
 /* HELLO payload */
 typedef struct {
@@ -121,6 +122,19 @@ typedef struct {
 #define PSP2DC_CARD_BLOCK_XFER (PSP2DC_CARD_PARTS * (PSP2DC_HEADER_LEN + sizeof(Psp2dcCardPart)))
 
 #define PSP2DC_CARD_NAME_LEN 32   /* a card's name, NUL-terminated (the PSP's file name without .bin) */
+
+/* GAME_ID payload (adapter -> PSP, 140 bytes: a 144-byte transfer, not a
+ * multiple of 64). openMenu (the Virtual Folder Bundle, vm2_api.c) sends a
+ * virtual VMU, before starting a disc, Maple command 0x21 to the memory card:
+ * the function word, the disc's product number (12 bytes, NUL-padded, e.g.
+ * "T-8101N") and, when it has one, the game's name (128 bytes); "openmenu"
+ * at its own start. It sends it only to a VMU whose all-status reply carries
+ * a name it knows at byte 112 (the adapter gives USB4Maple's). The PSP may
+ * then put that game's own card in. Older PSPs ignore the message. */
+typedef struct {
+    char id[12];          /* as sent, not NUL-terminated when 12 long */
+    char name[128];       /* NUL-padded; empty when openMenu sent none */
+} __attribute__((packed)) Psp2dcGameId;
 
 /* CARD_DONE payload */
 typedef struct {

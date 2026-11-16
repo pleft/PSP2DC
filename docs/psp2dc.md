@@ -448,6 +448,21 @@ After DreamColor Plus's "Modo Colorido" (its matching undocumented), as a first 
 - The application module grew from 322 KB to 657 KB with libpng and zlib.
 - Checked in PPSSPP: screens collected from the standalone VMU (clock, FILE, GAME) came out upright; FILE coloured at 48x32 and GAME at 192x128 (a gradient) were shown in colour, the clock in dots; the setting off brought the dots back. Not yet tried on hardware nor with a Dreamcast's screens.
 
+### 5.0e5 A Card per Game: openMenu's Game ID (17 November 2026)
+
+From openMenu's source (the Virtual Folder Bundle, `openMenu/src/openmenu/src/vm2/vm2_api.c` and `main.c`, read 17 November 2026):
+
+- **Detection.** openMenu sends the All Status request (ALLINFO) to each memory-card device and compares 16 characters of the reply's payload at byte 112 (after the 112-byte device info), case-insensitively, with "VM2 by Dreamware", "8BITMODS VMUPro ", "USB RP2040 EMU  " (USB4Maple) and "Pico2Maple USBBT".
+- **The Game ID.** Maple command 0x21 (33) to that unit: payload word 0 the memory card function, bytes 4–15 the disc's product number (`item->product`, 12 bytes, NUL-padded), and with a name bytes 16–143 (128 bytes; the frame is then 36 words, else 4). openMenu waits for the OK reply (retrying on AGAIN). It sends "openmenu" at its own start, and the game's ID and name as it starts a disc (not for folders), to the first or every such device as its "VMU Game ID" setting says.
+- The reverse-engineered Pico2Maple firmware (Microsap project) takes 0x21 the same way; it is a reconstruction and was only used to confirm the layout.
+
+What PSP2DC does (firmware patch 0010, `psp/app/main.c`):
+
+- The adapter's VMU all-status reply carries "USB RP2040 EMU  " at byte 112 (`PSP2DC_VMU_ID` in vmu.c; joypad-os's RP2040 builds are USB4Maple's kin), so openMenu takes it for a virtual VMU. It answers 0x21 with OK and sends the ID and name to the PSP (`PSP2DC_MSG_GAME_ID`, 140 bytes). Strings keep their byte order, as the card's blocks do.
+- The PSP, with **Card per game** on (System, default on): openMenu's own ID is left alone; any other ID names a card (`T-8101N` → `t-8101n`), made empty the first time, and put in as a change of card by hand is (connected: the adapter lets its card go first), tried again for ten seconds while the card is busy. The game's name shows briefly.
+- `ms0:/PSP2DC/dev_gameid.txt` (lines "<ms> <ID> [name]") feeds IDs to the same code without openMenu, for testing.
+- Checked in PPSSPP with dev_gameid.txt: "openmenu" left alone; T-8101N made and put in `t-8101n`, the same again kept it, MK-51000 made `mk-51000`. Both firmware targets build. **Not tried on a Dreamcast:** whether openMenu sees the adapter as a virtual VMU, whether the ID arrives, and whether the card change finishes before the game first reads its card all wait for a test with GDEMU and openMenu.
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.
@@ -699,7 +714,7 @@ Not yet completed:
 - Changing card while connected, through the adapter, since it moved to the Cards page (16 November 2026): not yet tried on hardware.
 - Colour VMU screens (5.0e4): working in PPSSPP, not yet on hardware nor with a Dreamcast's screens.
 - The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
-- Per-game cards through openMenu's GameID: not started.
+- Per-game cards through openMenu's GameID (5.0e5): built (firmware patch 0010 and the PSP), tried in PPSSPP only; needs a Dreamcast with GDEMU and openMenu.
 - Permanent (soldered) wiring.
 
 ## 11. First Major Milestone

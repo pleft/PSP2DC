@@ -171,6 +171,17 @@ int cards_new(char out[CARD_NAME_MAX])
     return cards_write(out, img);
 }
 
+int cards_create(const char *name)
+{
+    static unsigned char img[PSP2DC_CARD_BYTES];
+    char path[128], tmp[128];
+    path_of(path, sizeof(path), name, "bin");
+    path_of(tmp, sizeof(tmp), name, "new");
+    if (exists(path) || exists(tmp)) return 1;
+    cards_format(img);
+    return cards_write(name, img) < 0 ? -1 : 0;
+}
+
 /* ---- a save, out of the card ---- */
 
 static int write_file(const char *path, const unsigned char *data, int len)

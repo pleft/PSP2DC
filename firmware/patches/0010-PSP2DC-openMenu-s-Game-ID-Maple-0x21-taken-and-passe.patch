@@ -1,0 +1,132 @@
+From 39a2ab033f18585bfd19aeee06d62afb21eb564a Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Tue, 17 Nov 2026 00:43:14 +0200
+Subject: [PATCH 10/10] PSP2DC: openMenu's Game ID (Maple 0x21) taken and
+ passed to the PSP
+
+The VMU's all-status reply names it as openMenu's known virtual VMUs do (at
+byte 112: USB4Maple's "USB RP2040 EMU  "), so openMenu sends the disc's
+product number and name before starting it; the adapter answers OK and
+sends them to the PSP (PSP2DC_MSG_GAME_ID), which may put that game's card in.
+---
+ .../device/dreamcast/dreamcast_device.c       | 10 ++++++
+ src/native/device/dreamcast/vmu.c             | 34 +++++++++++++++++++
+ src/native/device/dreamcast/vmu.h             |  6 ++++
+ src/usb/usbh/psp2dc/psp2dc_host.c             |  4 +++
+ 4 files changed, 54 insertions(+)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 236647f6..4b8ddb64 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -771,6 +771,16 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
+             }
+             break;
+ 
++#ifdef CONFIG_PSP2DC
++        case 0x21:   // openMenu's Game ID (not Sega's): kept for the PSP, answered OK
++            if (Header->NumWords >= 4 && __builtin_bswap32(PacketData[0]) == FUNC_MEMORY_CARD) {
++                vmu_handle_game_id(PacketData, Header->NumWords);
++                NextPacketSend = SEND_VMU_ACK;
++                return true;
++            }
++            break;
++#endif
++
+         default:
+             break;
+         }
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index a243cb7b..9a256908 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -10,6 +10,11 @@
+ #include <string.h>
+ #include <stdio.h>
+ 
++#ifdef CONFIG_PSP2DC
++#define PSP2DC_VMU_ID "USB RP2040 EMU  "   /* 16 characters, as openMenu compares them */
++#endif
++
++
+ #define CMD_RESPOND_DEVICE_STATUS       5
+ #define CMD_RESPOND_ALL_DEVICE_STATUS   6
+ #define CMD_RESPOND_DATA_TRANSFER       8
+@@ -175,6 +180,13 @@ void vmu_build_packets(uint8_t port_addr) {
+       strncpy(p->ProductLicense,"Produced By or Under License From SEGA ENTERPRISES,LTD.     ",sizeof(p->ProductLicense));
+       p->StandbyPower=100; p->MaxPower=130;
+       strncpy(p->FreeDeviceStatus,"Version 1.005,1999/10/26,315-6208-05,SEGA Visual Memory System BIOS Produced by ",sizeof(p->FreeDeviceStatus));
++#ifdef CONFIG_PSP2DC
++      /* openMenu sends its Game ID (0x21) only to a VMU whose all-status reply
++       * names one of the virtual VMUs it knows, at byte 112 (vm2_api.c:
++       * "VM2 by Dreamware", "8BITMODS VMUPro ", "USB RP2040 EMU  ",
++       * "Pico2Maple USBBT"). joypad-os's RP2040 builds are USB4Maple's kin. */
++      memcpy(p->FreeDeviceStatus, PSP2DC_VMU_ID, 16);
++#endif
+       p->CRC=CalcCRC((uint32_t*)&p->Command,(sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC))/sizeof(uint32_t)); }
+     { VmuMediaInfoPkt *p=&vmu_media_pkt;
+       p->BitPairsMinus1=(sizeof(*p)-7)*4-1; p->Command=CMD_RESPOND_DATA_TRANSFER;
+@@ -304,6 +316,28 @@ bool __not_in_flash_func(vmu_handle_lcd_write)(const uint32_t *pkt, uint32_t num
+     return true;
+ }
+ 
++// openMenu's Game ID: the bytes as they come (strings keep their order, as the
++// card's blocks do), kept until Core 0 takes them.
++static char vmu_gid_id[12], vmu_gid_name[128];
++static volatile uint32_t vmu_gid_seq, vmu_gid_taken;
++
++void __not_in_flash_func(vmu_handle_game_id)(const uint32_t *pkt, uint32_t num_words) {
++    if (num_words < 4) return;
++    vmu_ram_copy(vmu_gid_id, &pkt[1], sizeof(vmu_gid_id));
++    if (num_words >= 4 + sizeof(vmu_gid_name) / 4) vmu_ram_copy(vmu_gid_name, &pkt[4], sizeof(vmu_gid_name));
++    else vmu_ram_fill(vmu_gid_name, 0, sizeof(vmu_gid_name));
++    vmu_gid_seq++;
++}
++
++bool vmu_game_id_take(char id[12], char name[128]) {
++    uint32_t seq = vmu_gid_seq;
++    if (seq == vmu_gid_taken) return false;
++    memcpy(id, vmu_gid_id, sizeof(vmu_gid_id));
++    memcpy(name, vmu_gid_name, sizeof(vmu_gid_name));
++    vmu_gid_taken = seq;
++    return true;
++}
++
+ // Core 0. A screen written by Core 1 during the copy shows as one torn frame at
+ // worst, and the count has moved on by then, so the next call takes it whole.
+ bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]) {
+diff --git a/src/native/device/dreamcast/vmu.h b/src/native/device/dreamcast/vmu.h
+index 6b94cdf4..b1d95b0b 100644
+--- a/src/native/device/dreamcast/vmu.h
++++ b/src/native/device/dreamcast/vmu.h
+@@ -80,6 +80,12 @@ void vmu_lcd_stats(vmu_lcd_stats_t *out);
+ // Core 0: the screen, when it changed since the last call. True when copied.
+ bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]);
+ 
++// openMenu's Game ID (Maple command 0x21 to the memory card: the function
++// word, a 12-byte product number, and a 128-byte name when the frame is 36
++// words long). Core 1 keeps it; Core 0 takes it once.
++void vmu_handle_game_id(const uint32_t *packet_data, uint32_t num_words);
++bool vmu_game_id_take(char id[12], char name[128]);
++
+ // The card as a whole, for a keeper outside the adapter (PSP2DC: the PSP's
+ // Memory Stick). Core 0. A block is VMU_BLOCK_SIZE bytes in VMU_CARD_PARTS parts.
+ #define VMU_CARD_PARTS      4
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index e453b2db..15cf4d14 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -250,6 +250,10 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+         return put_msg(d->tx, PSP2DC_MSG_CARD_STATE, &cs, sizeof(cs));
+     }
+ #ifdef CONFIG_VMU
++    {   // openMenu's Game ID, once per disc started: first, so the PSP can put that game's card in
++        Psp2dcGameId g;
++        if (vmu_game_id_take(g.id, g.name)) return put_msg(d->tx, PSP2DC_MSG_GAME_ID, &g, sizeof(g));
++    }
+     // The VMU's screen, when the Dreamcast drew a new one; but never two in a
+     // row while card blocks wait: a game that draws every frame must not keep a
+     // save from reaching the PSP.
+-- 
+2.54.0 (Apple Git-157)
+

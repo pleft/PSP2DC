@@ -199,6 +199,15 @@ keep their dots.
 System → **Colour screens** switches the pictures on or off, and shows how many
 there are.
 
+### A card per game (openMenu)
+
+With GDEMU and openMenu, each game can get its own memory card
+automatically. When openMenu starts a disc, it sends the game's ID to the
+adapter, which passes it to the PSP. The PSP then puts in a card named after
+the game's product number (for example `t-8101n`), creating it the first time.
+In openMenu, set **VMU Game ID** to send. On the PSP, it is the **Card per
+game** setting in System (on by default). Not yet tested on a Dreamcast.
+
 ### Memory cards
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any

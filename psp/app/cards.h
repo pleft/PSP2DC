@@ -28,6 +28,8 @@ int  cards_write(const char *name, const unsigned char *img);
 /* A new, freshly formatted card under the first free name cardN; its name in
  * out. 0 or < 0. */
 int  cards_new(char out[CARD_NAME_MAX]);
+/* a card of this name, formatted, when there is none: 0 made, 1 already there, < 0 not made */
+int  cards_create(const char *name);
 /* A name no card has yet: base and suffix (card1-dc), then a number
  * (card1-dc2...). 0 or < 0. */
 int  cards_unique(const char *base, const char *suffix, char out[CARD_NAME_MAX]);

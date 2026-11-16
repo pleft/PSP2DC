@@ -222,6 +222,9 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
 enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_SYSTEM, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
 static int g_colour_on = 1;               /* colour pictures for the VMU's screen, when there are any (colour.h) */
+static int g_per_game = 1;                /* openMenu's Game ID puts that game's own card in */
+static Psp2dcGameId g_gid;                /* the last Game ID from the adapter (reader thread) */
+static volatile unsigned g_gid_seq;
 #define SETTINGS "ms0:/PSP2DC/settings.txt"
 
 /* The driver's start does its three steps in one go and stops at the first
@@ -353,6 +356,9 @@ static int reader_thread(SceSize args, void *argp)
                     g_card_dirty = 1;
                     if (part->part == PSP2DC_CARD_PARTS - 1) g_card_blocks_in++;
                 }
+            } else if (p[2] == PSP2DC_MSG_GAME_ID && p[3] == sizeof(Psp2dcGameId)) {
+                memcpy(&g_gid, p + PSP2DC_HEADER_LEN, sizeof(g_gid));   /* (acted on by the main loop) */
+                g_gid_seq++;
             } else if (p[2] == PSP2DC_MSG_LCD && p[3] == PSP2DC_LCD_BYTES) {
                 memcpy(g_lcd, p + PSP2DC_HEADER_LEN, PSP2DC_LCD_BYTES);
                 g_lcd_count++;
@@ -464,6 +470,7 @@ static void settings_load(void)
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
     if ((p = strstr(buf, "colour="))) g_colour_on = atoi(p + 7) != 0;
+    if ((p = strstr(buf, "pergame="))) g_per_game = atoi(p + 8) != 0;
     if ((p = strstr(buf, "card="))) {
         int i;
         for (i = 0; i < CARD_NAME_MAX - 1 && p[5 + i] && p[5 + i] != '\n' && p[5 + i] != '\r'; i++) g_card_name[i] = p[5 + i];
@@ -481,7 +488,7 @@ static void settings_save(void)
 {
     char buf[200];
     SceUID fd;
-    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\ncolour=%d\ncard=%s\n", g_page, g_theme, g_colour_on, g_card_name);
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\ncolour=%d\npergame=%d\ncard=%s\n", g_page, g_theme, g_colour_on, g_per_game, g_card_name);
     if (g_base_name[0]) n += snprintf(buf + n, sizeof(buf) - n, "base=%08x %s\n", g_base_crc, g_base_name);
     sceIoMkdir(CARD_DIR, 0777);
     if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
@@ -501,6 +508,35 @@ static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s
  * start select l r, or none), each held until the next line; "shot" in a
  * line also takes a screenshot (ms0:/PSP2DC/shots) as it starts, without
  * the notice. Absent, nothing. */
+/* ms0:/PSP2DC/dev_gameid.txt, for trying Card per game without openMenu:
+ * lines "<ms after the start> <ID> [name]", each taken as openMenu's Game ID
+ * at that time. Absent, nothing. */
+static struct { unsigned ms; char id[12], name[128]; } g_dev_gid[8];
+static int g_dev_gid_n, g_dev_gid_i;
+static void dev_gameid_load(void)
+{
+    char buf[1024], *line, *save;
+    SceUID fd = sceIoOpen("ms0:/PSP2DC/dev_gameid.txt", PSP_O_RDONLY, 0);
+    int n;
+    if (fd < 0) return;
+    n = sceIoRead(fd, buf, sizeof(buf) - 1);
+    sceIoClose(fd);
+    if (n <= 0) return;
+    buf[n] = 0;
+    for (line = strtok_r(buf, "\n", &save); line && g_dev_gid_n < 8; line = strtok_r(NULL, "\n", &save)) {
+        char id[16] = "", *name = NULL;
+        unsigned ms;
+        if (sscanf(line, "%u %15s", &ms, id) < 2) continue;
+        name = strstr(line, id) + strlen(id);
+        while (*name == ' ') name++;
+        memset(&g_dev_gid[g_dev_gid_n], 0, sizeof(g_dev_gid[0]));
+        g_dev_gid[g_dev_gid_n].ms = ms;
+        memcpy(g_dev_gid[g_dev_gid_n].id, id, strlen(id) < 12 ? strlen(id) : 12);
+        snprintf(g_dev_gid[g_dev_gid_n].name, 128, "%s", name);
+        g_dev_gid_n++;
+    }
+}
+
 #define DEV_STEPS 256
 #define DEV_SHOT 0x80000000u
 static int g_dev_shot_done = -1;           /* the last step whose screenshot was taken */
@@ -1123,6 +1159,49 @@ static void card_selected(int rc, const char *name)
     else say("could not read %s", name);
 }
 
+/* openMenu's Game ID: that game's own card put in (Card per game, System).
+ * The card is named after the disc's product number ("T-8101N" -> t-8101n),
+ * made empty the first time; the change goes as changing card by hand does
+ * (connected: the adapter lets the card go first), tried again for ten
+ * seconds while the card is busy. openMenu's own ID at its start is left. */
+static char g_gid_card[CARD_NAME_MAX];
+static unsigned g_gid_until;
+static void game_id_got(const char *id12, const char *name128)
+{
+    char id[13], name[25], card[CARD_NAME_MAX];
+    int i, k;
+    memcpy(id, id12, 12); id[12] = 0;
+    for (i = (int)strlen(id); i > 0 && id[i - 1] == ' '; i--) id[i - 1] = 0;
+    snprintf(name, sizeof(name), "%.24s", name128);
+    if (!g_per_game || !id[0] || !strcasecmp(id, "openmenu")) return;
+    for (i = k = 0; id[i] && k < CARD_NAME_MAX - 1; i++) {
+        char c = id[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        card[k++] = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ? c : '_';
+    }
+    card[k] = 0;
+    if (g_card_have && !strcasecmp(card, g_card_name)) { if (name[0]) say("%s", name); return; }
+    if (cards_create(card) < 0) { say("could not make card %s", card); return; }
+    g_cd_due = 1;
+    snprintf(g_gid_card, sizeof(g_gid_card), "%s", card);
+    g_gid_until = now_us() + 10000000;
+    if (name[0]) notice(name);
+}
+/* the change itself, once the card is free (main loop, every turn) */
+static void game_id_turn(int *settings_due)
+{
+    int rc;
+    if (!g_gid_card[0]) return;
+    if (g_switch_to[0] || g_return_to[0]) return;   /* (a change on its way) */
+    rc = card_select(g_gid_card);
+    if (rc == -2 && (int)(g_gid_until - now_us()) > 0) return;   /* busy: again next turn */
+    if (rc >= 0) *settings_due = 1;
+    if (rc == 0) say("game's card: %s", g_gid_card);
+    else if (rc == 1) say("game's card %s going in", g_gid_card);
+    else say("card %s not put in", g_gid_card);
+    g_gid_card[0] = 0;
+}
+
 /* a card's actions that cannot be done now (greyed): connected only Use;
  * not the card in use while a VMU game runs on it; Restore with no
  * backups, Import with nothing to import (both counted as the box opens) */
@@ -1509,7 +1588,7 @@ static int link_state(const char **text, const char **hint)
 }
 
 /* ---- the System page: the settings, and the details ---- */
-enum { SYS_THEME, SYS_COLOUR, SYS_DETAILS, SYSS };
+enum { SYS_THEME, SYS_COLOUR, SYS_PERGAME, SYS_DETAILS, SYSS };
 enum { DET_RECORD, DET_DEMO, DET_COLLECT, DETS };   /* Details' tools, for testing and making: not for playing */
 static int g_sys_sel, g_sys_details, g_det_sel;
 
@@ -1562,6 +1641,10 @@ static void system_do(int d, int *settings_due)
     switch (g_sys_sel) {
     case SYS_THEME:
         g_theme = (g_theme + (d ? d : 1) + ui_theme_count) % ui_theme_count;
+        *settings_due = 1;
+        break;
+    case SYS_PERGAME:                      /* openMenu's Game ID: each game its own card */
+        g_per_game = !g_per_game;
         *settings_due = 1;
         break;
     case SYS_COLOUR:                       /* colour pictures for the VMU's screen (colour.h) */
@@ -1620,6 +1703,7 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
         else snprintf(cv, sizeof(cv), "on, none yet");
         v->rows[SYS_COLOUR] = "Colour screens"; v->values[SYS_COLOUR] = cv;
     }
+    v->rows[SYS_PERGAME] = "Card per game"; v->values[SYS_PERGAME] = g_per_game ? "on" : "off";
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
@@ -1672,6 +1756,7 @@ int main(int argc, char *argv[])
 
     g_card_lock = sceKernelCreateSema("card", 0, 1, 1, NULL);
     dev_input_load();
+    dev_gameid_load();
     card_load();
     game_audio_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
@@ -1788,6 +1873,15 @@ int main(int argc, char *argv[])
         last_frame_us = now_us();
 
         if (demo_on() && demo_frame(g_lcd)) g_lcd_count++;
+        {   /* openMenu's Game ID (from the adapter, or dev_gameid.txt in testing) */
+            static unsigned gid_seen;
+            if (g_gid_seq != gid_seen) { gid_seen = g_gid_seq; game_id_got(g_gid.id, g_gid.name); }
+            if (g_dev_gid_n && g_dev_gid_i < g_dev_gid_n && (now_us() - start_us) / 1000 >= g_dev_gid[g_dev_gid_i].ms) {
+                game_id_got(g_dev_gid[g_dev_gid_i].id, g_dev_gid[g_dev_gid_i].name);
+                g_dev_gid_i++;
+            }
+            game_id_turn(&settings_due);
+        }
         {   /* Details, "Collect screens": each new screen kept, to be coloured */
             static unsigned collected_at;
             if (colour_collect_on() && g_lcd_count != collected_at) { collected_at = g_lcd_count; colour_collect(g_lcd); }
