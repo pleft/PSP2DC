@@ -50,6 +50,9 @@ enum { UI_LINK_NONE, UI_LINK_WAITING, UI_LINK_UP, UI_LINK_DEMO };
  * which), the link, and the line beside the tabs (the card in use, or a
  * message just given). */
 void ui_frame(int standalone, int menu, int link, const char *status);
+/* what an action came to, in a few words: shown in the middle of the screen
+ * over any page (NULL: nothing) */
+void ui_toast(const char *s);
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
     int link;                          /* UI_LINK_* */

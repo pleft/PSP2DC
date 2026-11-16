@@ -367,6 +367,9 @@ static int card_upload(void)
     return 0;
 }
 
+/* how long the main loop's turns take: the longest, and how many went over
+ * 20 ms, in the last five seconds (System, Details) */
+static unsigned g_loop_max_us, g_loop_slow, g_loop_shown_max_us, g_loop_shown_slow, g_loop_window_us;
 static void details_view_rows(int standalone);
 static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned errors, int standalone)
 {
@@ -404,6 +407,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("draw     %u.%u ms a frame, longest %u.%u ms; VMU CPU %u.%u ms      \n", ui_draw_us() / 1000,
            ui_draw_us() / 100 % 10, ui_draw_max_us() / 1000, ui_draw_max_us() / 100 % 10,
            game_frame_us() / 1000, game_frame_us() / 100 % 10);
+    printf("loop     longest %u ms in the last 5 s; over 20 ms: %u      \n",
+           g_loop_shown_max_us / 1000, g_loop_shown_slow);
     printf("tools    %-44s\n", demo_on() ? demo_note() : rec_on() ? "RECORDING the VMU's screens" : rec_note());
     printf("         %-44s\n", rec_on() ? "" : shot_note());
     if (rec_on()) { pspDebugScreenSetXY(37, pspDebugScreenGetY() - 1); printf("%4u", rec_count()); pspDebugScreenSetXY(0, pspDebugScreenGetY() + 1); }
@@ -528,6 +533,42 @@ static unsigned dev_input(unsigned ms_since_start)
  * The box is one at a time (g_box): what it is about (a save or a card),
  * what it shows, and what each choice does. */
 static int g_alone = 1;                    /* standalone this frame (main loop) */
+
+/* The buttons, read by a thread of their own at every controller sample: a
+ * press is kept until the main loop takes it, so a tap made while a frame is
+ * slow (a file written, a page drawn) still counts. The main loop reading the
+ * pad itself lost quick taps on hardware (2026-11-16, MODE on the VMU). */
+static SceCtrlData g_in_now;               /* the latest sample */
+static unsigned g_in_made;                 /* buttons pressed since the main loop last looked */
+static SceUID g_in_lock = -1;
+static volatile int g_in_running = 1;
+static int input_thread(SceSize args, void *argp)
+{
+    SceCtrlData s;
+    unsigned prev = 0;
+    (void)args; (void)argp;
+    while (g_in_running) {
+        sceCtrlReadBufferPositive(&s, 1);  /* waits for the next sample */
+        sceKernelWaitSema(g_in_lock, 1, NULL);
+        g_in_made |= s.Buttons & ~prev;
+        prev = s.Buttons;
+        g_in_now = s;
+        sceKernelSignalSema(g_in_lock, 1);
+    }
+    return 0;
+}
+/* this frame's pad: the latest sample, with every button pressed since the
+ * last call held too (a tap already let go counts for one frame) */
+static void input_take(SceCtrlData *pad)
+{
+    sceKernelWaitSema(g_in_lock, 1, NULL);
+    *pad = g_in_now;
+    pad->Buttons |= g_in_made;
+    g_in_made = 0;
+    sceKernelSignalSema(g_in_lock, 1);
+}
+
+
 static int g_menu;                         /* SELECT: the menu (1) or playing (0) */
 enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
        BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE };
@@ -567,7 +608,11 @@ static void box_lines(const char *title, const char *a, const char *b, const cha
     if (b) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", b);
     if (c) snprintf(g_box_line[g_box_lines++], sizeof(g_box_line[0]), "%s", c);
 }
-/* what came of an action: a few words in the header, the box closed */
+/* what came of an action: a few words in the middle of the screen for two
+ * seconds (any button hides them), the box closed. In the header alone they
+ * went unseen (2026-11-16: "I press X and nothing shows"). */
+static char g_toast[48];
+static unsigned g_toast_at;
 static void say(const char *fmt, ...)
 {
     char buf[48];
@@ -575,7 +620,8 @@ static void say(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    notice(buf);
+    snprintf(g_toast, sizeof(g_toast), "%s", buf);   /* (in the middle of the screen, 2 s) */
+    g_toast_at = now_us() | 1;
     g_box = BOX_NONE;
 }
 
@@ -1535,6 +1581,9 @@ int main(int argc, char *argv[])
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
+    g_in_lock = sceKernelCreateSema("input", 0, 1, 1, NULL);
+    thid = sceKernelCreateThread("input", input_thread, 0x12, 0x1000, 0, NULL);
+    if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
 
     g_card_lock = sceKernelCreateSema("card", 0, 1, 1, NULL);
     dev_input_load();
@@ -1559,7 +1608,19 @@ int main(int argc, char *argv[])
 
     memset(&in, 0, sizeof(in));
     while (g_running) {
-        sceCtrlReadBufferPositive(&pad, 1);   /* waits for the next sample: once a frame */
+        sceDisplayWaitVblankStart();           /* once a frame */
+        input_take(&pad);                      /* (read by input_thread at every sample) */
+        {
+            static unsigned last_turn;
+            unsigned t = now_us(), dt = last_turn ? t - last_turn : 0;
+            last_turn = t;
+            if (dt > g_loop_max_us) g_loop_max_us = dt;
+            if (dt > 20000) g_loop_slow++;
+            if ((g_loop_window_us += dt) >= 5000000) {
+                g_loop_shown_max_us = g_loop_max_us; g_loop_shown_slow = g_loop_slow;
+                g_loop_max_us = g_loop_slow = 0; g_loop_window_us = 0;
+            }
+        }
         if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
         g_alone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
         if (g_alone != was_standalone) g_box = BOX_NONE;   /* (a box belongs to the mode it was opened in) */
@@ -1573,6 +1634,7 @@ int main(int argc, char *argv[])
              * rather than a key held with another.) */
             unsigned pressed = pad.Buttons & ~last_buttons;
             last_buttons = pad.Buttons;
+            if (pressed && g_toast_at && now_us() - g_toast_at > 150000) g_toast_at = 0;   /* any button hides a result */
             if (pressed & PSP_CTRL_SELECT) {
                 g_menu = !g_menu;
                 if (!g_menu) { g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0; }
@@ -1740,6 +1802,7 @@ int main(int argc, char *argv[])
         {
             const char *lt, *lh;
             ui_frame(standalone, g_menu, link_state(&lt, &lh), top_line());
+            ui_toast(g_toast_at && now_us() - g_toast_at < 2000000 ? g_toast : NULL);
         }
         if (g_page == PAGE_SYSTEM && g_sys_details) {
             if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {

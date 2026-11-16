@@ -68,8 +68,21 @@ void ui_begin(unsigned bg)
 
 static int g_menu;
 static unsigned g_frame_colour;            /* the theme's accent, from the header */
+static const UiTheme *g_page_theme;        /* (from the header: the toast's colours) */
+static const char *g_toast;
+void ui_toast(const char *s) { g_toast = s; }
+static void round_rect(int x, int y, int w, int h, int r, unsigned c);
+static void label_bold(int x, int y, unsigned c, const char *s);
+static unsigned on_colour(unsigned c);
 void ui_end(void)
 {
+    if (g_toast && g_page_theme) {        /* a result: one line, framed, in the middle */
+        const UiTheme *t = g_page_theme;
+        int w = 7 * (int)strlen(g_toast) + 40, x = 240 - w / 2;
+        round_rect(x - 2, 118, w + 4, 34, 8, t->accent);
+        round_rect(x, 120, w, 30, 6, t->panel);
+        label_bold(x + 20, 131, on_colour(t->panel), g_toast);
+    }
     if (g_menu) {                          /* the menu: the screen framed in the accent, the header's colour */
         ui_fill(0, 0, 480, 2, g_frame_colour);   ui_fill(0, 270, 480, 2, g_frame_colour);
         ui_fill(0, 0, 2, 272, g_frame_colour);   ui_fill(478, 0, 2, 272, g_frame_colour);
@@ -524,6 +537,7 @@ void ui_header(int page, const UiTheme *t)
 {
     int x;
     g_frame_colour = t->accent;
+    g_page_theme = t;
     round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
     x = draw_tabs(2, 1, page, t) + 12;
     disc(x + 4, 9, 5, t->panel);           /* (the dot on a ring: it reads on the lit bar too) */
