@@ -17,7 +17,10 @@ typedef struct {
     unsigned text;     /* the lines above and below */
     int grid;          /* 1: the dots drawn apart, as on the real LCD */
     unsigned body;     /* the VMU's case */
-    unsigned panel;    /* the boxes beside it */
+    unsigned panel;    /* the boxes beside it, the rows of a list */
+    unsigned accent;   /* what is chosen: the tab shown, the row, the key (one colour for that only) */
+    unsigned ok;       /* the card in use */
+    unsigned danger;   /* what deletes or writes over */
 } UiTheme;
 
 extern const UiTheme ui_themes[];
@@ -39,10 +42,17 @@ void ui_lcd_dots(const unsigned char *lcd, int x, int y, int sx, int sy, const U
 
 /* The pages */
 enum { UI_LINK_NONE, UI_LINK_WAITING, UI_LINK_UP, UI_LINK_DEMO };
+
+/* What every page shows the same way, set once a frame: whether the PSP's
+ * buttons work the pages (standalone) or are the Dreamcast's (then SELECT
+ * held works them), the link, and the line beside the tabs (the card in use,
+ * or a message just given). */
+void ui_frame(int standalone, int link, const char *status);
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
     int link;                          /* UI_LINK_* */
-    const char *link_text;
+    const char *link_text;             /* "Standalone", "Connected"... */
+    const char *link_hint;             /* under it, what that means */
     const Psp2dcInput *in;             /* what goes to the Dreamcast now */
     const unsigned char *card;         /* the memory card, when card_have */
     int card_have;
@@ -66,6 +76,8 @@ typedef struct {
     int nitems, item;
     unsigned off_items;                /* bits: choices that cannot be taken (greyed) */
     const unsigned short *picture;     /* a save's large picture, 72x56 ARGB4444, or NULL */
+    unsigned sep_items;                /* bits: a line above that choice (the choices in groups) */
+    unsigned danger_items;             /* bits: choices that delete or write over */
     const char *edit;                  /* a name being typed (Rename), or NULL: the keyboard shown */
     int key;                           /* the keyboard's key chosen: row * UI_KB_COLS + column */
 } UiBox;
@@ -76,11 +88,15 @@ typedef struct {
 extern const char *const ui_kb_rows[3];
 
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
- * Cards, 3 Status); status, if not NULL, at the right of them. */
+ * Cards, 3 System), the key that changes them (L R standalone, SELECT ◀▶
+ * otherwise), and at their right the link and the status line. */
 #define UI_TABS 4
-void ui_tabs(int page, const UiTheme *t, const char *status);
-/* the line of keys at the bottom of the Saves and Cards pages */
-enum { UI_KEYS_VIEW, UI_KEYS_BROWSE, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT };
+void ui_header(int page, const UiTheme *t);
+/* the line of keys at the bottom (UI_KEYS_*), for a page drawn elsewhere */
+void ui_keys(int keys, const UiTheme *t);
+/* the line of keys at the bottom of a page: only the keys that do something now */
+enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
+       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_HELD, UI_KEYS_BACK };
 
 /* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {
@@ -89,9 +105,9 @@ typedef struct {
     UiBox box;
     int keys;                          /* UI_KEYS_* */
 } UiSaves;
-/* The memory card's saves. Returns how many there are. */
+/* The memory card's saves (card_name's). Returns how many there are. */
 int  ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
-                   const char *top);
+                   const char *card_name);
 
 /* The Cards page: "New card" first, then each card */
 #define UI_CARDS_MAX 32
@@ -104,6 +120,19 @@ typedef struct {
     UiBox box;
     int keys;
 } UiCards;
-void ui_page_cards(const UiCards *v, const UiTheme *t, const char *top);
+void ui_page_cards(const UiCards *v, const UiTheme *t);
+
+/* The System page: the connection, the settings, and every key */
+#define UI_SYS_ROWS 6
+typedef struct {
+    int link;
+    const char *link_text, *link_hint;
+    const char *lines[4];              /* about the adapter and the card, NULL-ended */
+    const char *rows[UI_SYS_ROWS], *values[UI_SYS_ROWS];   /* the settings: a name, its value */
+    int nrows, sel;                    /* sel: the row chosen */
+    unsigned off_rows;                 /* bits: rows that cannot be used now (greyed) */
+    int keys;
+} UiSystem;
+void ui_page_system(const UiSystem *s, const UiTheme *t);
 
 #endif

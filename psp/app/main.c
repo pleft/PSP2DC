@@ -101,7 +101,7 @@ static unsigned g_return_after_us;         /* not before (a refused change is tr
 static int g_switch_auto;                  /* g_switch_to is ours (card_decide), not the player's */
 static char g_session_backup[CARD_NAME_MAX];   /* the card backed up this session (the saver) */
 static void saves_reset(void);             /* the Saves page's choice, forgotten when the card changes */
-static const char *g_card_note = "no file yet";
+static const char *g_card_note = "new";
 
 static unsigned now_us(void) { return (unsigned)sceKernelGetSystemTimeLow(); }
 
@@ -115,10 +115,10 @@ static void card_load(void)
     char names[CARDS_MAX][CARD_NAME_MAX];
     int n;
     cards_migrate();
-    if (cards_read(g_card_name, g_card)) { g_card_have = 1; g_card_note = "from the file"; return; }
+    if (cards_read(g_card_name, g_card)) { g_card_have = 1; g_card_note = "on the Memory Stick"; return; }
     if ((n = cards_list(names)) > 0 && cards_read(names[0], g_card)) {
         snprintf(g_card_name, sizeof(g_card_name), "%s", names[0]);
-        g_card_have = 1; g_card_note = "from the file";
+        g_card_have = 1; g_card_note = "on the Memory Stick";
     }
 }
 
@@ -161,7 +161,7 @@ static int card_change(const char *name)
         sa_reset();                        /* another card, another VMU: nothing of the last one stays */
         saves_reset();
         g_card_have = 1;
-        g_card_note = "changed";
+        g_card_note = "on the Memory Stick";
         rc = 0;
     }
     card_unlock();
@@ -190,7 +190,7 @@ static int saver_thread(SceSize args, void *argp)
                 }
                 if (cards_write(g_card_name, snap) < 0) { g_card_write_err++; g_card_dirty = 1; g_card_last_us = now_us(); }
                 else {
-                    g_card_writes++; g_card_note = "saved to the file";
+                    g_card_writes++; g_card_note = "saved";
                     /* what the adapter holds, or older: never ahead of it */
                     if (g_adapter_card[0] && !strcasecmp(g_adapter_card, g_card_name) && pspexpUsbConnected())
                         base_set(g_card_name, card_crc(snap));
@@ -217,7 +217,7 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
 
 /* What is on the screen: the VMU large, the memory card's saves, or the
  * status page. Kept with the theme and the stick's source in SETTINGS. */
-enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_STATUS, PAGES };
+enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_SYSTEM, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
 #define SETTINGS "ms0:/PSP2DC/settings.txt"
 
@@ -373,13 +373,13 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     memset(&st, 0, sizeof(st));
     if (!g_no_usb) pspexpUsbGetStats(&st);
     ui_begin(0xFF000000);
-    ui_tabs(3, &ui_themes[g_theme], NULL);
+    ui_header(3, &ui_themes[g_theme]);
     pspDebugScreenSetTextColor(0xFFFFFFFF);
     link = g_no_usb ? "no USB (emulator?)            "
          : pspexpUsbConnected() ? "CONNECTED to the adapter      "
          : pspexpUsbAttached()  ? "cable in, waiting for adapter "
          :                        "waiting for the USB cable     ";
-    pspDebugScreenSetXY(0, 2);
+    pspDebugScreenSetXY(0, 3);
     if (g_usb_kernel < 0) {
         printf("usb start %s: driver %08X, then by hand (try %d)\n", usb_rc < 0 ? "FAILED" : "ok",
                (unsigned)g_usb_kernel, g_usb_tries);
@@ -414,11 +414,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
            in->buttons & PSP2DC_BTN_LEFT ? 'L' : '.', in->buttons & PSP2DC_BTN_RIGHT ? 'R' : '.');
     printf("  stick    x %3u  y %3u      \n", in->stick_x, in->stick_y);
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
-    printf("Cross=A Circle=B Square=X Triangle=Y\n");
-    printf("SELECT+Left/Right tab  +Triangle shot\n");
-    printf("SELECT+L/R card  +Start new card\n");
-    printf("SELECT+Circle demo   HOME quit");
-    ui_lcd(g_lcd, 480 - 48 * 4 - 8, 272 - 32 * 4 - 8, 4, &ui_themes[g_theme]);
+    ui_lcd(g_lcd, 480 - 48 * 4 - 8, 250 - 32 * 4 - 4, 4, &ui_themes[g_theme]);
+    ui_keys(UI_KEYS_BACK, &ui_themes[g_theme]);
     ui_end();
 }
 
@@ -571,6 +568,16 @@ static void result(const char *title, const char *a, const char *b, const char *
     g_box = BOX_RESULT;
 }
 
+/* a save's box: its description as the title (the file name when it has none) */
+static const char *save_title(void)
+{
+    static char t[48];
+    CardInfo in;
+    if (g_card_have && cardfs_info(g_card, &g_sv_file, &in) && in.dc_desc[0]) snprintf(t, sizeof(t), "%s", in.dc_desc);
+    else snprintf(t, sizeof(t), "%s", g_sv_file.name);
+    return t;
+}
+
 /* the save the box is about, as the card now has it (0: gone) */
 static int saves_file(CardFile *f)
 {
@@ -650,7 +657,7 @@ static void saves_copy(const char *to, int move)
         result("Moved", line, NULL, NULL);
     } else if (rc == CARDFS_OK) result("Copied", line, NULL, NULL);
     else if (rc == CARDFS_SAME)
-        result("Same file exist", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
+        result("Already there", line, "That card has a save of this name.", move ? "It stays on this card." : NULL);
     else if (rc == CARDFS_ROOM && f.type == 0xCC && cardfs_has_game(other))
         result(move ? "Not moved" : "Not copied", line, "That card has a game already (one a card).",
                move ? "It stays on this card." : NULL);
@@ -668,8 +675,8 @@ static void saves_info(void)
     char a[64], b[64], c[64], d[64], e[64], g[64];
     if (!saves_file(&f) || !cardfs_info(g_card, &f, &in)) { result("No information", "Its header cannot be read.", NULL, NULL); return; }
     g_has_picture = cardfs_eyecatch(g_card, &f, g_picture) > 0;
-    snprintf(g_box_title, sizeof(g_box_title), "%s", f.name);
-    snprintf(a, sizeof(a), "%s", in.dc_desc[0] ? in.dc_desc : "(no description)");
+    snprintf(g_box_title, sizeof(g_box_title), "%s", in.dc_desc[0] ? in.dc_desc : f.name);
+    snprintf(a, sizeof(a), "File: %s", f.name);
     snprintf(b, sizeof(b), "On the VMU: %s", in.vms_desc);
     snprintf(c, sizeof(c), "%s, %d block%s%s", f.type == 0xCC ? "a game" : "a save", f.size, f.size == 1 ? "" : "s",
              f.prot ? ", copy-protected" : "");
@@ -737,7 +744,7 @@ static void import_one(const CardImport *im)
     }
     snprintf(line, sizeof(line), "%s into %s", im->file, g_box_card);
     if (rc == CARDFS_OK && card_put(g_box_card, img, "save imported") == 0) result("Imported", line, NULL, NULL);
-    else if (rc == CARDFS_SAME) result("Same file exist", line, "That card has a save of this name.", NULL);
+    else if (rc == CARDFS_SAME) result("Already there", line, "That card has a save of this name.", NULL);
     else if (rc == CARDFS_ROOM) result("Not enough free memory", line, "No room there (or a game is there:", "a card holds one game).");
     else result("Import failed", line, "Not a save or game file.", NULL);
     g_cd_due = 1;
@@ -763,7 +770,7 @@ static void saves_input(unsigned pressed)
         if (pressed & PSP_CTRL_TRIANGLE) { if (g_card_have) import_list(g_card_name); break; }
         if ((pressed & PSP_CTRL_CROSS) && n) {
             g_sv_file = f[g_sv_sel];
-            snprintf(g_box_title, sizeof(g_box_title), "%s", g_sv_file.name);
+            snprintf(g_box_title, sizeof(g_box_title), "%s", save_title());
             g_box_lines = 0;
             g_box = BOX_SAVE_ACTIONS;
             g_box_item = SA_INFO;
@@ -784,7 +791,7 @@ static void saves_input(unsigned pressed)
                 for (k = g_sv_ncards = 0; k < m; k++)
                     if (strcasecmp(names[k], g_card_name)) memcpy(g_sv_cards[g_sv_ncards++], names[k], CARD_NAME_MAX);
                 if (!g_sv_ncards) result("No other card", "Make one on the Cards page", "(New card).", NULL);
-                else { box_lines(g_sv_file.name, g_box_move ? "Move to:" : "Copy to:", NULL, NULL); g_box = BOX_CARD_LIST; g_box_item = 0; }
+                else { box_lines(save_title(), g_box_move ? "Move to:" : "Copy to:", NULL, NULL); g_box = BOX_CARD_LIST; g_box_item = 0; }
             } else if (g_box_item == SA_EXPORT) {
                 CardFile cf;
                 char base[9], a[64], b[64];
@@ -793,19 +800,19 @@ static void saves_input(unsigned pressed)
                     snprintf(b, sizeof(b), "and %s.VMS with %s.VMI", base, base);
                     result("Exported", a, b, NULL);
                 } else result("Export failed", "The files could not be written.", NULL, NULL);
-            } else { box_lines(g_sv_file.name, "Delete it from this card?", NULL, NULL); g_box = BOX_SAVE_DELETE; g_box_item = 0; }
+            } else { box_lines(save_title(), "Delete it from this card?", NULL, NULL); g_box = BOX_SAVE_DELETE; g_box_item = 0; }
         }
         break;
     case BOX_CARD_LIST:
         if (pressed & PSP_CTRL_DOWN) g_box_item = (g_box_item + 1) % g_sv_ncards;
         if (pressed & PSP_CTRL_UP) g_box_item = (g_box_item + g_sv_ncards - 1) % g_sv_ncards;
-        if (pressed & PSP_CTRL_CIRCLE) { box_lines(g_sv_file.name, NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = g_box_move ? SA_MOVE : SA_COPY; }
+        if (pressed & PSP_CTRL_CIRCLE) { box_lines(save_title(), NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = g_box_move ? SA_MOVE : SA_COPY; }
         else if (pressed & PSP_CTRL_CROSS) saves_copy(g_sv_cards[g_box_item], g_box_move);
         break;
     case BOX_SAVE_DELETE:                  /* No first */
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) g_box_item = !g_box_item;
         if ((pressed & PSP_CTRL_CIRCLE) || ((pressed & PSP_CTRL_CROSS) && !g_box_item)) {
-            box_lines(g_sv_file.name, NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = SA_DELETE;
+            box_lines(save_title(), NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = SA_DELETE;
         } else if (pressed & PSP_CTRL_CROSS) {
             CardFile cf;
             if (!saves_file(&cf)) { result("Delete failed", "The save is not there any more.", NULL, NULL); break; }
@@ -861,6 +868,8 @@ static void box_view(UiBox *b)
     case BOX_SAVE_ACTIONS:
         for (k = 0; k < SAS; k++) b->items[k] = sacts[k];
         b->nitems = SAS;
+        b->sep_items = 1u << SA_COPY | 1u << SA_DELETE;
+        b->danger_items = 1u << SA_DELETE;
         if (g_sv_file.prot) {
             b->off_items = 1u << SA_COPY | 1u << SA_MOVE;
             b->lines[0] = "Copy-protected: it stays on this card.";
@@ -874,6 +883,7 @@ static void box_view(UiBox *b)
         b->items[0] = "No, keep it";
         b->items[1] = g_box == BOX_RESTORE_ASK ? "Yes, restore it" : "Yes, delete it";
         b->nitems = 2;
+        b->danger_items = 1u << 1;
         break;
     case BOX_IMPORT:
         for (k = 0; k < g_nimports && k < 12; k++) b->items[k] = import_item(k);
@@ -882,6 +892,8 @@ static void box_view(UiBox *b)
     case BOX_CARD_ACTIONS:
         for (k = 0; k < CAS; k++) b->items[k] = cacts[k];
         b->nitems = CAS;
+        b->sep_items = 1u << CA_RENAME | 1u << CA_BACKUP | 1u << CA_DEFRAG | 1u << CA_DELETE;
+        b->danger_items = 1u << CA_DELETE;
         if (g_card_have && !strcasecmp(g_box_card, g_card_name)) b->off_items |= 1u << CA_USE | 1u << CA_DELETE;
         if (g_cd_n < 2) b->off_items |= 1u << CA_DELETE;
         break;
@@ -916,7 +928,7 @@ static void saves_view(UiSaves *v, int standalone)
     v->keys = UI_KEYS_VIEW;
     if (!standalone) return;
     v->sel = g_sv_sel;
-    v->keys = g_box == BOX_NONE ? UI_KEYS_BROWSE : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
+    v->keys = g_box == BOX_NONE ? UI_KEYS_SAVES : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
     box_view(&v->box);
 }
 
@@ -1189,7 +1201,7 @@ static void cards_view(UiCards *v, int standalone)
     if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
     v->first = g_cd_first;
     v->sel = standalone ? g_cd_sel : -1;
-    v->keys = !standalone ? UI_KEYS_VIEW : g_box == BOX_NONE ? UI_KEYS_BROWSE
+    v->keys = !standalone ? UI_KEYS_VIEW : g_box == BOX_NONE ? UI_KEYS_CARDS
             : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
     if (standalone) box_view(&v->box);
 }
@@ -1254,14 +1266,14 @@ static void card_decide(void)
         snprintf(g_card_name, sizeof(g_card_name), "%s", a_name);
         snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", a_name);
         card_send(1);
-        g_card_note = "from the adapter";
+        g_card_note = "from the Dreamcast";
         return;
     case SYNC_SAME:
         base_set(a_name, st.a);
         if (!in_use) { card_eject(mine, 1, 1); return; }   /* (in use: a copy left half come) */
         snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", a_name);
         card_send(0);
-        g_card_note = "same as the adapter's";
+        g_card_note = "same as the Dreamcast's";
         return;
     case SYNC_PUT_OURS:
         if (st.have_ours && st.ours == st.a) base_set(a_name, st.a);
@@ -1294,16 +1306,100 @@ static void card_decide(void)
     notice(msg);
 }
 
-/* What shows beside the tabs (ui_tabs): a change just made, or the link and
- * the card in use */
+/* What shows beside the tabs (ui_header, its dot the link): a message just
+ * given, or the card in use and what became of it */
 static const char *top_line(void)
 {
     static char buf[80];
-    const char *link = demo_on() ? "demo" : g_no_usb ? "no USB" : pspexpUsbConnected() ? "connected"
-                     : pspexpUsbAttached() ? "cable in" : "standalone";
     if (g_notice_at && now_us() - g_notice_at < 2000000) snprintf(buf, sizeof(buf), "%s", g_notice);
-    else snprintf(buf, sizeof(buf), "%s  %s", link, g_card_have ? g_card_name : "no card");
+    else if (g_card_have) snprintf(buf, sizeof(buf), "%s, %s", g_card_name, g_card_note);
+    else snprintf(buf, sizeof(buf), "no memory card yet");
     return buf;
+}
+
+/* The link: its colour (UI_LINK_*), and in words, what it is and what that means */
+static int link_state(const char **text, const char **hint)
+{
+    if (demo_on()) { *text = "Demo"; *hint = "VMU recordings played back"; return UI_LINK_DEMO; }
+    if (!g_no_usb && pspexpUsbConnected()) { *text = "Connected"; *hint = "the PSP is the Dreamcast's pad"; return UI_LINK_UP; }
+    if (!g_no_usb && pspexpUsbAttached()) { *text = "Cable in"; *hint = "waiting for the adapter"; return UI_LINK_WAITING; }
+    *text = "Standalone";
+    *hint = g_no_usb ? "no USB here (an emulator)" : "plug the adapter in to play";
+    return UI_LINK_NONE;
+}
+
+/* ---- the System page: the settings, and the details ---- */
+enum { SYS_THEME, SYS_RECORD, SYS_DEMO, SYS_DETAILS, SYSS };
+static int g_sys_sel, g_sys_details;
+
+static void page_turn(int d)
+{
+    g_page = (g_page + d + PAGES) % PAGES;
+    g_box = 0;                             /* (a box belongs to the page it was opened on) */
+    g_cd_due = 1;
+    g_sys_details = 0;
+}
+
+static int sys_off(int row)                /* a row that cannot be used now */
+{
+    return row == SYS_DEMO && !demo_on() && !g_no_usb && pspexpUsbConnected();
+}
+
+/* a setting changed: d -1 or 1 (left or right), 0 for X */
+static void system_do(int d, int *settings_due)
+{
+    switch (g_sys_sel) {
+    case SYS_THEME:
+        g_theme = (g_theme + (d ? d : 1) + ui_theme_count) % ui_theme_count;
+        *settings_due = 1;
+        break;
+    case SYS_RECORD:
+        if (d) break;
+        if (rec_on()) { rec_stop(); notice(rec_note()); } else { rec_start(); notice("recording the VMU"); }
+        break;
+    case SYS_DEMO:
+        if (d || sys_off(SYS_DEMO)) break;
+        if (demo_on()) demo_stop(); else { demo_start(); if (!demo_on()) notice(demo_note()); }
+        break;
+    case SYS_DETAILS:
+        if (!d) g_sys_details = 1;
+        break;
+    }
+}
+
+static void system_input(unsigned pressed, int *settings_due)
+{
+    if (g_sys_details) { if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_sys_details = 0; return; }
+    if (pressed & PSP_CTRL_DOWN) g_sys_sel = (g_sys_sel + 1) % SYSS;
+    if (pressed & PSP_CTRL_UP) g_sys_sel = (g_sys_sel + SYSS - 1) % SYSS;
+    if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) system_do(pressed & PSP_CTRL_RIGHT ? 1 : -1, settings_due);
+    if (pressed & PSP_CTRL_CROSS) system_do(0, settings_due);
+}
+
+static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned errors)
+{
+    static char l0[64], l1[64], l2[64], rec[24];
+    int k = 0;
+    memset(v, 0, sizeof(*v));
+    v->link = link_state(&v->link_text, &v->link_hint);
+    if (!g_status_count) snprintf(l0, sizeof(l0), "Adapter: not heard from yet");
+    else if (g_adapter_version != PSP2DC_PROTOCOL_VERSION)
+        snprintf(l0, sizeof(l0), "Adapter: old firmware (%u), update it", g_adapter_version);
+    else snprintf(l0, sizeof(l0), "Adapter: firmware %u, up %u min", g_adapter_version, g_adapter_uptime_ms / 60000);
+    v->lines[k++] = l0;
+    snprintf(l1, sizeof(l1), "Card: %s, %s", g_card_have ? g_card_name : "none", g_card_have ? g_card_note : "none yet");
+    v->lines[k++] = l1;
+    if (v->link == UI_LINK_UP) { snprintf(l2, sizeof(l2), "%u inputs sent, %u errors", sent, errors); v->lines[k++] = l2; }
+    v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
+    v->rows[SYS_RECORD] = "Record the VMU";
+    if (rec_on()) snprintf(rec, sizeof(rec), "on, %u", rec_count()); else snprintf(rec, sizeof(rec), "off");
+    v->values[SYS_RECORD] = rec;
+    v->rows[SYS_DEMO] = "Demo";            v->values[SYS_DEMO] = demo_on() ? "on" : "off";
+    v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
+    v->nrows = SYSS;
+    v->sel = g_sys_sel;
+    if (sys_off(SYS_DEMO)) v->off_rows |= 1u << SYS_DEMO;
+    v->keys = standalone ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_HELD;
 }
 
 int main(int argc, char *argv[])
@@ -1372,12 +1468,12 @@ int main(int argc, char *argv[])
         if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
         if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
             unsigned pressed = pad.Buttons & ~last_buttons;
-            if (pressed & PSP_CTRL_SQUARE) { if (rec_on()) rec_stop(); else rec_start(); }
+            /* SELECT held: the tab, the card, a screenshot, any time; and
+             * the page shown worked while the buttons are the Dreamcast's
+             * (a list scrolled, the System page's settings) */
             if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; }
             if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
-                g_page = (g_page + (pressed & PSP_CTRL_RIGHT ? 1 : PAGES - 1)) % PAGES;
-                g_box = 0;                     /* (a box belongs to the page it was opened on) */
-                g_cd_due = 1;
+                page_turn(pressed & PSP_CTRL_RIGHT ? 1 : -1);
                 settings_due = 1;
             }
             if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
@@ -1386,17 +1482,22 @@ int main(int argc, char *argv[])
                     g_saves_first += d;
                     if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
                     if (g_saves_first < 0) g_saves_first = 0;
-                } else {
-                    g_theme = (g_theme + d + ui_theme_count) % ui_theme_count;
-                    settings_due = 1;
-                }
-               
+                } else if (g_page == PAGE_CARDS) {
+                    g_cd_first += d;
+                    if (g_cd_first > g_cd_n + 1 - 6) g_cd_first = g_cd_n + 1 - 6;
+                    if (g_cd_first < 0) g_cd_first = 0;
+                    g_cd_sel = g_cd_first;
+                } else if (g_page == PAGE_SYSTEM && !g_sys_details) g_sys_sel = (g_sys_sel + d + SYSS) % SYSS;
             }
+            if ((pressed & PSP_CTRL_CROSS) && g_page == PAGE_SYSTEM) {
+                if (g_sys_details) g_sys_details = 0; else system_do(0, &settings_due);
+            }
+            if ((pressed & PSP_CTRL_CIRCLE) && g_page == PAGE_SYSTEM) g_sys_details = 0;
             if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_START)) {
                 char names[CARDS_MAX][CARD_NAME_MAX], made[CARD_NAME_MAX], msg[48];
                 int n = cards_list(names), cur = 0, k;
                 const char *to = NULL;
-               
+
                 if (pressed & PSP_CTRL_START) {          /* a new, empty card, and changed to it */
                     if (cards_new(made) == 0) { to = made; n = cards_list(names); }
                     else notice("could not make a card");
@@ -1425,11 +1526,6 @@ int main(int argc, char *argv[])
                     } else notice("could not read that card");
                 }
             }
-            if (pressed & PSP_CTRL_CIRCLE) {
-                if (demo_on()) demo_stop();
-                else if (!connected) demo_start();
-               
-            }
             last_buttons = pad.Buttons;
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
@@ -1441,11 +1537,20 @@ int main(int argc, char *argv[])
         standalone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
         vmu_held = 0;
         if (standalone) {
-            unsigned b = pad.Buttons;
-            /* the Saves and Status pages take the buttons; the VMU is not shown */
+            unsigned b = pad.Buttons, pr = b & ~page_last;
+            /* L and R change the tab (connected they are the triggers, and
+             * SELECT + left/right does it); not while a box asks something */
+            if ((pr & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
+                page_turn(pr & PSP_CTRL_RTRIGGER ? 1 : -1);
+                settings_due = 1;
+                saves_due = 1;
+                pr = 0;
+            }
+            /* the other pages take the buttons; the VMU is not shown */
             if (g_page != PAGE_VMU) {
-                if (g_page == PAGE_SAVES && (b & ~page_last)) { saves_input(b & ~page_last); saves_due = 1; }
-                if (g_page == PAGE_CARDS && (b & ~page_last)) { cards_input(b & ~page_last, &settings_due); saves_due = 1; }
+                if (g_page == PAGE_SAVES && pr) { saves_input(pr); saves_due = 1; }
+                if (g_page == PAGE_CARDS && pr) { cards_input(pr, &settings_due); saves_due = 1; }
+                if (g_page == PAGE_SYSTEM && pr) { system_input(pr, &settings_due); saves_due = 1; }
                 page_last = b;
                 b = 0;
             } else page_last = b;
@@ -1531,14 +1636,14 @@ int main(int argc, char *argv[])
                          * file", it would send its formatted card over ours) */
                         if (card_upload() == 0) {
                             done.sent = 1;
-                            g_card_note = "sent to the adapter";
+                            g_card_note = "in the Dreamcast";
                             base_set(g_card_name, crc);
                             snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", g_card_name);
                             g_card_rx_ok = 1;
                             send_msg(PSP2DC_MSG_CARD_DONE, &done, sizeof(done));
-                        } else g_card_note = "could not send it";
+                        } else g_card_note = "not sent to the adapter";
                     } else {
-                        g_card_note = "new, from the adapter";
+                        g_card_note = "new, from the Dreamcast";
                         snprintf(g_adapter_card, sizeof(g_adapter_card), "%s", g_card_name);
                         g_card_rx_ok = 1;
                         send_msg(PSP2DC_MSG_CARD_DONE, &done, sizeof(done));
@@ -1583,14 +1688,29 @@ int main(int argc, char *argv[])
         g_usb_restarts = usb_restarts;
         if (settings_due) { settings_due = 0; settings_save(); }
         frame++;
-        if (g_page == PAGE_STATUS) {
-            if (frame % 6 == 0 || g_lcd_count != lcd_shown) { lcd_shown = g_lcd_count; show(usb_rc, &in, sent, errors); }
+        {
+            const char *lt, *lh;
+            ui_frame(standalone, link_state(&lt, &lh), top_line());
+        }
+        if (g_page == PAGE_SYSTEM && g_sys_details) {
+            if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {
+                lcd_shown = g_lcd_count;
+                saves_due = 0;
+                show(usb_rc, &in, sent, errors);
+            }
+        } else if (g_page == PAGE_SYSTEM) {
+            if (frame % 10 == 0 || saves_due) {
+                UiSystem v;
+                system_view(&v, standalone, sent, errors);
+                saves_due = 0;
+                ui_page_system(&v, &ui_themes[g_theme]);
+            }
         } else if (g_page == PAGE_CARDS) {
             if (frame % 10 == 0 || saves_due) {
                 UiCards v;
                 cards_view(&v, standalone);
                 saves_due = 0;
-                ui_page_cards(&v, &ui_themes[g_theme], top_line());
+                ui_page_cards(&v, &ui_themes[g_theme]);
             }
         } else if (g_page == PAGE_SAVES) {
             if (frame % 4 == 0 || saves_due) {   /* (the icons animate) */
@@ -1598,7 +1718,7 @@ int main(int argc, char *argv[])
                 saves_view(&v, standalone);
                 saves_due = 0;
                 g_saves_count = ui_page_saves(g_card, g_card_have, &v, &ui_themes[g_theme],
-                                              now_us() / 1000, top_line());
+                                              now_us() / 1000, g_card_name);
             }
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
             UiHome h;
@@ -1606,11 +1726,7 @@ int main(int argc, char *argv[])
             lcd_shown = g_lcd_count;
             memset(&h, 0, sizeof(h));
             h.lcd = g_lcd;
-            h.link = demo_on() ? UI_LINK_DEMO : up ? UI_LINK_UP
-                   : (!g_no_usb && pspexpUsbAttached()) ? UI_LINK_WAITING : UI_LINK_NONE;
-            h.link_text = demo_on() ? "demo, no adapter" : up ? "connected to the adapter"
-                        : g_no_usb ? "no USB: standalone" : h.link == UI_LINK_WAITING ? "cable in, waiting"
-                        : "standalone";
+            h.link = link_state(&h.link_text, &h.link_hint);
             h.in = &in;
             h.card = g_card;
             h.card_have = g_card_have;
