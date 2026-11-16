@@ -45,26 +45,41 @@ The full design notes, test records and history are in
 | Part | Notes |
 |---|---|
 | PSP-1000 with custom firmware | Tested on 6.60 PRO-C. The USB driver is a kernel module. |
-| Watara SuperPico | Kept unplugged from the Supervision while used as the adapter. |
-| Dreamcast controller cable | Wired to the SuperPico's cartridge edge (below). |
+| Watara SuperPico | The adapter: a Raspberry Pi Pico (RP2040) on a cartridge board. |
+| Dreamcast controller cable | Its four wires soldered to the Pico's pins (below). |
 | Micro-USB OTG adapter + Mini-USB cable | Pico (USB host) to PSP (USB device). |
-| 3.3 V USB-serial adapter | Optional: firmware debug output on GP20. |
+| 3.3 V USB-serial adapter | Optional: the firmware's debug log on GP20. |
 
-### Wiring
+### The adapter is an RP2040
 
-| Dreamcast plug | SuperPico |
+The [SuperPico](https://github.com/zwenergy/Superpico) is a flash cartridge
+for the Watara Supervision handheld. It is built around an ordinary Raspberry
+Pi Pico, an RP2040 board, soldered onto the cartridge's circuit board. PSP2DC
+uses only the Pico: the firmware runs on the RP2040, the PSP plugs into the
+Pico's micro-USB port, and the Dreamcast cable is soldered straight to the
+Pico's pins. Leave the cartridge out of the Supervision while it is the
+adapter.
+
+![Wiring: the Pico's 40 pins and the Dreamcast plug](docs/wiring.svg)
+
+| Dreamcast wire | Pico pin |
 |---|---|
-| Pin 1 (line A) | GP21, cartridge edge pin 31 |
-| Pin 5 (line B) | GP22, cartridge edge pin 32 |
-| Pin 3 (+5 V) | Pico VBUS |
-| Pins 2 and 4 (GND) | GND, edge pins 21/22 |
+| Data A (plug pin 1) | GP21, pin 27 |
+| Data B (plug pin 5) | GP22, pin 29 |
+| +5 V | VBUS, pin 40 |
+| Ground | GND, e.g. pin 28 |
+| *(optional)* debug log | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
 
-Debug UART: GP20 (edge pin 30), 115200 8N1, transmit only.
+- **+5 V to VBUS:** the console's 5 V powers the Pico and, through VBUS, the
+  USB port that the PSP plugs into.
+- **Data A and B:** the Maple code needs two consecutive GPIOs. They are set
+  at build time (`MAPLE_PIN1=21`, `MAPLE_PIN5=22`).
 
-> **Warning:** the SuperPico's three 74LVC245 buffers are always enabled and
-> always drive GP0–GP16 and GP28. Firmware must never set those pins as
-> outputs. Only GP17–GP22, GP26, GP27 and the LED (GP25) are free. See
-> section 3.2 of the design notes.
+> **Warning:** on the SuperPico, three 74LVC245 buffers between the cartridge
+> slot and the Pico are always on, and they always drive GP0–GP16 and GP28
+> (red in the drawing). Firmware must never set those pins as outputs. Only
+> GP17–GP22, GP26, GP27 and the LED (GP25) are free. See section 3.2 of the
+> design notes.
 
 ## Building
 
