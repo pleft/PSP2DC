@@ -62,13 +62,18 @@ adapter.
 
 ![Wiring: the Pico's 40 pins and the Dreamcast plug](docs/wiring.svg)
 
-| Dreamcast wire | Pico pin |
-|---|---|
-| Data A (plug pin 1) | GP21, pin 27 |
-| Data B (plug pin 5) | GP22, pin 29 |
-| +5 V | VBUS, pin 40 |
-| Ground (the plug has two) | Two GND pins, e.g. 28 and 38 |
-| *(optional)* debug log | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
+| Dreamcast wire | Colour | Pico pin |
+|---|---|---|
+| Data A (plug pin 1) | red | GP21, pin 27 |
+| Data B (plug pin 5) | white | GP22, pin 29 |
+| +5 V | blue | VBUS, pin 40 |
+| Ground | black | GND, e.g. pin 28 |
+| Sense (ground) | green | GND, e.g. pin 38 |
+| *(optional)* debug log | | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
+
+The colours are those of Sega's own controller cable
+([mc.pp.se](http://mc.pp.se/dc/controller.html)). Extension and third-party
+cables can use other colours.
 
 - **+5 V to VBUS:** the console's 5 V powers the Pico and, through VBUS, the
   USB port that the PSP plugs into.

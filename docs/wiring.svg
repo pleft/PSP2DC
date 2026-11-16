@@ -75,7 +75,7 @@
 <text x="320" y="582" text-anchor="end" fill="#c0392b">GP15</text>
 <circle cx="488" cy="122" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="126" text-anchor="end" font-size="10" fill="#fff">40</text>
-<text x="510" y="126" fill="#c0392b" font-weight="bold">VBUS</text>
+<text x="510" y="126" fill="#1a1a1a" font-weight="bold">VBUS</text>
 <circle cx="488" cy="146" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="150" text-anchor="end" font-size="10" fill="#fff">39</text>
 <text x="510" y="150" fill="#6b6b6b">VSYS</text>
@@ -117,7 +117,7 @@
 <text x="510" y="438" fill="#1f5fbf" font-weight="bold">GP21</text>
 <circle cx="488" cy="458" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="462" text-anchor="end" font-size="10" fill="#fff">26</text>
-<text x="510" y="462" fill="#1f5fbf" font-weight="bold">GP20</text>
+<text x="510" y="462" fill="#6b6b6b">GP20</text>
 <circle cx="488" cy="482" r="6" fill="#f5d76e" stroke="#8a6d00"/>
 <text x="476" y="486" text-anchor="end" font-size="10" fill="#fff">25</text>
 <text x="510" y="486" fill="#1e8449">GP19</text>
@@ -138,28 +138,34 @@
 <text x="260" y="250" text-anchor="end" fill="#c0392b">never outputs</text>
 <rect x="740" y="282" width="230" height="166" rx="8" fill="#f2f2f2" stroke="#555" stroke-width="2"/>
 <text x="752" y="306" font-weight="bold" fill="#1a1a1a">Dreamcast controller plug</text>
-<polyline points="620,122 690,122 690,338 740,338" fill="none" stroke="#c0392b" stroke-width="2.5"/>
-<circle cx="754" cy="338" r="6" fill="#c0392b"/>
-<text x="768" y="342" fill="#c0392b" font-weight="bold">+5 V</text>
-<polyline points="620,170 670,170 670,362 740,362" fill="none" stroke="#333333" stroke-width="2.5"/>
-<circle cx="754" cy="362" r="6" fill="#333333"/>
-<text x="768" y="366" fill="#333333" font-weight="bold">ground</text>
-<line x1="620" y1="386" x2="740" y2="386" stroke="#1f5fbf" stroke-width="2.5"/>
-<circle cx="754" cy="386" r="6" fill="#1f5fbf"/>
-<text x="768" y="390" fill="#1f5fbf" font-weight="bold">data B (pin 5)</text>
-<line x1="620" y1="410" x2="740" y2="410" stroke="#333333" stroke-width="2.5"/>
-<circle cx="754" cy="410" r="6" fill="#333333"/>
-<text x="768" y="414" fill="#333333" font-weight="bold">ground</text>
-<line x1="620" y1="434" x2="740" y2="434" stroke="#1f5fbf" stroke-width="2.5"/>
-<circle cx="754" cy="434" r="6" fill="#1f5fbf"/>
-<text x="768" y="438" fill="#1f5fbf" font-weight="bold">data A (pin 1)</text>
-<line x1="620" y1="458" x2="740" y2="458" stroke="#1f5fbf" stroke-width="2" stroke-dasharray="6,4"/>
-<text x="620" y="480" fill="#1f5fbf">optional debug log: to a 3.3 V</text>
-<text x="620" y="496" fill="#1f5fbf">USB-serial adapter's RX, 115200 8N1</text>
-<text x="20" y="685" fill="#1f5fbf">■ wired</text>
-<text x="110" y="685" fill="#1e8449">■ free (direct pins)</text>
-<text x="290" y="685" fill="#c0392b">■ buffered on the SuperPico: never an output</text>
+<polyline points="620,122 690,122 690,338 740,338" fill="none" stroke="#555555" stroke-width="5"/>
+<polyline points="620,122 690,122 690,338 740,338" fill="none" stroke="#1f5fbf" stroke-width="3"/>
+<circle cx="754" cy="338" r="6" fill="#1f5fbf" stroke="#555555" stroke-width="1.5"/>
+<text x="768" y="342" fill="#1a1a1a"><tspan font-weight="bold">blue</tspan> +5 V</text>
+<polyline points="620,170 670,170 670,362 740,362" fill="none" stroke="#555555" stroke-width="5"/>
+<polyline points="620,170 670,170 670,362 740,362" fill="none" stroke="#2e9e44" stroke-width="3"/>
+<circle cx="754" cy="362" r="6" fill="#2e9e44" stroke="#555555" stroke-width="1.5"/>
+<text x="768" y="366" fill="#1a1a1a"><tspan font-weight="bold">green</tspan> ground (sense)</text>
+<polyline points="620,386 740,386" fill="none" stroke="#555555" stroke-width="5"/>
+<polyline points="620,386 740,386" fill="none" stroke="#ffffff" stroke-width="3"/>
+<circle cx="754" cy="386" r="6" fill="#ffffff" stroke="#555555" stroke-width="1.5"/>
+<text x="768" y="390" fill="#1a1a1a"><tspan font-weight="bold">white</tspan> data B (pin 5)</text>
+<polyline points="620,410 740,410" fill="none" stroke="#555555" stroke-width="5"/>
+<polyline points="620,410 740,410" fill="none" stroke="#111111" stroke-width="3"/>
+<circle cx="754" cy="410" r="6" fill="#111111" stroke="#555555" stroke-width="1.5"/>
+<text x="768" y="414" fill="#1a1a1a"><tspan font-weight="bold">black</tspan> ground</text>
+<polyline points="620,434 740,434" fill="none" stroke="#555555" stroke-width="5"/>
+<polyline points="620,434 740,434" fill="none" stroke="#d62828" stroke-width="3"/>
+<circle cx="754" cy="434" r="6" fill="#d62828" stroke="#555555" stroke-width="1.5"/>
+<text x="768" y="438" fill="#1a1a1a"><tspan font-weight="bold">red</tspan> data A (pin 1)</text>
+<line x1="620" y1="458" x2="720" y2="458" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="620" y="480" fill="#6b6b6b">optional debug log: to a 3.3 V</text>
+<text x="620" y="496" fill="#6b6b6b">USB-serial adapter's RX, 115200 8N1</text>
+<text x="20" y="685" fill="#1f5fbf">■ data pins</text>
+<text x="140" y="685" fill="#1e8449">■ free (direct pins)</text>
+<text x="320" y="685" fill="#c0392b">■ buffered on the SuperPico: never an output</text>
 <text x="20" y="707" fill="#1a1a1a">+5 V from the Dreamcast goes to VBUS (pin 40): it powers the Pico and the USB port the PSP plugs into.</text>
 <text x="20" y="725" fill="#1a1a1a">The plug's two grounds: each to a GND pin (any of the Pico's will do). Data A and B: GP21 and GP22,</text>
 <text x="20" y="743" fill="#1a1a1a">consecutive GPIOs, as the Maple code needs (set at build time: MAPLE_PIN1=21, MAPLE_PIN5=22).</text>
+<text x="20" y="761" fill="#6b6b6b">Wire colours: Sega's own controller cable (mc.pp.se/dc/controller.html); extension and third-party cables can differ.</text>
 </svg>
