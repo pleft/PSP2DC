@@ -1,4 +1,4 @@
-From 39a2ab033f18585bfd19aeee06d62afb21eb564a Mon Sep 17 00:00:00 2001
+From 62bc1f63e0c61e8154ed6a19c776969965e8f5f4 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Tue, 17 Nov 2026 00:43:14 +0200
 Subject: [PATCH 10/10] PSP2DC: openMenu's Game ID (Maple 0x21) taken and
@@ -8,6 +8,8 @@ The VMU's all-status reply names it as openMenu's known virtual VMUs do (at
 byte 112: USB4Maple's "USB RP2040 EMU  "), so openMenu sends the disc's
 product number and name before starting it; the adapter answers OK and
 sends them to the PSP (PSP2DC_MSG_GAME_ID), which may put that game's card in.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../device/dreamcast/dreamcast_device.c       | 10 ++++++
  src/native/device/dreamcast/vmu.c             | 34 +++++++++++++++++++

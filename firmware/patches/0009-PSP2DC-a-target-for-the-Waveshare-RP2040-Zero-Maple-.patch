@@ -1,4 +1,4 @@
-From 058608562e1e424e741fdd499221d87186fbbe8a Mon Sep 17 00:00:00 2001
+From 26b0d4ab0f488a6532c0eb8d76578e114f7440d6 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Mon, 16 Nov 2026 22:17:49 +0200
 Subject: [PATCH 09/10] PSP2DC: a target for the Waveshare RP2040-Zero (Maple
@@ -9,6 +9,8 @@ driver, memory card in RAM, no Bluetooth) on the RP2040-Zero, Maple on
 GP14/GP15 like joypad_dc_rp2040zero, the WS2812 on GP16, debug UART0 TX on
 GP0. The board ties USB-C VBUS to the 5V pin, so the Dreamcast's 5 V there
 powers the PSP's USB port.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  Makefile           |  6 ++++++
  src/CMakeLists.txt | 43 +++++++++++++++++++++++++++++++++++++++++++
