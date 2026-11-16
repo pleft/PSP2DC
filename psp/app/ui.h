@@ -87,15 +87,15 @@ typedef struct {
 extern const char *const ui_kb_rows[3];
 
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
- * Cards, 3 System), the key that changes them (L R standalone, SELECT ◀▶
- * otherwise), and at their right the link and the status line. */
+ * Cards, 3 System), the keys that change them (SELECT + L R), and at their
+ * right the link and the status line. */
 #define UI_TABS 4
 void ui_header(int page, const UiTheme *t);
 /* the line of keys at the bottom (UI_KEYS_*), for a page drawn elsewhere */
 void ui_keys(int keys, const UiTheme *t);
 /* the line of keys at the bottom of a page: only the keys that do something now */
 enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
-       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_HELD, UI_KEYS_DETAILS, UI_KEYS_DETAILS_HELD };
+       UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS };
 
 /* The Saves page: where it is, what is chosen, the box over it */
 typedef struct {

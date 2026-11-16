@@ -417,7 +417,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("  triggers L %3u  R %3u      \n", in->trigger_l, in->trigger_r);
     ui_lcd(g_lcd, 480 - 48 * 4 - 8, 250 - 32 * 4 - 4, 4, &ui_themes[g_theme]);
     details_view_rows(standalone);
-    ui_keys(standalone ? UI_KEYS_DETAILS : UI_KEYS_DETAILS_HELD, &ui_themes[g_theme]);
+    ui_keys(UI_KEYS_DETAILS, &ui_themes[g_theme]);
     ui_end();
 }
 
@@ -526,6 +526,7 @@ static unsigned dev_input(unsigned ms_since_start)
  *
  * The box is one at a time (g_box): what it is about (a save or a card),
  * what it shows, and what each choice does. */
+static int g_alone = 1;                    /* standalone this frame (main loop) */
 enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
        BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE };
 enum { SA_INFO, SA_COPY, SA_MOVE, SA_EXPORT, SA_DELETE, SAS };
@@ -702,7 +703,7 @@ static void saves_info(void)
 static void import_list(const char *into)
 {
     g_nimports = cards_imports(g_imports, 64);
-    snprintf(g_box_card, sizeof(g_box_card), "%s", into);
+    if (into != g_box_card) snprintf(g_box_card, sizeof(g_box_card), "%s", into);   /* (the Cards page passes it) */
     if (!g_nimports) {
         result("Nothing to import", "Put .DCI files, or .VMS (with their", ".VMI), in ms0:/PSP2DC/saves", NULL);
         return;
@@ -765,11 +766,10 @@ static void saves_input(unsigned pressed)
         if ((pressed & PSP_CTRL_UP) && g_sv_sel > 0) g_sv_sel--;
         if (g_sv_sel < g_saves_first) g_saves_first = g_sv_sel;
         if (g_sv_sel > g_saves_first + 2) g_saves_first = g_sv_sel - 2;
-        if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_TRIANGLE)) && game_running()) {
+        if ((pressed & PSP_CTRL_CROSS) && game_running()) {
             result("A VMU game is running", "Leave it first:", "hold triangle (MODE) 2 s.", NULL);
             break;
         }
-        if (pressed & PSP_CTRL_TRIANGLE) { if (g_card_have) import_list(g_card_name); break; }
         if ((pressed & PSP_CTRL_CROSS) && n) {
             g_sv_file = f[g_sv_sel];
             snprintf(g_box_title, sizeof(g_box_title), "%s", save_title());
@@ -898,6 +898,7 @@ static void box_view(UiBox *b)
         b->danger_items = 1u << CA_DELETE;
         if (g_card_have && !strcasecmp(g_box_card, g_card_name)) b->off_items |= 1u << CA_USE | 1u << CA_DELETE;
         if (g_cd_n < 2) b->off_items |= 1u << CA_DELETE;
+        if (!g_alone) b->off_items |= ~(1u << CA_USE) & ((1u << CAS) - 1);
         break;
     case BOX_RESTORE:
         for (k = 0; k < g_nbackups && k < 12; k++) {
@@ -957,7 +958,6 @@ static void cards_summary(void)
     g_cd_due = 0;
 }
 
-/* SELECT+L/R and the Cards page change the card the same way, standalone */
 static int card_use(const char *name)
 {
     char msg[48];
@@ -965,6 +965,42 @@ static int card_use(const char *name)
     snprintf(msg, sizeof(msg), "card: %s", name);
     notice(msg);
     return 0;
+}
+
+static void card_eject(const char *to, int automatic, int discard);
+
+/* The card in use changed to another (the Cards page, either mode).
+ * Standalone at once: 0, or -1 if it could not be read. Connected the
+ * adapter lets go of its card first, once every block has reached us, and
+ * the change happens on its answer: 1 begun, -2 busy (try again). */
+static int card_select(const char *to)
+{
+    if (game_running()) { notice("leave the VMU game first"); return -1; }
+    if (!g_no_usb && pspexpUsbConnected()) {
+        if (g_switch_to[0] || g_return_to[0] || g_status.card_pending || g_card_dirty ||
+            now_us() - g_card_last_us < 2000000) { notice("card busy, try again"); return -2; }
+        card_eject(to, 0, 0);
+        notice("changing card...");
+        return 1;
+    }
+    g_return_to[0] = 0;                    /* the player chose: nothing to go back to */
+    return card_use(to);
+}
+
+/* what became of a card_select, in the box */
+static void card_selected(int rc, const char *name, const char *made)
+{
+    char line[64];
+    if (rc == 0) {
+        snprintf(line, sizeof(line), made ? "%s, empty, and in use now" : "%s is in use now", name);
+        result(made ? "New card" : "Card changed", line, NULL, NULL);
+    } else if (rc == 1) {
+        snprintf(line, sizeof(line), "%s goes into the Dreamcast now.", name);
+        result(made ? "New card" : "Changing card", line, made ? "(made empty)" : NULL, NULL);
+    } else if (rc == -2) {
+        snprintf(line, sizeof(line), made ? "%s is made, but the card in" : "%s stays out: the card in", name);
+        result("Card busy", line, "use was written just now.", "Try again in a moment.");
+    } else result(made ? "New card" : "Card not changed", made ? "It is made, but could not be read." : "It could not be read.", NULL, NULL);
 }
 
 static void cards_input(unsigned pressed, int *settings_due)
@@ -988,17 +1024,21 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
         if (!(pressed & PSP_CTRL_CROSS)) break;
         if (g_cd_sel == 0) {               /* New card: made, and in use */
-            if (cards_new(made) == 0 && card_use(made) == 0) {
-                *settings_due = 1;
+            if (cards_new(made) == 0) {
+                int rc = card_select(made);
+                if (rc >= 0) *settings_due = 1;
                 cards_summary();
                 for (k = 0; k < g_cd_n; k++) if (!strcasecmp(g_cd_names[k], made)) g_cd_sel = k + 1;
-                snprintf(line, sizeof(line), "%s, empty, and in use now", made);
-                result("New card", line, NULL, NULL);
+                card_selected(rc, made, made);
             } else result("New card", "It could not be made.", NULL, NULL);
             break;
         }
         snprintf(g_box_card, sizeof(g_box_card), "%s", g_cd_names[g_cd_sel - 1]);
-        box_lines(g_box_card, NULL, NULL, NULL);
+        if (!g_alone && g_card_have && !strcasecmp(g_box_card, g_card_name)) {
+            result(g_box_card, "In the Dreamcast now. What else", "can be done with a card is done", "standalone (no Dreamcast).");
+            break;
+        }
+        box_lines(g_box_card, g_alone ? NULL : "Connected: the rest is done standalone.", NULL, NULL);
         g_box = BOX_CARD_ACTIONS;
         g_box_item = g_card_have && !strcasecmp(g_box_card, g_card_name) ? CA_IMPORT : CA_USE;
         break;
@@ -1006,6 +1046,7 @@ static void cards_input(unsigned pressed, int *settings_due)
         unsigned off = 0;
         if (g_card_have && !strcasecmp(g_box_card, g_card_name)) off |= 1u << CA_USE | 1u << CA_DELETE;
         if (g_cd_n < 2) off |= 1u << CA_DELETE;
+        if (!g_alone) off |= ~(1u << CA_USE) & ((1u << CAS) - 1);   /* connected: only Use */
         if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
             do g_box_item = (g_box_item + (pressed & PSP_CTRL_DOWN ? 1 : CAS - 1)) % CAS;
             while ((off >> g_box_item) & 1);
@@ -1013,10 +1054,12 @@ static void cards_input(unsigned pressed, int *settings_due)
         if (pressed & PSP_CTRL_CIRCLE) { g_box = BOX_NONE; break; }
         if (!(pressed & PSP_CTRL_CROSS)) break;
         switch (g_box_item) {
-        case CA_USE:
-            if (card_use(g_box_card) == 0) { *settings_due = 1; snprintf(line, sizeof(line), "%s is in use now", g_box_card); result("Card changed", line, NULL, NULL); }
-            else result("Card not changed", "It could not be read.", NULL, NULL);
+        case CA_USE: {
+            int rc = card_select(g_box_card);
+            if (rc >= 0) *settings_due = 1;
+            card_selected(rc, g_box_card, NULL);
             break;
+        }
         case CA_IMPORT: import_list(g_box_card); break;
         case CA_RENAME:
             snprintf(g_edit, sizeof(g_edit), "%s", g_box_card);
@@ -1204,10 +1247,11 @@ static void cards_view(UiCards *v, int standalone)
     if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;   /* (the chosen row in sight, wherever it moved) */
     if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
     v->first = g_cd_first;
-    v->sel = standalone ? g_cd_sel : -1;
-    v->keys = !standalone ? UI_KEYS_VIEW : g_box == BOX_NONE ? UI_KEYS_CARDS
+    v->sel = g_cd_sel;
+    v->keys = g_box == BOX_NONE ? UI_KEYS_CARDS
             : g_box == BOX_RENAME ? UI_KEYS_EDIT : (g_box == BOX_RESULT || g_box == BOX_INFO) ? UI_KEYS_OK : UI_KEYS_MENU;
-    if (standalone) box_view(&v->box);
+    box_view(&v->box);
+    (void)standalone;
 }
 
 /* The adapter is to let go of its card so the PSP's goes in (the answer,
@@ -1384,7 +1428,7 @@ static void system_do(int d, int *settings_due)
         *settings_due = 1;
         break;
     case SYS_DETAILS:
-        if (!d) g_sys_details = 1;
+        if (d >= 0) g_sys_details = 1;     /* (X, or right: in) */
         break;
     }
 }
@@ -1402,6 +1446,39 @@ static void system_input(unsigned pressed, int *settings_due)
     if (pressed & PSP_CTRL_UP) g_sys_sel = (g_sys_sel + SYSS - 1) % SYSS;
     if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) system_do(pressed & PSP_CTRL_RIGHT ? 1 : -1, settings_due);
     if (pressed & PSP_CTRL_CROSS) system_do(0, settings_due);
+}
+
+/* A page's own keys (up, down, X OK, O back; left/right on the System
+ * page's settings; the keyboard's), from SELECT + the d-pad or, while a box
+ * is open, the buttons themselves. Connected the Saves page only scrolls. */
+static void page_keys(unsigned k, int *settings_due)
+{
+    if (g_page == PAGE_SAVES && g_alone) saves_input(k);
+    else if (g_page == PAGE_SAVES) {
+        int d = k & PSP_CTRL_DOWN ? 1 : k & PSP_CTRL_UP ? -1 : 0;
+        g_saves_first += d;
+        if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
+        if (g_saves_first < 0) g_saves_first = 0;
+    } else if (g_page == PAGE_CARDS) cards_input(k, settings_due);
+    else if (g_page == PAGE_SYSTEM) system_input(k, settings_due);
+}
+
+/* SELECT + the d-pad, the same on every page in both modes: up and down
+ * choose, right goes in (OK), left back, as in the VMU's FILE mode; on the
+ * theme they change it, on the keyboard right is Done */
+static void page_select(unsigned d, int *settings_due)
+{
+    unsigned k = d & (PSP_CTRL_UP | PSP_CTRL_DOWN);
+    if (g_box == BOX_RENAME) {
+        if (d & PSP_CTRL_RIGHT) k |= PSP_CTRL_START;
+        if (d & PSP_CTRL_LEFT) k |= PSP_CTRL_CIRCLE;
+    } else if (g_page == PAGE_SYSTEM && !g_sys_details && g_box == BOX_NONE) {
+        k |= d & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT);
+    } else {
+        if (d & PSP_CTRL_RIGHT) k |= PSP_CTRL_CROSS;
+        if (d & PSP_CTRL_LEFT) k |= PSP_CTRL_CIRCLE;
+    }
+    if (k) page_keys(k, settings_due);
 }
 
 static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned errors)
@@ -1422,7 +1499,8 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
-    v->keys = standalone ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_HELD;
+    v->keys = g_sys_sel == SYS_THEME ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_OPEN;
+    (void)standalone;
 }
 
 int main(int argc, char *argv[])
@@ -1489,103 +1567,55 @@ int main(int argc, char *argv[])
     while (g_running) {
         sceCtrlReadBufferPositive(&pad, 1);   /* waits for the next sample: once a frame */
         if (g_dev_count) pad.Buttons |= dev_input((now_us() - start_us) / 1000);
+        g_alone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
+        if (g_alone != was_standalone) g_box = BOX_NONE;   /* (a box belongs to the mode it was opened in) */
         if (pad.Buttons & PSP_CTRL_SELECT) {  /* the shift key: nothing goes to the Dreamcast */
             unsigned pressed = pad.Buttons & ~last_buttons;
-            /* SELECT held: the tab, the card, a screenshot, any time; and
-             * the page shown worked while the buttons are the Dreamcast's
-             * (a list scrolled, the System page's settings) */
+            /* SELECT held, the same in both modes: L/R the tab, the d-pad the
+             * page (page_select), triangle a screenshot. (SELECT sits on the
+             * right, under the face buttons: a second key for the left hand.) */
             if (pressed & PSP_CTRL_TRIANGLE) { shot_due = 1; }
-            if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
-                page_turn(pressed & PSP_CTRL_RIGHT ? 1 : -1);
+            if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
+                page_turn(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);
                 settings_due = 1;
             }
-            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
-                int d = pressed & PSP_CTRL_DOWN ? 1 : -1;
-                if (g_page == PAGE_SAVES) {
-                    g_saves_first += d;
-                    if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
-                    if (g_saves_first < 0) g_saves_first = 0;
-                    if (g_sv_sel < g_saves_first) g_sv_sel = g_saves_first;
-                    if (g_sv_sel > g_saves_first + 2) g_sv_sel = g_saves_first + 2;
-                } else if (g_page == PAGE_CARDS) {
-                    g_cd_first += d;
-                    if (g_cd_first > g_cd_n + 1 - 6) g_cd_first = g_cd_n + 1 - 6;
-                    if (g_cd_first < 0) g_cd_first = 0;
-                    g_cd_sel = g_cd_first;
-                } else if (g_page == PAGE_SYSTEM && g_sys_details) g_det_sel = (g_det_sel + d + DETS) % DETS;
-                else if (g_page == PAGE_SYSTEM) g_sys_sel = (g_sys_sel + d + SYSS) % SYSS;
-            }
-            if ((pressed & PSP_CTRL_CROSS) && g_page == PAGE_SYSTEM) {
-                if (g_sys_details) details_do(); else system_do(0, &settings_due);
-            }
-            if ((pressed & PSP_CTRL_CIRCLE) && g_page == PAGE_SYSTEM) g_sys_details = 0;
-            if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_START)) {
-                char names[CARDS_MAX][CARD_NAME_MAX], made[CARD_NAME_MAX], msg[48];
-                int n = cards_list(names), cur = 0, k;
-                const char *to = NULL;
-
-                if (pressed & PSP_CTRL_START) {          /* a new, empty card, and changed to it */
-                    if (cards_new(made) == 0) { to = made; n = cards_list(names); }
-                    else notice("could not make a card");
-                } else if (n > 1) {
-                    for (k = 0; k < n; k++) if (!strcasecmp(names[k], g_card_name)) cur = k;   /* (FAT names: any case) */
-                    to = names[(cur + (pressed & PSP_CTRL_RTRIGGER ? 1 : n - 1)) % n];
-                } else notice("only one card so far");
-                if (to && game_running()) { notice("leave the VMU game first"); to = NULL; }
-                if (to && !g_no_usb && pspexpUsbConnected()) {
-                    /* the adapter lets go of the card first, once every block
-                     * has reached us; the change happens on its answer */
-                    if (g_switch_to[0] || g_return_to[0] || g_status.card_pending || g_card_dirty ||
-                        now_us() - g_card_last_us < 2000000)
-                        notice("card busy, try again");
-                    else {
-                        card_eject(to, 0, 0);
-                        notice("changing card...");
-                    }
-                } else if (to) {
-                    g_return_to[0] = 0;                  /* the player chose: nothing to go back to */
-                    if (card_change(to) == 0) {
-                        for (k = 0; k < n; k++) if (!strcasecmp(names[k], to)) cur = k;
-                        snprintf(msg, sizeof(msg), "card %d of %d", cur + 1, n);
-                        notice(msg);
-                        settings_due = 1;
-                    } else notice("could not read that card");
-                }
-            }
+            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT))
+                page_select(pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT), &settings_due);
             if (pressed & ~PSP_CTRL_SELECT) saves_due = 1;   /* shown at once */
             last_buttons = pad.Buttons;
             combo = pad.Buttons & ~PSP_CTRL_SELECT;
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
         } else {
+            unsigned pressed = pad.Buttons & ~last_buttons;
             /* SELECT let go before the rest of a combination: those buttons
              * are not pressed anew (no second action, nothing to the
              * Dreamcast) until they are let go too */
             last_buttons = pad.Buttons;
             combo &= pad.Buttons;
             pad.Buttons &= ~combo;
+            pressed &= ~combo;
+            /* connected, an open box (the Cards page's) takes the buttons
+             * until it closes: nothing goes to the Dreamcast meanwhile */
+            if (!g_alone && g_box != BOX_NONE) {
+                if (pressed) { page_keys(pressed, &settings_due); saves_due = 1; }
+                pad.Buttons = 0;
+                pad.Lx = pad.Ly = 128;
+            }
         }
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons
          * the VMU's. (SELECT, held, is still the shift key.) */
-        standalone = !demo_on() && (g_no_usb || !pspexpUsbConnected());
+        standalone = g_alone;
         vmu_held = 0;
         if (standalone) {
             unsigned b = pad.Buttons, pr = b & ~page_last;
-            /* L and R change the tab (connected they are the triggers, and
-             * SELECT + left/right does it); not while a box asks something */
-            if ((pr & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
-                page_turn(pr & PSP_CTRL_RTRIGGER ? 1 : -1);
-                settings_due = 1;
-                saves_due = 1;
-                pr = 0;
-            }
-            /* the other pages take the buttons; the VMU is not shown */
+            /* the other pages: the VMU is not shown, so its buttons do
+             * nothing there, but an open box takes them (the page itself is
+             * worked with SELECT held, as connected) */
             if (g_page != PAGE_VMU) {
-                if (g_page == PAGE_SAVES && pr) { saves_input(pr); saves_due = 1; }
-                if (g_page == PAGE_CARDS && pr) { cards_input(pr, &settings_due); saves_due = 1; }
-                if (g_page == PAGE_SYSTEM && pr) { system_input(pr, &settings_due); saves_due = 1; }
+                if (pr && g_box != BOX_NONE) { page_keys(pr, &settings_due); saves_due = 1; }
                 page_last = b;
                 b = 0;
             } else page_last = b;

@@ -433,7 +433,7 @@ static int cap(int x, int y, const char *s, const UiTheme *t)
     return w;
 }
 
-enum { G_NONE = -1, G_X, G_O, G_SQ, G_TRI, G_DPAD, G_UD, G_LR, G_CAP };
+enum { G_NONE = -1, G_X, G_O, G_SQ, G_TRI, G_DPAD, G_UD, G_LR, G_RT, G_LT, G_CAP };
 /* a key's glyph, its text's top at y; returns its width */
 static int glyph(int g, const char *s, int x, int y, const UiTheme *t)
 {
@@ -446,6 +446,8 @@ static int glyph(int g, const char *s, int x, int y, const UiTheme *t)
     case G_DPAD: sym(SYM_DPAD, x, y - 2, ARM_UP | ARM_DOWN | ARM_LEFT | ARM_RIGHT, d, c); return 11;
     case G_UD:   arrow(ARM_UP, x, y, c); arrow(ARM_DOWN, x + 9, y, c);     return 16;
     case G_LR:   arrow(ARM_LEFT, x, y, c); arrow(ARM_RIGHT, x + 7, y, c);  return 11;
+    case G_RT:   arrow(ARM_RIGHT, x, y, c); return 5;
+    case G_LT:   arrow(ARM_LEFT, x, y, c);  return 5;
     default:     return cap(x, y, s, t);
     }
 }
@@ -472,18 +474,14 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
     if (right) label(x0 + w - 6 - 7 * (int)strlen(right), 260, muted(t), right);
 }
 
-/* the tabs: L VMU Saves Cards System R standalone, SELECT ◀ ... ▶
- * connected; the same on every page, the VMU's too */
+/* the tabs: SELECT L VMU Saves Cards System R, the same on every page and
+ * in both modes */
 static const char *const tab_names[UI_TABS] = { "VMU", "Saves", "Cards", "System" };
 static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
 {
     int x = x0 + 4, k, tw;
-    if (g_standalone) x += cap(x, y0 + 5, "L", t) + 3;
-    else {
-        x += cap(x, y0 + 5, "SELECT", t) + 2;
-        arrow(ARM_LEFT, x, y0 + 5, t->text);
-        x += 9;
-    }
+    x += cap(x, y0 + 5, "SELECT", t) + 2;
+    x += cap(x, y0 + 5, "L", t) + 3;
     {
         const int pad = 9;
         for (k = 0; k < UI_TABS; k++, x += tw) {
@@ -493,8 +491,7 @@ static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
         }
     }
     x += 2;
-    if (g_standalone) x += cap(x, y0 + 5, "R", t);
-    else { arrow(ARM_RIGHT, x, y0 + 5, t->text); x += 7; }
+    x += cap(x, y0 + 5, "R", t);
     return x;
 }
 
@@ -757,10 +754,10 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     if (h->notice) label_fit(x0 + 8, CARD_Y + 96, t->text, h->notice, 204);
     else label_fit(x0 + 8, CARD_Y + 96, muted(t), h->card_note, 204);
 
-    {   /* the keys that change the tab and the card (the System page has all of them) */
-        static const UiKey alone[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K3(G_CAP, "SELECT", G_CAP, "L", G_CAP, "R", "card") };
-        static const UiKey held[] = { K2(G_CAP, "SELECT", G_LR, 0, "tab"), K3(G_CAP, "SELECT", G_CAP, "L", G_CAP, "R", "card") };
-        draw_footer(2, 476, g_standalone ? alone : held, 2, NULL, t);
+    {   /* the keys that change the tab (the System page has all of them) */
+        static const UiKey keys[] = { K1(G_CAP, "SELECT", "+"), K2(G_CAP, "L", G_CAP, "R", "tab"),
+                                      K1(G_NONE, 0, "the card: on the Cards tab") };
+        draw_footer(2, 476, keys, 3, NULL, t);
     }
     ui_end();
 }
@@ -843,30 +840,28 @@ static void draw_box(const UiBox *b, const UiTheme *t)
 /* the keys line for UI_KEYS_*; right: the place in a list ("1-3 of 5") */
 static void draw_keys(int keys, const UiTheme *t, const char *right)
 {
-    static const UiKey view[] = { K3(G_CAP, "SELECT", G_UD, 0, G_NONE, 0, "scroll"), K1(G_NONE, 0, "view only: the Dreamcast has the card") };
-    static const UiKey saves[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "actions"), K1(G_TRI, 0, "import a save") };
-    static const UiKey cards[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
+    /* the page's keys with SELECT held, it first; a box's without */
+    static const UiKey view[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "scroll"), K1(G_NONE, 0, "view only: the Dreamcast has the card") };
+    static const UiKey saves[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "actions") };
+    static const UiKey cards[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "open") };
     static const UiKey menu[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey ok[] = { K1(G_X, 0, "OK") };
     static const UiKey edit[] = { K1(G_DPAD, 0, "key"), K1(G_X, 0, "type"), K1(G_SQ, 0, "delete"),
                                   K1(G_CAP, "START", "done"), K1(G_O, 0, "cancel") };
-    static const UiKey sys[] = { K1(G_UD, 0, "choose"), K1(G_LR, 0, "change"), K1(G_X, 0, "OK") };
-    static const UiKey sys_held[] = { K2(G_CAP, "SELECT", G_UD, 0, "choose"), K2(G_CAP, "SELECT", G_X, 0, "OK") };
-    static const UiKey det[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
-    static const UiKey det_held[] = { K2(G_CAP, "SELECT", G_UD, 0, "choose"), K2(G_CAP, "SELECT", G_X, 0, "OK"),
-                                      K2(G_CAP, "SELECT", G_O, 0, "back") };
+    static const UiKey sys[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_LR, 0, "change") };
+    static const UiKey sys_open[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "open") };
+    static const UiKey det[] = { K1(G_CAP, "SELECT", "+"), K1(G_UD, 0, "choose"), K1(G_RT, 0, "OK"), K1(G_LT, 0, "back") };
     const UiKey *k = ok;
     int n = 1;
     switch (keys) {
-    case UI_KEYS_VIEW:   k = view;   n = 2; break;
+    case UI_KEYS_VIEW:   k = view;   n = 3; break;
     case UI_KEYS_SAVES:  k = saves;  n = 3; break;
-    case UI_KEYS_CARDS:  k = cards;  n = 2; break;
+    case UI_KEYS_CARDS:  k = cards;  n = 3; break;
     case UI_KEYS_MENU:   k = menu;   n = 3; break;
     case UI_KEYS_EDIT:   k = edit;   n = 5; break;
     case UI_KEYS_SYSTEM: k = sys;    n = 3; break;
-    case UI_KEYS_SYSTEM_HELD: k = sys_held; n = 2; break;
-    case UI_KEYS_DETAILS: k = det;   n = 3; break;
-    case UI_KEYS_DETAILS_HELD: k = det_held; n = 3; break;
+    case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 3; break;
+    case UI_KEYS_DETAILS: k = det;   n = 4; break;
     }
     draw_footer(2, 476, k, n, right, t);
 }
@@ -906,11 +901,7 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
     page_title(card_name ? card_name : "card", t->ok, s, t);
     if (!n) {
         label(8, 52, t->text, "No saves on this card.");
-        if (v->keys != UI_KEYS_VIEW) {
-            int x = 8;
-            x += glyph(G_TRI, 0, x, 70, t) + 4;
-            label(x, 70, t->text, "imports one from ms0:/PSP2DC/saves");
-        }
+        if (v->keys != UI_KEYS_VIEW) label(8, 70, muted(t), "To import one: the Cards tab, this card's actions.");
     }
     for (i = v->first, row = 0; i < n && row < 3; i++, row++) {
         const SaveFile *f = &files[i];
@@ -1013,10 +1004,9 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     static const UiKey dc2[] = { K1(G_DPAD, 0, "d-pad"), K1(G_CAP, "nub", "stick"), K1(G_CAP, "START", "Start") };
     static const UiKey dc3[] = { K2(G_CAP, "L", G_CAP, "R", "triggers") };
     static const UiKey vmu[] = { K1(G_DPAD, 0, ""), K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_TRI, 0, "MODE"), K1(G_SQ, 0, "SLEEP") };
-    static const UiKey menus[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
-    static const UiKey sel1[] = { K1(G_LR, 0, "tab"), K2(G_CAP, "L", G_CAP, "R", "card") };
-    static const UiKey sel2[] = { K1(G_CAP, "START", "new card"), K1(G_TRI, 0, "screenshot") };
-    static const UiKey sel3[] = { K1(G_UD, 0, "scroll"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
+    static const UiKey sel1[] = { K2(G_CAP, "L", G_CAP, "R", "tab"), K1(G_UD, 0, "choose") };
+    static const UiKey sel2[] = { K1(G_RT, 0, "OK"), K1(G_LT, 0, "back"), K1(G_TRI, 0, "screenshot") };
+    static const UiKey menus[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     const int L = 4, LW = 234, R = 242, RW = 236;
     int y, k, x;
     ui_begin(t->bg);
@@ -1046,15 +1036,13 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     panel_head(R + 8, y, "STANDALONE: THE VMU", t);  y += 14;
     for (k = 0, x = R + 10; k < 5; k++) x = key_item(&vmu[k], x, y, t->text, t) + (k ? 9 : 4);
     y += 20;
-    panel_head(R + 8, y, "STANDALONE: THE MENUS", t);  y += 14;
-    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&menus[k], x, y, t->text, t) + 12;
-    y += 20;
-    panel_head(R + 8, y, "ANY TIME, HOLDING SELECT", t);  y += 14;
+    panel_head(R + 8, y, "HOLDING SELECT: EVERY TAB", t);  y += 14;
     for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel1[k], x, y, t->text, t) + 12;
     y += 15;
-    for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel2[k], x, y, t->text, t) + 12;
-    y += 15;
-    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&sel3[k], x, y, t->text, t) + 12;
+    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&sel2[k], x, y, t->text, t) + 12;
+    y += 20;
+    panel_head(R + 8, y, "IN A BOX: NO SELECT NEEDED", t);  y += 14;
+    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&menus[k], x, y, t->text, t) + 12;
 
     draw_keys(sy->keys, t, NULL);
     ui_end();

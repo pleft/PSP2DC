@@ -107,36 +107,38 @@ Start PSP2DC from the PSP's Game menu. It has four tabs: **VMU**, **Saves**,
 **Cards** and **System**. The header shows the tabs, the link state and the
 card in use. The footer lists the keys that do something on the screen shown.
 
-**Standalone** (no adapter, or no Dreamcast):
+The keys are the same whether a Dreamcast is connected or not. The plain
+buttons belong to the game: the Dreamcast's pad when connected, the VMU on the
+VMU tab when standalone. Hold SELECT to work PSP2DC itself. SELECT is on the
+right, so its partners are the keys under the left hand. Nothing reaches the
+Dreamcast while SELECT is held.
 
 | Key | Action |
 |---|---|
-| L / R | Previous / next tab |
-| D-pad, ✕, ○ | The VMU's d-pad, A and B |
-| △ / □ | MODE / SLEEP |
-| △ held 2 s | Leave a running VMU game |
-
-On the other tabs, the buttons work that tab (lists, menus, the on-screen
-keyboard).
-
-**Connected**, the PSP's buttons are the Dreamcast pad: ✕ A, ○ B, □ X, △ Y,
-START, the d-pad, the nub as the stick, and L / R as the triggers. Hold SELECT
-to reach PSP2DC; nothing reaches the Dreamcast while SELECT is held.
-
-| Key | Action |
-|---|---|
-| SELECT + ◀ / ▶ | Previous / next tab |
-| SELECT + L / R | Previous / next memory card |
-| SELECT + START | New memory card |
+| SELECT + L / R | Previous / next tab |
+| SELECT + ▲ / ▼ | Choose in a list or the settings |
+| SELECT + ▶ | OK, open (on the Theme row: next theme) |
+| SELECT + ◀ | Back (on the Theme row: previous theme) |
 | SELECT + △ | Screenshot to `ms0:/PSP2DC/shots/` |
-| SELECT + ▲ / ▼ | Scroll a list, or choose a setting |
-| SELECT + ✕ / ○ | OK / back on System |
+
+An open box (a menu, a question, the rename keyboard) also takes the plain
+buttons: ▲▼ choose, ✕ OK, ○ back. While one is open, nothing goes to the
+Dreamcast.
+
+When connected, the PSP's buttons are the Dreamcast pad: ✕ A, ○ B, □ X, △ Y,
+START, the d-pad, the nub as the stick, and L / R as the triggers.
+
+On the VMU tab when standalone: the d-pad, ✕ A, ○ B, △ MODE and □ SLEEP. Hold
+△ for 2 s to leave a running VMU game.
+
+To change the memory card, go to the Cards tab, choose the card and pick *Use
+this card*. *New card* is the tab's first row.
 
 ### Memory cards
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any
 `NAME.bin` there is a card, so cards can be added from a computer. From the
-Cards and Saves tabs (standalone) you can:
+Cards and Saves tabs, standalone, you can:
 
 - Make, rename, duplicate, delete, defragment, and check and repair a card.
 - Copy, move, delete and import saves.
