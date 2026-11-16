@@ -32,6 +32,8 @@ void ui_end(void);                   /* shown from the next vblank */
 unsigned ui_draw_us(void);           /* the last frame's drawing time, and the longest so far */
 unsigned ui_draw_max_us(void);
 void ui_fill(int x, int y, int w, int h, unsigned colour);
+/* a rectangle faded k/16 of the way to a colour (shown, not in use now) */
+void ui_fade(int x, int y, int w, int h, unsigned to, int k);
 void ui_text(int col, int row, unsigned colour, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 /* the VMU's screen, as the Dreamcast sends it (turned half round here) */
 void ui_lcd(const unsigned char *lcd, int x, int y, int scale, const UiTheme *t);

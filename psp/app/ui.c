@@ -66,8 +66,14 @@ void ui_begin(unsigned bg)
     pspDebugScreenSetBase((u32 *)g_back);
 }
 
+static int g_menu;
+static unsigned g_frame_colour;            /* the theme's accent, from the header */
 void ui_end(void)
 {
+    if (g_menu) {                          /* the menu: the screen framed in the accent, the header's colour */
+        ui_fill(0, 0, 480, 2, g_frame_colour);   ui_fill(0, 270, 480, 2, g_frame_colour);
+        ui_fill(0, 0, 2, 272, g_frame_colour);   ui_fill(478, 0, 2, 272, g_frame_colour);
+    }
     g_draw_us = (unsigned)sceKernelGetSystemTimeLow() - g_t0;
     if (g_draw_us > g_draw_max_us) g_draw_max_us = g_draw_us;
     sceKernelDcacheWritebackAll();   /* (all drawing is to uncached VRAM; this is cheap insurance) */
@@ -75,6 +81,22 @@ void ui_end(void)
                           PSP_DISPLAY_SETBUF_NEXTFRAME);
     g_swap_vcount = (int)sceDisplayGetVcount();
     g_shown ^= 1;
+}
+
+static unsigned mix(unsigned a, unsigned b, int k);
+/* the pixels of a rectangle taken k of 16 of the way to a colour (something
+ * shown but not in use now) */
+void ui_fade(int x, int y, int w, int h, unsigned to, int k)
+{
+    int i, j;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > 480) w = 480 - x;
+    if (y + h > 272) h = 272 - y;
+    for (j = 0; j < h; j++) {
+        unsigned *p = g_back + (y + j) * LINE + x;
+        for (i = 0; i < w; i++) p[i] = mix(p[i], to, k);
+    }
 }
 
 void ui_fill(int x, int y, int w, int h, unsigned colour)
@@ -393,8 +415,7 @@ static void sym(int kind, int x, int y, unsigned arms, unsigned dim_c, unsigned 
  * a line of the keys that do something now at the bottom, each key drawn as
  * the PSP shows it (its symbol, the d-pad with the arms that count lit, or
  * its name in a key cap). */
-static unsigned mix(unsigned a, unsigned b, int k);
-static int g_standalone = 1, g_link, g_menu;
+static int g_standalone = 1, g_link;
 static const char *g_status = "";
 
 void ui_frame(int standalone, int menu, int link, const char *status)
@@ -502,6 +523,7 @@ static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
 void ui_header(int page, const UiTheme *t)
 {
     int x;
+    g_frame_colour = t->accent;
     round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
     x = draw_tabs(2, 1, page, t) + 12;
     disc(x + 4, 9, 5, t->panel);           /* (the dot on a ring: it reads on the lit bar too) */
@@ -717,6 +739,8 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
             label(x0 + 212 - 7 * (int)strlen(h->standalone), py + 6, t->accent, h->standalone);
             draw_map(h, t, x0, py);
         } else draw_pad(h, t, x0, py);
+        /* in the menu the buttons are not the game's: the map faded */
+        if (g_menu) ui_fade(x0 + 2, py + 18, 216, ph - 20, t->panel, 11);
     }
 
     /* the memory card, in the same place either way: its name and free
