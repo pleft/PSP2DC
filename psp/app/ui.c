@@ -740,8 +740,17 @@ static void draw_pad(const UiHome *h, const UiTheme *t, int x0, int y0)
     if (b & PSP2DC_BTN_DOWN)  ui_fill(x0 + 73, cy + 4, 7, 8, base);
     if (b & PSP2DC_BTN_LEFT)  ui_fill(x0 + 64, cy - 3, 9, 7, base);
     if (b & PSP2DC_BTN_RIGHT) ui_fill(x0 + 80, cy - 3, 8, 7, base);
-    /* Start */
-    round_rect(x0 + 108, cy - 8, 24, 8, 4, b & PSP2DC_BTN_START ? base : dim(base));
+    /* Start: the Dreamcast pad's triangle, its point away from the player
+     * ("the start button on the controller points towards the Dreamcast",
+     * its designer, The Dreamcast Junkyard 2024); the tip blunted, as moulded */
+    {
+        int row, h = 13, w = 18, cx = x0 + 120, top = cy - 12;
+        unsigned c = b & PSP2DC_BTN_START ? base : dim(base);
+        for (row = 0; row < h; row++) {
+            int half_w = 1 + row * (w / 2 - 1) / (h - 1);
+            ui_fill(cx - half_w, top + row, 2 * half_w, 1, c);
+        }
+    }
     label(x0 + 103, cy + 3, half(base), "START");
     /* A B X Y in the Dreamcast's colours */
     {
