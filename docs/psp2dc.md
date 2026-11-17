@@ -477,7 +477,7 @@ What PSP2DC does (firmware patch 0010, `psp/app/main.c`):
 
 **Cause.** With `CONFIG_DC_CORE1_TX` off (upstream's choice for usb2dc), Core 0 answers the Dreamcast after its other work. The firmware printed debug text on the UART every 5 s and on events, and `printf` waits for each character at 115200 baud. A reply held up past the Dreamcast's timeout makes the console see the controller, or its card, go and come back. The new counts showed 68 replies over 1 ms in 148 s, and a wait of 65 ms or more, with no bad packets.
 
-**Fix (patch 0011).** No stdio on the UART in the two PSP2DC targets. On hardware the screens stopped ("Fixed").
+**Fix (patch 0011).** No stdio on the UART in the two PSP2DC targets. On hardware Prince of Persia's screens and Virtua Tennis 2's pauses both stopped.
 - Tried first: replies from Core 1 (`CONFIG_DC_CORE1_TX`). The controller dropped out for good, as upstream reports for the KB2040, so it was reverted.
 
 **Counts on the PSP.** The status message gains the Maple counts (`Psp2dcStatus` grows from 18 to 36 bytes; the PSP takes either size):
