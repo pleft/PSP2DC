@@ -215,7 +215,7 @@ joypad-os and MaplePad share the same Maple PIO program (by Charlie Cole), which
 Target `usb2dc_superpico` (CMake target `joypad_dc_superpico`) on branch `superpico` of `firmware/joypad-os`:
 
 - `MAPLE_PIN1=21`, `MAPLE_PIN5=22`.
-- stdio on UART1, TX GP20, no RX; USB stdio off.
+- stdio on UART1, TX GP20, no RX; USB stdio off. **Turned off 17 November 2026** (patch 0011, see 5.0e6): printf held up the Maple replies. Re-enable `pico_enable_stdio_uart` only for a debugging session.
 - NeoPixel disabled, BOOTSEL as the button, onboard LED GP25.
 - No SD card, no PIO-USB, no VMU (as in upstream's release configuration).
 
@@ -464,6 +464,30 @@ What PSP2DC does (firmware patch 0010, `psp/app/main.c`):
 - The PSP, with **Card per game** on (System, default on): openMenu's own ID is left alone; any other ID names a card (`T-8101N` → `t-8101n`), made empty the first time, and put in as a change of card by hand is (connected: the adapter lets its card go first), tried again for ten seconds while the card is busy. The game's name shows briefly.
 - `ms0:/PSP2DC/dev_gameid.txt` (lines "<ms> <ID> [name]") feeds IDs to the same code without openMenu, for testing.
 - Checked in PPSSPP with dev_gameid.txt: "openmenu" left alone; T-8101N made and put in `t-8101n`, the same again kept it, MK-51000 made `mk-51000`. Both firmware targets build. **Not tried on a Dreamcast:** whether openMenu sees the adapter as a virtual VMU, whether the ID arrives, and whether the card change finishes before the game first reads its card all wait for a test with GDEMU and openMenu.
+
+### 5.0e6 Controller and Card Dropping Out: Late Maple Replies (17 November 2026)
+
+**Symptom (hardware).** Prince of Persia: Arabian Nights opened its save-slot screen by itself every so often during play, with a large X on the VMU in place of the usual tick, and once said "A controller has been removed, or a VMU is being recognized". Virtua Tennis 2 paused by itself. F355 Challenge was unaffected. An original controller with a VMU played the same game normally.
+
+**Ruled out on the way.**
+- Phantom presses from the PSP: an older PSP build (7e7894c, before the input thread) behaved the same, and the game's screen needs four presses.
+- The Game ID change (patch 0010): the previous firmware behaved the same.
+- The card: `card3` held only the game's options file (`PRINCELV.OPT`, 2 blocks), correct. No save existed yet, so the empty slots were right.
+- A USB drop or the card being taken out: Details showed no detach and no card change when it happened.
+
+**Cause.** With `CONFIG_DC_CORE1_TX` off (upstream's choice for usb2dc), Core 0 answers the Dreamcast after its other work. The firmware printed debug text on the UART every 5 s and on events, and `printf` waits for each character at 115200 baud. A reply held up past the Dreamcast's timeout makes the console see the controller, or its card, go and come back. The new counts showed 68 replies over 1 ms in 148 s, and a wait of 65 ms or more, with no bad packets.
+
+**Fix (patch 0011).** No stdio on the UART in the two PSP2DC targets. On hardware the screens stopped ("Fixed").
+- Tried first: replies from Core 1 (`CONFIG_DC_CORE1_TX`). The controller dropped out for good, as upstream reports for the KB2040, so it was reverted.
+
+**Counts on the PSP.** The status message gains the Maple counts (`Psp2dcStatus` grows from 18 to 36 bytes; the PSP takes either size):
+- packets that failed their check;
+- packets left unanswered, the adapter's own replies heard back excluded, and the last one's command, address, length and function;
+- replies that waited on a busy transmitter;
+- replies begun 1 ms or more late, and the longest wait in the last second;
+- times the adapter took the card away.
+
+Details shows them on the `maple` lines.
 
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 

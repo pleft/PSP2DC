@@ -221,7 +221,20 @@ typedef struct {
     uint16_t lcd_screens;     /* of those, taken as a screen */
     uint32_t lcd_last_addr;   /* the last LCD write's block word (0 = the screen) */
     uint16_t card_pending;    /* blocks of the card still to be sent to the PSP */
+    /* the Maple bus, since the adapter started (added 17 November 2026; an
+     * older adapter's status ends above, and the PSP takes either) */
+    uint16_t maple_bad;       /* packets from the Dreamcast that failed their check */
+    uint16_t maple_unanswered;/* packets the adapter sent no reply to */
+    uint16_t maple_skipped;   /* replies not sent at once: the bus still busy with the last one */
+    uint8_t  vmu_drops;       /* times the adapter took the card away from the Dreamcast */
+    uint8_t  last_cmd;        /* the last unanswered packet: its command, */
+    uint8_t  last_dest;       /* its address (0x20 the pad, 0x01 the card, 0x02 the rumble) */
+    uint8_t  last_words;      /* and its length in words */
+    uint32_t last_func;       /* its first word (a function code), or 0 */
+    uint16_t maple_slow;      /* replies begun 1 ms or more after their packet */
+    uint16_t maple_max_us;    /* the longest a packet waited for its reply since the last status (us) */
 } __attribute__((packed)) Psp2dcStatus;
+#define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot

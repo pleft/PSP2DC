@@ -1,0 +1,179 @@
+From f52641d209dccb1d032da6fd4859a9786126a628 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Tue, 17 Nov 2026 23:25:26 +0200
+Subject: [PATCH] PSP2DC: no debug text on the UART (it held up Maple replies);
+ the bus's counts sent to the PSP
+
+printf waits for each character at 115200 baud, and on Core 0 that delayed
+the Dreamcast's replies past its timeout: games saw the controller or its
+memory card go and come back (Prince of Persia's load screen with an X on
+the VMU, Virtua Tennis 2 pausing). With the UART off the replies come in time.
+The status message gains the Maple counts (bad packets, unanswered, late,
+slow and the longest wait, cards taken away) for the PSP's Details page.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/CMakeLists.txt                            | 10 +++-
+ .../device/dreamcast/dreamcast_device.c       | 56 +++++++++++++++++++
+ src/usb/usbh/psp2dc/psp2dc_host.c             | 15 +++++
+ 3 files changed, 79 insertions(+), 2 deletions(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index b3567899..9c711ecf 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -843,7 +843,10 @@ target_include_directories(joypad_dc_superpico PUBLIC
+     ${CMAKE_CURRENT_SOURCE_DIR}/../../../protocol   # PSP2DC project: psp2dc_protocol.h
+ )
+ target_link_libraries(joypad_dc_superpico PRIVATE ${COMMON_LIBRARIES} hardware_dma)
+-pico_enable_stdio_uart(joypad_dc_superpico 1)
++# No debug text on the UART: printf waits until each character is out (115200
++# baud, ~0.1 ms a character), and on Core 0 that held up the Dreamcast's
++# replies: the PSP's status page shows the counts instead (17 November 2026).
++pico_enable_stdio_uart(joypad_dc_superpico 0)
+ pico_enable_stdio_usb(joypad_dc_superpico 0)
+ joypad_target_common(joypad_dc_superpico)
+ # No Bluetooth (no joypad_add_btstack): the USB port is the PSP's, and BTstack's
+@@ -887,7 +890,10 @@ target_include_directories(joypad_dc_psp2dc_rp2040zero PUBLIC
+     ${CMAKE_CURRENT_SOURCE_DIR}/../../../protocol   # PSP2DC project: psp2dc_protocol.h
+ )
+ target_link_libraries(joypad_dc_psp2dc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_dma)
+-pico_enable_stdio_uart(joypad_dc_psp2dc_rp2040zero 1)
++# No debug text on the UART: printf waits until each character is out (115200
++# baud, ~0.1 ms a character), and on Core 0 that held up the Dreamcast's
++# replies: the PSP's status page shows the counts instead (17 November 2026).
++pico_enable_stdio_uart(joypad_dc_psp2dc_rp2040zero 0)
+ pico_enable_stdio_usb(joypad_dc_psp2dc_rp2040zero 0)
+ joypad_target_common(joypad_dc_psp2dc_rp2040zero)
+ # No Bluetooth: the USB port is the PSP's, and the RAM is the memory card's.
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 4b8ddb64..371cfdd4 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -984,6 +984,43 @@ uint32_t vmu_led_timeout_ms = 0;  // Non-zero = VMU activity LED active
+ static volatile uint32_t packet_end_write = 0;  // Written by Core1
+ static volatile uint32_t packet_end_read = 0;   // Read by Core0
+ static volatile uint32_t packet_ends[16];       // Ring buffer of packet end offsets
++#ifdef CONFIG_PSP2DC
++static volatile uint32_t packet_times[16];      // when each ended (us), for the PSP's status page
++static uint32_t maple_slow, maple_max_us;       // replies begun 1 ms or more after their packet; the longest wait
++#endif
++
++#ifdef CONFIG_PSP2DC
++// For the PSP's status page: what went unanswered on the bus (Core 1 writes,
++// Core 0 reads; a count read mid-update is off by one at worst).
++static volatile uint32_t maple_unanswered, maple_skipped, maple_vmu_drops;
++static volatile uint32_t maple_last_hdr, maple_last_func;
++static void __not_in_flash_func(maple_note_unanswered)(uint32_t size)
++{
++    const PacketHeader *h = (const PacketHeader *)Packet;
++    if (!(h->Destination & ADDRESS_PERIPHERAL_MASK)) return;   // a reply to the Dreamcast: the adapter's own, heard back
++    maple_unanswered++;
++    maple_last_hdr = (uint32_t)(uint8_t)h->Command | (uint32_t)(h->Destination & ADDRESS_PERIPHERAL_MASK) << 8
++                   | (uint32_t)h->NumWords << 16;
++    maple_last_func = (size >= 9 && h->NumWords >= 1) ? __builtin_bswap32(((const uint32_t *)(h + 1))[0]) : 0;
++}
++
++void dreamcast_maple_counts(uint32_t out[8])
++{
++#ifndef CONFIG_DC_CORE1_TX
++    out[6] = maple_slow;
++    out[7] = maple_max_us;      // the longest since the last call (once a second, for the status)
++    maple_max_us = 0;
++#else
++    out[6] = out[7] = 0;
++#endif
++    out[0] = rx_crc_fails;
++    out[1] = maple_unanswered;
++    out[2] = maple_skipped;
++    out[3] = maple_vmu_drops;
++    out[4] = maple_last_hdr;
++    out[5] = maple_last_func;
++}
++#endif
+ 
+ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+ {
+@@ -1064,6 +1101,10 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+ 
+                 // Process packet and prepare response
+                 ConsumePacket(packet_size);
++#ifdef CONFIG_PSP2DC
++                if (NextPacketSend == SEND_NOTHING) maple_note_unanswered(packet_size);
++                else if (maple_tx_pause) maple_skipped++;
++#endif
+ 
+ 
+                 // Send response immediately via DMA
+@@ -1169,6 +1210,9 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+ #else
+                 // Queue packet for Core 0 processing
+                 packet_ends[packet_end_write] = Offset;
++#ifdef CONFIG_PSP2DC
++                packet_times[packet_end_write] = time_us_32();
++#endif
+                 packet_end_write = (packet_end_write + 1) & 15;
+ #endif
+ 
+@@ -1405,6 +1449,7 @@ void dreamcast_task(void)
+     if (vmu_enabled && !psp2dc_card_ready()) {
+         dreamcast_disable_vmu();
+         vmu_enabled = false;
++        maple_vmu_drops++;
+         vmu_enable_time = time_us_32() + 1000000;
+     }
+     if (!vmu_enabled && time_us_32() > vmu_enable_time && psp2dc_card_ready()) {
+@@ -1499,6 +1544,9 @@ void dreamcast_task(void)
+     // This minimizes latency between receiving and responding
+     while (packet_end_read != packet_end_write) {
+         uint32_t end_of_packet = packet_ends[packet_end_read];
++#ifdef CONFIG_PSP2DC
++        uint32_t waited = time_us_32() - packet_times[packet_end_read];
++#endif
+         packet_end_read = (packet_end_read + 1) & 15;
+         packet_count++;
+ 
+@@ -1511,6 +1559,14 @@ void dreamcast_task(void)
+         uint32_t packet_size = end_of_packet - start_of_packet;
+         ConsumePacket(packet_size);
+         start_of_packet = ((end_of_packet + 3) & ~3);
++#ifdef CONFIG_PSP2DC
++        if (((PacketHeader *)Packet)->Destination & ADDRESS_PERIPHERAL_MASK) {   // (not the adapter's own reply, heard back)
++            if (waited >= 1000) maple_slow++;
++            if (waited > maple_max_us) maple_max_us = waited;
++        }
++        if (NextPacketSend == SEND_NOTHING) maple_note_unanswered(packet_size);
++        else if (dma_channel_is_busy(tx_dma_channel)) maple_skipped++;   // its reply goes late, or never
++#endif
+ 
+         // Send response IMMEDIATELY after processing (like MaplePad)
+         // Don't wait for DMA - if it's busy, we're already too slow
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index 15cf4d14..3ed54e76 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -275,6 +275,21 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+         st.lcd_last_addr = lcd.last_addr;
+         st.card_pending = (uint16_t)vmu_card_dirty_count();
+         if (card_loaded) st.flags |= PSP2DC_STATUS_CARD;
++        {
++            extern void dreamcast_maple_counts(uint32_t out[8]);
++            uint32_t m[8];
++            dreamcast_maple_counts(m);
++            st.maple_bad = (uint16_t)m[0];
++            st.maple_unanswered = (uint16_t)m[1];
++            st.maple_skipped = (uint16_t)m[2];
++            st.vmu_drops = (uint8_t)m[3];
++            st.last_cmd = (uint8_t)m[4];
++            st.last_dest = (uint8_t)(m[4] >> 8);
++            st.last_words = (uint8_t)(m[4] >> 16);
++            st.last_func = m[5];
++            st.maple_slow = (uint16_t)m[6];
++            st.maple_max_us = m[7] > 0xffff ? 0xffff : (uint16_t)m[7];
++        }
+ #endif
+         d->status_ms = now;
+         return put_msg(d->tx, PSP2DC_MSG_STATUS, &st, sizeof(st));
+-- 
+2.54.0 (Apple Git-157)
+
