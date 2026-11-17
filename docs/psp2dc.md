@@ -463,7 +463,12 @@ What PSP2DC does (firmware patch 0010, `psp/app/main.c`):
 - The adapter's VMU all-status reply carries "USB RP2040 EMU  " at byte 112 (`PSP2DC_VMU_ID` in vmu.c; joypad-os's RP2040 builds are USB4Maple's kin), so openMenu takes it for a virtual VMU. It answers 0x21 with OK and sends the ID and name to the PSP (`PSP2DC_MSG_GAME_ID`, 140 bytes). Strings keep their byte order, as the card's blocks do.
 - The PSP, with **Card per game** on (System, default on): openMenu's own ID is left alone; any other ID names a card (`T-8101N` → `t-8101n`), made empty the first time, and put in as a change of card by hand is (connected: the adapter lets its card go first), tried again for ten seconds while the card is busy. The game's name shows briefly.
 - `ms0:/PSP2DC/dev_gameid.txt` (lines "<ms> <ID> [name]") feeds IDs to the same code without openMenu, for testing.
-- Checked in PPSSPP with dev_gameid.txt: "openmenu" left alone; T-8101N made and put in `t-8101n`, the same again kept it, MK-51000 made `mk-51000`. Both firmware targets build. **Not tried on a Dreamcast:** whether openMenu sees the adapter as a virtual VMU, whether the ID arrives, and whether the card change finishes before the game first reads its card all wait for a test with GDEMU and openMenu.
+- Checked in PPSSPP with dev_gameid.txt: "openmenu" left alone; T-8101N made and put in `t-8101n`, the same again kept it, MK-51000 made `mk-51000`. Both firmware targets build. **On hardware (17 November 2026)**, with GDEMU and the openMenu Virtual Folder Bundle 1.7.2-ateam, the SD card switched from GDMENU 0.6.0:
+- openMenu took the adapter for a virtual VMU: its **VMU Game ID** setting (shown only then) was there, on Send to All.
+- Starting a disc made and put in that game's card: `mk5113650`, then `t41405n` for Prince of Persia.
+- Prince of Persia wrote its options file to the new card at once, with the tick on the VMU, so the card went in before the game first read it.
+- Started again, the same card came back with its file.
+- The IDs arrived without hyphens (`T41405N`), as openMenu stores them.
 
 ### 5.0e6 Controller and Card Dropping Out: Late Maple Replies (17 November 2026)
 
@@ -733,13 +738,14 @@ Completed:
 - Several cards on the Memory Stick; the Saves and Cards pages: info, copy, move, export, import (127 games in a scrolling list), backups, restore, defragment, check and repair (5.0e–5.0e3).
 - The interface (16 November 2026): SELECT switches between playing and the menu; one header and footer on every page, the status at the footer's right, the battery in the header; greyed choices; results in the middle of the screen; the buttons read by a thread of their own (5.0a, 5.0f's neighbours).
 - Changing card while connected, through the adapter: works on hardware (17 November 2026, on earlier builds).
+- A card per game through openMenu's Game ID (5.0e5): works on hardware with GDEMU and openMenu (17 November 2026).
+- The Dreamcast no longer loses the controller or its card now and then (5.0e6, patch 0011).
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
 - The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
-- Per-game cards through openMenu's GameID (5.0e5): built (firmware patch 0010 and the PSP), tried in PPSSPP only; needs a Dreamcast with GDEMU and openMenu.
 - Permanent (soldered) wiring.
 
 ## 11. First Major Milestone
