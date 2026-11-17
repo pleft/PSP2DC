@@ -62,7 +62,6 @@ void ui_battery(int percent, int charging);
 void ui_text_margin(int px);
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
-    const unsigned *colour;            /* its colour picture, 192x128 (colour.h), or NULL: the dots */
     int link;                          /* UI_LINK_* */
     const char *link_text;             /* "Standalone", "Connected"... */
     const char *link_hint;             /* under it, what that means */

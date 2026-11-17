@@ -668,7 +668,7 @@ static void draw_icon_row(int x0, int y0, int w, const UiTheme *t, unsigned lit)
     }
 }
 
-static void draw_vmu(const unsigned char *lcd, const unsigned *colour, const UiTheme *t, unsigned icons_lit)
+static void draw_vmu(const unsigned char *lcd, const UiTheme *t, unsigned icons_lit)
 {
     /* Laid out after photographs of the real one: the band at the top and
      * the screen, four times the LCD; its buttons left out (the page's header
@@ -701,14 +701,7 @@ static void draw_vmu(const unsigned char *lcd, const unsigned *colour, const UiT
     /* the screen in its stepped window, centred on the case */
     shape(X + 15, WY, 206, 172, 4, 4, mix(body, 0xFF000000, 4), mix(body, 0xFF000000, 2));   /* the step, shaded above */
     shape(X + 17, WY + 2, 202, 168, 3, 3, 0xFF7A8A86, 0xFF6A7A76);                         /* the glass's edge */
-    if (colour) {                                                                             /* a colour picture in their place */
-        int x, y;
-        ui_fill(X + 18, WY + 4, 200, 136, t->frame);
-        for (y = 0; y < 128; y++) {
-            unsigned *p = g_back + (WY + 8 + y) * LINE + X + 22;
-            for (x = 0; x < 192; x++) p[x] = colour[y * 192 + x];
-        }
-    } else ui_lcd_fit(lcd, X + 22, WY + 8, 192, 128, t);                                      /* the dots: 192x128 */
+    ui_lcd_fit(lcd, X + 22, WY + 8, 192, 128, t);                                             /* the dots: 192x128 */
     ui_fill(X + 18, WY + 3, 200, 5, t->paper);                                                /* the glass round them, */
     ui_fill(X + 18, WY + 136, 200, 32, t->paper);                                             /* the icon row under them, */
     ui_fill(X + 18, WY + 3, 4, 165, t->paper);                                                /* and the sides */
@@ -794,7 +787,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
 
     ui_begin(t->bg);
     ui_header(0, t);
-    draw_vmu(h->lcd, h->colour, t, h->icons);
+    draw_vmu(h->lcd, t, h->icons);
 
     /* the link: what it is, and what that means */
     round_rect(x0, 23, 220, 26, 6, t->panel);

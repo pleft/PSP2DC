@@ -41,7 +41,6 @@
 #include "pspexp_usb_driver.h"
 #include "../../protocol/psp2dc_protocol.h"
 #include "tools.h"
-#include "colour.h"
 #include "ui.h"
 #include "vmu_sa.h"
 #include "vmu_game.h"
@@ -221,7 +220,6 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
  * status page. Kept with the theme and the stick's source in SETTINGS. */
 enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_SYSTEM, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
-static int g_colour_on = 1;               /* colour pictures for the VMU's screen, when there are any (colour.h) */
 static int g_per_game = 1;                /* openMenu's Game ID puts that game's own card in */
 static Psp2dcGameId g_gid;                /* the last Game ID from the adapter (reader thread) */
 static volatile unsigned g_gid_seq;
@@ -469,7 +467,6 @@ static void settings_load(void)
     buf[n] = 0;
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
-    if ((p = strstr(buf, "colour="))) g_colour_on = atoi(p + 7) != 0;
     if ((p = strstr(buf, "pergame="))) g_per_game = atoi(p + 8) != 0;
     if ((p = strstr(buf, "card="))) {
         int i;
@@ -488,7 +485,7 @@ static void settings_save(void)
 {
     char buf[200];
     SceUID fd;
-    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\ncolour=%d\npergame=%d\ncard=%s\n", g_page, g_theme, g_colour_on, g_per_game, g_card_name);
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\npergame=%d\ncard=%s\n", g_page, g_theme, g_per_game, g_card_name);
     if (g_base_name[0]) n += snprintf(buf + n, sizeof(buf) - n, "base=%08x %s\n", g_base_crc, g_base_name);
     sceIoMkdir(CARD_DIR, 0777);
     if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
@@ -1588,8 +1585,8 @@ static int link_state(const char **text, const char **hint)
 }
 
 /* ---- the System page: the settings, and the details ---- */
-enum { SYS_THEME, SYS_COLOUR, SYS_PERGAME, SYS_DETAILS, SYSS };
-enum { DET_RECORD, DET_DEMO, DET_COLLECT, DETS };   /* Details' tools, for testing and making: not for playing */
+enum { SYS_THEME, SYS_PERGAME, SYS_DETAILS, SYSS };
+enum { DET_RECORD, DET_DEMO, DETS };      /* Details' tools, for testing: not for playing */
 static int g_sys_sel, g_sys_details, g_det_sel;
 
 static void page_turn(int d)
@@ -1612,9 +1609,6 @@ static void details_do(void)
 {
     if (g_det_sel == DET_RECORD) {
         if (rec_on()) { rec_stop(); notice(rec_note()); } else { rec_start(); notice("recording the VMU"); }
-    } else if (g_det_sel == DET_COLLECT) {
-        colour_collect_set(!colour_collect_on());
-        if (!colour_collect_on()) say("%u screens in colour/new", colour_collected());
     } else if (!det_off(DET_DEMO)) {
         if (demo_on()) demo_stop(); else { demo_start(); if (!demo_on()) notice(demo_note()); }
     }
@@ -1622,14 +1616,12 @@ static void details_do(void)
 
 static void details_view_rows(int standalone)
 {
-    static const char *const rows[DETS] = { "Record the VMU", "Demo", "Collect screens" };
-    static char rec[24], col[24];
+    static const char *const rows[DETS] = { "Record the VMU", "Demo" };
+    static char rec[24];
     const char *values[DETS];
     if (rec_on()) snprintf(rec, sizeof(rec), "on, %u", rec_count()); else snprintf(rec, sizeof(rec), "off");
-    if (colour_collect_on()) snprintf(col, sizeof(col), "on, %u", colour_collected()); else snprintf(col, sizeof(col), "off");
     values[DET_RECORD] = rec;
     values[DET_DEMO] = demo_on() ? "on" : "off";
-    values[DET_COLLECT] = col;
     ui_settings(4, 188, 268, "TOOLS, FOR TESTING", rows, values, DETS, g_det_sel,
                 det_off(DET_DEMO) ? 1u << DET_DEMO : 0, -1, &ui_themes[g_theme]);
     (void)standalone;
@@ -1645,10 +1637,6 @@ static void system_do(int d, int *settings_due)
         break;
     case SYS_PERGAME:                      /* openMenu's Game ID: each game its own card */
         g_per_game = !g_per_game;
-        *settings_due = 1;
-        break;
-    case SYS_COLOUR:                       /* colour pictures for the VMU's screen (colour.h) */
-        g_colour_on = !g_colour_on;
         *settings_due = 1;
         break;
     case SYS_DETAILS:
@@ -1696,13 +1684,6 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     v->lines[k++] = l1;
     if (v->link == UI_LINK_UP) { snprintf(l2, sizeof(l2), "%u inputs sent, %u errors", sent, errors); v->lines[k++] = l2; }
     v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
-    {
-        static char cv[24];
-        if (!g_colour_on) snprintf(cv, sizeof(cv), "off");
-        else if (colour_count()) snprintf(cv, sizeof(cv), "on, %d", colour_count());
-        else snprintf(cv, sizeof(cv), "on, none yet");
-        v->rows[SYS_COLOUR] = "Colour screens"; v->values[SYS_COLOUR] = cv;
-    }
     v->rows[SYS_PERGAME] = "Card per game"; v->values[SYS_PERGAME] = g_per_game ? "on" : "off";
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
@@ -1744,7 +1725,6 @@ int main(int argc, char *argv[])
     ui_init();
     settings_load();
     g_page = PAGE_VMU;                     /* (it starts playing) */
-    colour_init();
     sa_before_delete(file_mode_delete);
     thid = sceKernelCreateThread("cb", callback_thread, 0x11, 0xFA0, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
@@ -1881,10 +1861,6 @@ int main(int argc, char *argv[])
                 g_dev_gid_i++;
             }
             game_id_turn(&settings_due);
-        }
-        {   /* Details, "Collect screens": each new screen kept, to be coloured */
-            static unsigned collected_at;
-            if (colour_collect_on() && g_lcd_count != collected_at) { collected_at = g_lcd_count; colour_collect(g_lcd); }
         }
         if (g_no_usb) {
             /* nothing to send */
@@ -2043,7 +2019,6 @@ int main(int argc, char *argv[])
             lcd_shown = g_lcd_count;
             memset(&h, 0, sizeof(h));
             h.lcd = g_lcd;
-            h.colour = g_colour_on ? colour_for(g_lcd) : NULL;
             h.link = link_state(&h.link_text, &h.link_hint);
             h.in = &in;
             h.card = g_card;

@@ -448,6 +448,8 @@ After DreamColor Plus's "Modo Colorido" (its matching undocumented), as a first 
 - The application module grew from 322 KB to 657 KB with libpng and zlib.
 - Checked in PPSSPP: screens collected from the standalone VMU (clock, FILE, GAME) came out upright; FILE coloured at 48x32 and GAME at 192x128 (a gradient) were shown in colour, the clock in dots; the setting off brought the dots back. Not yet tried on hardware nor with a Dreamcast's screens.
 
+- **Removed (17 November 2026).** It was of little use: a picture shows only for a screen that matches it dot for dot, so gameplay, where nearly every frame differs, is never coloured, and each screen has to be painted by hand. Reverted with libpng and zlib.
+
 ### 5.0e5 A Card per Game: openMenu's Game ID (17 November 2026)
 
 From openMenu's source (the Virtual Folder Bundle, `openMenu/src/openmenu/src/vm2/vm2_api.c` and `main.c`, read 17 November 2026):
@@ -712,7 +714,7 @@ Not yet completed:
 
 - Real-game compatibility and latency measurements.
 - Changing card while connected, through the adapter, since it moved to the Cards page (16 November 2026): not yet tried on hardware.
-- Colour VMU screens (5.0e4): working in PPSSPP, not yet on hardware nor with a Dreamcast's screens.
+- Colour VMU screens (5.0e4): removed, 17 November 2026.
 - The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
 - Per-game cards through openMenu's GameID (5.0e5): built (firmware patch 0010 and the PSP), tried in PPSSPP only; needs a Dreamcast with GDEMU and openMenu.
 - Permanent (soldered) wiring.
