@@ -708,13 +708,12 @@ Completed:
 - The standalone VMU: TIME, FILE (copy, delete) and GAME mode, VMU games run by `vmu_core` (from libevmu) with the buzzer; Chao Adventure 2 and Alien Fighter played on hardware (5.0c, 5.0d).
 - Several cards on the Memory Stick; the Saves and Cards pages: info, copy, move, export, import (127 games in a scrolling list), backups, restore, defragment, check and repair (5.0e–5.0e3).
 - The interface (16 November 2026): SELECT switches between playing and the menu; one header and footer on every page, the status at the footer's right, the battery in the header; greyed choices; results in the middle of the screen; the buttons read by a thread of their own (5.0a, 5.0f's neighbours).
+- Changing card while connected, through the adapter: works on hardware (17 November 2026, on earlier builds).
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
-- Changing card while connected, through the adapter, since it moved to the Cards page (16 November 2026): not yet tried on hardware.
-- Colour VMU screens (5.0e4): removed, 17 November 2026.
 - The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
 - Per-game cards through openMenu's GameID (5.0e5): built (firmware patch 0010 and the PSP), tried in PPSSPP only; needs a Dreamcast with GDEMU and openMenu.
 - Permanent (soldered) wiring.
