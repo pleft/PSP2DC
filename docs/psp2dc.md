@@ -740,13 +740,12 @@ Completed:
 - Changing card while connected, through the adapter: works on hardware (17 November 2026, on earlier builds).
 - A card per game through openMenu's Game ID (5.0e5): works on hardware with GDEMU and openMenu (17 November 2026).
 - The Dreamcast no longer loses the controller or its card now and then (5.0e6, patch 0011).
-- The Waveshare RP2040-Zero as the adapter (3.5): works on hardware (18 November 2026).
+- The Waveshare RP2040-Zero as the adapter (3.5): works on hardware, with the Dreamcast cable soldered straight to the board (18 November 2026). The SuperPico's breadboard wiring (section 8, Phase 3) is no longer needed.
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
-- Permanent (soldered) wiring.
 
 ## 11. First Major Milestone
 

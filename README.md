@@ -30,12 +30,12 @@ Working on hardware:
 - Memory cards kept on the Memory Stick; saves survive switching the console off.
 - Changing cards while connected.
 - The standalone VMU, including mini-games such as Chao Adventure 2.
+- The RP2040-Zero adapter with the Dreamcast cable soldered on.
 
 Not done yet:
 
 - Latency measurements and broad game testing.
 - Configurable button mapping.
-- Permanent (soldered) wiring.
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
