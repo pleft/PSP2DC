@@ -189,6 +189,25 @@ In openMenu, set **VMU Game ID** to send. On the PSP, it is the **Card per
 game** setting in System (on by default). Works on a Dreamcast with GDEMU
 and openMenu.
 
+### The keyboard
+
+The PSP can also be a Dreamcast keyboard. Turn it on with **Keyboard** in System:
+
+- **with the pad:** the controller and the keyboard together, the VMU still in. Untested with games.
+- **keyboard only:** a keyboard alone, as Sega's: no pad, no VMU.
+
+Then **START** in the menu opens the keyboard, and SELECT goes back to the menu.
+
+| Key | Action |
+|---|---|
+| D-pad | Choose a key |
+| ✕ | Press it (Shift, Ctrl, Alt: for the next key) |
+| □ / △ / START / ○ | Backspace / Space / Enter / Esc |
+| L | Shift, held |
+| Nub | Arrow keys |
+
+The layout is a US keyboard.
+
 ### Memory cards
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any

@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-#define PSP2DC_PROTOCOL_VERSION 5
+#define PSP2DC_PROTOCOL_VERSION 6
 
 /* the PSPExp link under it */
 #define PSP2DC_USB_VID      0x054Cu
@@ -53,6 +53,7 @@
 #define PSP2DC_MSG_CARD_DONE 0x04   /* ... and its end (or: there is no card file) */
 #define PSP2DC_MSG_CARD_EJECT 0x05  /* take the card out: another one is to be put in */
 #define PSP2DC_MSG_CARD_SEND  0x06  /* the adapter's card is wanted: send its blocks */
+#define PSP2DC_MSG_KEYBOARD   0x07  /* the keyboard: its mode and the keys held (Psp2dcKeyboard) */
 /* adapter -> PSP */
 #define PSP2DC_MSG_STATUS     0x10   /* about once a second */
 #define PSP2DC_MSG_CARD_STATE 0x12   /* the answer to HELLO and CARD_EJECT: the card the adapter holds */
@@ -209,6 +210,32 @@ typedef struct {
 #define PSP2DC_BTN_C     0x0400
 #define PSP2DC_BTN_D     0x0800
 
+/* KEYBOARD payload (protocol 6): sent when it changes, and every half
+ * second. The adapter shows the Dreamcast a keyboard as Sega's "Maple Bus
+ * 1.0 Function Type Specifications FT6: Keyboard" (rev. 0.90) has it, a US
+ * 104-key one with its own LEDs (Caps Lock kept by the PSP).
+ *   mode OFF:  the pad only, as before.
+ *   PAD:       one device with both functions, pad and keyboard, the VMU
+ *              still in it. Sega's spec lets a device have several
+ *              functions; whether games take a keyboard so is to be seen.
+ *   ONLY:      a keyboard alone, as Sega's: no pad, no VMU.
+ * A change of mode is the device unplugged for a second, then the new one
+ * plugged in: the Dreamcast reads what it is again.
+ * cond is the 8 bytes the keyboard answers the Dreamcast with (FT6 4.2):
+ * the modifier keys (bit 0 left Ctrl, 1 left Shift, 2 left Alt, 3 left GUI,
+ * 4 right Ctrl, 5 right Shift, 6 right Alt, 7 S2), the LEDs (bit 0 Num
+ * Lock, 1 Caps Lock, 2 Scroll Lock), then up to six keys held, left-aligned,
+ * 0 after the last: the key codes are USB's (FT6 4.3: a 04h ... z 1Dh). An
+ * adapter that hears from no PSP for a moment lets the keys go. */
+typedef struct {
+    uint8_t mode;         /* PSP2DC_KBD_* */
+    uint8_t cond[8];
+    uint8_t reserved[3];
+} __attribute__((packed)) Psp2dcKeyboard;
+#define PSP2DC_KBD_OFF  0
+#define PSP2DC_KBD_PAD  1
+#define PSP2DC_KBD_ONLY 2
+
 /* STATUS payload */
 typedef struct {
     uint32_t uptime_ms;   /* adapter's clock, little endian */
@@ -233,8 +260,13 @@ typedef struct {
     uint32_t last_func;       /* its first word (a function code), or 0 */
     uint16_t maple_slow;      /* replies begun 1 ms or more after their packet */
     uint16_t maple_max_us;    /* the longest a packet waited for its reply since the last status (us) */
+    /* the keyboard (protocol 6) */
+    uint8_t  kbd_mode;        /* PSP2DC_KBD_*, as the Dreamcast is shown it */
+    uint8_t  kbd_leds;        /* the LEDs the Dreamcast last set (FT6 Set Condition) */
+    uint16_t kbd_reads;       /* times the Dreamcast read the keyboard (wraps) */
 } __attribute__((packed)) Psp2dcStatus;
 #define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
+#define PSP2DC_STATUS_V5_LEN  36  /* ... and before the keyboard */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot

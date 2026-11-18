@@ -221,6 +221,10 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
 enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_SYSTEM, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
 static int g_per_game = 1;                /* openMenu's Game ID puts that game's own card in */
+/* The Dreamcast keyboard (keyboard.c): shown to the Dreamcast as the System
+ * setting has it (PSP2DC_KBD_*), typed on while g_typing (START in the menu). */
+static int g_kbd_mode, g_typing;
+static Kb g_kb;
 static Psp2dcGameId g_gid;                /* the last Game ID from the adapter (reader thread) */
 static volatile unsigned g_gid_seq;
 #define SETTINGS "ms0:/PSP2DC/settings.txt"
@@ -329,7 +333,8 @@ static int reader_thread(SceSize args, void *argp)
             if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; g_rx_bad++; continue; }
             total = PSP2DC_HEADER_LEN + p[3];
             if (have - pos < total) break;
-            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_OLD_LEN)) {
+            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V5_LEN ||
+                                              p[3] == PSP2DC_STATUS_OLD_LEN)) {
                 Psp2dcStatus st;
                 memset(&st, 0, sizeof(st));
                 memcpy(&st, p + PSP2DC_HEADER_LEN, p[3]);
@@ -429,6 +434,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     if (g_status.maple_unanswered)
         printf("         last unanswered: cmd %02X to %02X, %u words, func %08X  \n", g_status.last_cmd,
                g_status.last_dest, g_status.last_words, (unsigned)g_status.last_func);
+    if (g_kbd_mode || g_status.kbd_mode)
+        printf("keyboard mode %u here, %u on the adapter; read %u times; LEDs set %02X      \n", g_kbd_mode,
+               g_status.kbd_mode, g_status.kbd_reads, g_status.kbd_leds);
     printf("vmu      %u screens here; adapter: asked %u wrote %u took %u\n", g_lcd_count,
            g_status.lcd_media, g_status.lcd_writes, g_status.lcd_screens);
     printf("card     %s; %s%u to come      \n", g_card_note,
@@ -475,6 +483,7 @@ static void settings_load(void)
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
     if ((p = strstr(buf, "pergame="))) g_per_game = atoi(p + 8) != 0;
+    if ((p = strstr(buf, "keyboard="))) g_kbd_mode = atoi(p + 9) % 3;
     if ((p = strstr(buf, "card="))) {
         int i;
         for (i = 0; i < CARD_NAME_MAX - 1 && p[5 + i] && p[5 + i] != '\n' && p[5 + i] != '\r'; i++) g_card_name[i] = p[5 + i];
@@ -492,7 +501,8 @@ static void settings_save(void)
 {
     char buf[200];
     SceUID fd;
-    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\npergame=%d\ncard=%s\n", g_page, g_theme, g_per_game, g_card_name);
+    int n = snprintf(buf, sizeof(buf), "page=%d\ntheme=%d\npergame=%d\nkeyboard=%d\ncard=%s\n", g_page, g_theme, g_per_game,
+                     g_kbd_mode, g_card_name);
     if (g_base_name[0]) n += snprintf(buf + n, sizeof(buf) - n, "base=%08x %s\n", g_base_crc, g_base_name);
     sceIoMkdir(CARD_DIR, 0777);
     if ((fd = sceIoOpen(SETTINGS, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return;
@@ -1592,7 +1602,7 @@ static int link_state(const char **text, const char **hint)
 }
 
 /* ---- the System page: the settings, and the details ---- */
-enum { SYS_THEME, SYS_PERGAME, SYS_DETAILS, SYSS };
+enum { SYS_THEME, SYS_PERGAME, SYS_KEYBOARD, SYS_DETAILS, SYSS };
 enum { DET_RECORD, DET_DEMO, DETS };      /* Details' tools, for testing: not for playing */
 static int g_sys_sel, g_sys_details, g_det_sel;
 
@@ -1630,7 +1640,7 @@ static void details_view_rows(int standalone)
     values[DET_RECORD] = rec;
     values[DET_DEMO] = demo_on() ? "on" : "off";
     ui_settings(4, 188, 268, "TOOLS, FOR TESTING", rows, values, DETS, g_det_sel,
-                det_off(DET_DEMO) ? 1u << DET_DEMO : 0, -1, &ui_themes[g_theme]);
+                det_off(DET_DEMO) ? 1u << DET_DEMO : 0, 0, &ui_themes[g_theme]);
     (void)standalone;
 }
 
@@ -1644,6 +1654,11 @@ static void system_do(int d, int *settings_due)
         break;
     case SYS_PERGAME:                      /* openMenu's Game ID: each game its own card */
         g_per_game = !g_per_game;
+        *settings_due = 1;
+        break;
+    case SYS_KEYBOARD:                     /* the Dreamcast keyboard: off, beside the pad, alone */
+        g_kbd_mode = (g_kbd_mode + (d ? d : 1) + 3) % 3;
+        if (!g_kbd_mode) g_typing = 0;
         *settings_due = 1;
         break;
     case SYS_DETAILS:
@@ -1692,10 +1707,15 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     if (v->link == UI_LINK_UP) { snprintf(l2, sizeof(l2), "%u inputs sent, %u errors", sent, errors); v->lines[k++] = l2; }
     v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
     v->rows[SYS_PERGAME] = "Card per game"; v->values[SYS_PERGAME] = g_per_game ? "on" : "off";
+    {
+        static const char *const kbd[3] = { "off", "with the pad", "keyboard only" };
+        v->rows[SYS_KEYBOARD] = "Keyboard"; v->values[SYS_KEYBOARD] = kbd[g_kbd_mode];
+    }
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
-    v->keys = g_sys_sel == SYS_THEME ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_OPEN;
+    v->arrow_rows = 1u << SYS_THEME | 1u << SYS_KEYBOARD;
+    v->keys = g_sys_sel == SYS_THEME || g_sys_sel == SYS_KEYBOARD ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_OPEN;
     (void)standalone;
 }
 
@@ -1708,7 +1728,8 @@ int main(int argc, char *argv[])
     unsigned char seq = 0;
     int connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
     int standalone = 0, was_standalone = 0;
-    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0;
+    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0, kb_sent_us = 0;
+    unsigned kb_reads_seen = 0, kb_reads_us = 0, kb_status_seen = 0, kb_shown = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
     unsigned start_us = now_us();
     SceUID thid;
@@ -1798,7 +1819,10 @@ int main(int argc, char *argv[])
             if (pressed && g_toast_at && now_us() - g_toast_at > 150000) g_toast_at = 0;   /* any button hides a result */
             if (pressed & PSP_CTRL_SELECT) {
                 g_menu = !g_menu;
-                if (!g_menu) { g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0; }
+                if (!g_menu) {
+                    g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0;
+                    g_typing = g_kbd_mode == PSP2DC_KBD_ONLY;   /* (alone, the keyboard is all there is) */
+                }
                 combo = held_before & pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go
                                                                      * (one pressed with SELECT in the same turn counts) */
                 settings_due = saves_due = 1;
@@ -1813,12 +1837,28 @@ int main(int argc, char *argv[])
                 } else if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER))
                     box_page(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);   /* (a long list: a page at a time) */
                 pressed &= ~(PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
+                if ((pressed & PSP_CTRL_START) && g_kbd_mode && g_box == BOX_NONE && !g_alone) {
+                    /* START: playing on the keyboard (a box's START is its own) */
+                    g_menu = 0;
+                    g_page = PAGE_VMU; g_sys_details = 0;
+                    g_typing = 1;
+                    combo = pad.Buttons;           /* held across the switch: not typed until let go */
+                    pressed = 0;
+                    settings_due = saves_due = 1;
+                }
                 if (pressed) page_keys(pressed, &settings_due);
                 if (pressed) saves_due = 1;   /* shown at once */
                 pad.Buttons = 0;
                 pad.Lx = pad.Ly = 128;
             } else pad.Buttons &= ~(combo | PSP_CTRL_SELECT);
         }
+        /* typing: the buttons are the keyboard's, the pad left alone */
+        if (g_alone || !g_kbd_mode) g_typing = 0;
+        if (g_typing && !g_menu) {
+            kb_frame(&g_kb, pad.Buttons, pad.Lx, pad.Ly);
+            pad.Buttons = 0;
+            pad.Lx = pad.Ly = 128;
+        } else kb_reset(&g_kb);
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons
@@ -1885,6 +1925,7 @@ int main(int argc, char *argv[])
                 g_adapter_card[0] = g_switch_to[0] = 0;   /* (g_return_to stays: card_decide goes on) */
                 state_seen = g_card_state_seq;   /* the answer to this hello is the next one */
                 send_msg(PSP2DC_MSG_HELLO, &hello, sizeof(hello));
+                kb_sent_us = 0;                  /* (and the keyboard's mode, below) */
             }
             if (g_card_state_seq != state_seen) {   /* the adapter said which card it holds */
                 int answered = 0;
@@ -1948,6 +1989,15 @@ int main(int argc, char *argv[])
             if (g_status_count && g_adapter_version != PSP2DC_PROTOCOL_VERSION && !version_told) {
                 notice("update adapter firmware");   /* (both protocols: the status page) */
                 version_told = 1;
+            }
+            {   /* the keyboard: when it changes, and every half second */
+                static Psp2dcKeyboard last_kb;
+                Psp2dcKeyboard kb;
+                memset(&kb, 0, sizeof(kb));
+                kb.mode = (unsigned char)g_kbd_mode;
+                memcpy(kb.cond, g_kb.cond, sizeof(kb.cond));
+                if (!kb_sent_us || memcmp(&kb, &last_kb, sizeof(kb)) || now_us() - kb_sent_us > 500000)
+                    if (send_msg(PSP2DC_MSG_KEYBOARD, &kb, sizeof(kb)) >= 0) { last_kb = kb; kb_sent_us = now_us() | 1; }
             }
             in.seq = seq++;
             if (send_msg(PSP2DC_MSG_INPUT, &in, sizeof(in)) < 0) errors++;
@@ -2019,6 +2069,31 @@ int main(int argc, char *argv[])
                 saves_due = 0;
                 g_saves_count = ui_page_saves(g_card, g_card_have, &v, &ui_themes[g_theme],
                                               now_us() / 1000, g_card_name);
+            }
+        } else if (g_typing && !g_menu) {
+            /* the keyboard: drawn when something on it changes, or every 3 frames */
+            unsigned sig = (unsigned)g_kb.row << 24 ^ (unsigned)g_kb.col << 16 ^ g_kb.cond[0] << 8 ^ g_kb.cond[2] ^
+                           (unsigned)g_kb.cond[3] << 4 ^ (unsigned)g_kb.caps << 12;
+            if (g_status_count != kb_status_seen) {   /* is the Dreamcast reading it? */
+                kb_status_seen = g_status_count;
+                if (g_status.kbd_reads != kb_reads_seen) { kb_reads_seen = g_status.kbd_reads; kb_reads_us = now_us() | 1; }
+            }
+            if (sig != kb_shown || frame % 3 == 0 || g_lcd_count != lcd_shown) {
+                UiKeys k;
+                int up = !g_no_usb && pspexpUsbConnected();
+                kb_shown = sig;
+                lcd_shown = g_lcd_count;
+                memset(&k, 0, sizeof(k));
+                k.lcd = g_lcd;
+                k.kb = &g_kb;
+                k.mode = g_kbd_mode == PSP2DC_KBD_ONLY ? "alone" : "with the pad";
+                k.state_ok = up && kb_reads_us && now_us() - kb_reads_us < 2500000;
+                k.state = !up ? "not connected to the Dreamcast"
+                        : g_status_count && g_adapter_version < 6 ? "the adapter's firmware is too old for it"
+                        : g_status.kbd_mode != g_kbd_mode ? "plugging it in..."
+                        : k.state_ok ? "the Dreamcast is reading it"
+                        : "not read: the game is not asking for a keyboard";
+                ui_page_keys(&k, &ui_themes[g_theme]);
             }
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
             UiHome h;

@@ -494,6 +494,30 @@ What PSP2DC does (firmware patch 0010, `psp/app/main.c`):
 
 Details shows them on the `maple` lines.
 
+### 5.0e7 The Dreamcast Keyboard (18 November 2026, protocol 6)
+
+Typing on the PSP, for Typing of the Dead, Phantasy Star Online's chat and Quake III.
+
+- **Source:** Sega's "Maple Bus 1.0 Function Type Specifications FT6: Keyboard", rev. 0.90 (segaretro.org, `Ft6_090e.pdf`).
+  - Function type 40h.
+  - The function definition block is 4 bytes: language KL (02h US), type KT (05h, 104 keys), LED type LD, and LDON (80h: the keyboard keeps its own LEDs).
+  - Get Condition answers with 8 bytes: the modifier bits, the LEDs, then six key codes, left-aligned. The codes are USB's (a = 04h). Seven keys at once is a rollover error: 01h in all six.
+  - Set Condition sets the LEDs and is answered with a reply.
+  - flycast's emulated keyboard sends the same function definition bytes (02 05 00 80 for US).
+- **Modes** (System → Keyboard): off, with the pad, keyboard only.
+  - With the pad, one device has both functions (41h). The blocks go from the highest function bit down, as on a VMU. The VMU stays in the device.
+  - Sega's spec allows a device to have several functions. No game is known to have been tried with such a device, so this mode is untested.
+  - Keyboard only is the device Sega made: a keyboard alone, with no pad and no VMU.
+  - A change of mode leaves the device unanswered for a second, so the Dreamcast sees it unplugged and reads it again.
+- **PSP:** START in the menu opens the keyboard (`keyboard.c`, `ui_page_keys`); SELECT goes back to the menu.
+  - Choosing keys: the d-pad chooses a key (held, it repeats) and X presses it for as long as X is held.
+  - A modifier chosen on the keyboard is latched for the next key.
+  - Buttons: □ Backspace, △ Space, START Enter, ○ Esc, L Shift held, the nub the arrow keys.
+  - The PSP sends the 8 bytes when they change and every half second.
+  - The adapter lets go of the keys when the PSP goes quiet or away. It keeps the mode, so the Dreamcast is not shown another device.
+- **Telling whether a game reads it:** the adapter counts the keyboard's Get Conditions (status, protocol 6). The keyboard page says "the Dreamcast is reading it" while the count rises. Details shows the count and the LEDs the Dreamcast set.
+- **Tested:** PPSSPP demo only, which checks the page and the buttons. Not yet tried on the Dreamcast.
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.

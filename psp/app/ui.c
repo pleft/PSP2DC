@@ -1100,13 +1100,13 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
 static void panel_head(int x, int y, const char *s, const UiTheme *t) { label(x, y, muted(t), s); }
 
 void ui_settings(int x0, int y0, int w, const char *head, const char *const *rows, const char *const *values,
-                 int n, int sel, unsigned offs, int arrows_row, const UiTheme *t)
+                 int n, int sel, unsigned offs, unsigned arrow_rows, const UiTheme *t)
 {
     int k, y;
     round_rect(x0, y0, w, 26 + n * 18 + 4, 6, t->panel);
     panel_head(x0 + 8, y0 + 6, head, t);
     for (k = 0, y = y0 + 20; k < n; k++, y += 18) {
-        int on = k == sel, off = (offs >> k) & 1, arrows = k == arrows_row && !off;
+        int on = k == sel, off = (offs >> k) & 1, arrows = ((arrow_rows >> k) & 1) && !off;
         unsigned c = on ? on_colour(t->accent) : off ? faint(t) : t->text;
         if (on) round_rect(x0 + 4, y - 4, w - 8, 16, 3, t->accent);
         label_fit(x0 + 10, y, c, rows[k], 120);
@@ -1126,6 +1126,9 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     static const UiKey vmu[] = { K1(G_DPAD, 0, ""), K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_TRI, 0, "MODE"), K1(G_SQ, 0, "SLEEP") };
     static const UiKey sel1[] = { K1(G_CAP, "SELECT", "menu / play"), K2(G_CAP, "L", G_CAP, "R", "tab") };
     static const UiKey sel2[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back"), K1(G_TRI, 0, "shot") };
+    static const UiKey kb1[] = { K1(G_DPAD, 0, "key"), K1(G_X, 0, "press"), K1(G_CAP, "nub", "arrows") };
+    static const UiKey kb2[] = { K1(G_SQ, 0, "bksp"), K1(G_TRI, 0, "space"), K1(G_O, 0, "esc"), K1(G_CAP, "L", "shift") };
+    static const UiKey kb3[] = { K1(G_CAP, "START", "enter"), K1(G_CAP, "SELECT", "menu") };
     const int L = 4, LW = 234, R = 242, RW = 236;
     int y, k, x;
     ui_begin(t->bg);
@@ -1140,7 +1143,7 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     for (k = 0, y = 68; k < 4 && sy->lines[k]; k++, y += 12) label_fit(L + 8, y, t->text, sy->lines[k], LW - 16);
 
     /* the settings (the theme first: ◀ name ▶) */
-    ui_settings(L, 110, LW, "SETTINGS", sy->rows, sy->values, sy->nrows, sy->sel, sy->off_rows, 0, t);
+    ui_settings(L, 110, LW, "SETTINGS", sy->rows, sy->values, sy->nrows, sy->sel, sy->off_rows, sy->arrow_rows, t);
 
     /* every key */
     round_rect(R, 22, RW, 228, 6, t->panel);
@@ -1159,7 +1162,61 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel1[k], x, y, t->text, t) + 12;
     y += 15;
     for (k = 0, x = R + 10; k < 4; k++) x = key_item(&sel2[k], x, y, t->text, t) + 10;
+    y += 20;
+    panel_head(R + 8, y, "THE KEYBOARD (MENU: START)", t);  y += 14;
+    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&kb1[k], x, y, t->text, t) + 10;
+    y += 15;
+    for (k = 0, x = R + 10; k < 4; k++) x = key_item(&kb2[k], x, y, t->text, t) + 10;
+    y += 15;
+    for (k = 0, x = R + 10; k < 2; k++) x = key_item(&kb3[k], x, y, t->text, t) + 10;
 
     draw_keys(sy->keys, t, NULL);
+    ui_end();
+}
+
+/* ---- the keyboard ----------------------------------------------------------
+ * Above, the VMU small and what the Dreamcast makes of the keyboard; below,
+ * the keys in six rows 15 keys wide, the chosen one in the accent, those
+ * held (and the modifiers latched, Caps Lock on) in the in-use green. */
+void ui_page_keys(const UiKeys *v, const UiTheme *t)
+{
+    static const UiKey keys[] = { K1(G_CAP, "SELECT", "menu"), K1(G_DPAD, 0, "key"), K1(G_X, 0, "press"),
+                                  K1(G_SQ, 0, "bksp"), K1(G_TRI, 0, "space"), K1(G_O, 0, "esc"),
+                                  K1(G_CAP, "START", "enter") };
+    const int x0 = 15, unit = 30, y0 = 78, rh = 25;
+    int shift = (v->kb->cond[0] & 0x22) != 0, r, i;
+
+    ui_begin(t->bg);
+    ui_header(0, t);
+    round_rect(4, 22, 88, 52, 6, t->panel);
+    ui_lcd_fit(v->lcd, 12, 24, 72, 48, t);
+    round_rect(96, 22, 380, 52, 6, t->panel);
+    label_bold(104, 28, strong(t), "KEYBOARD");
+    label(104 + 9 * 7, 28, muted(t), v->mode);
+    disc(110, 47, 4, v->state_ok ? t->ok : muted(t));
+    label_fit(120, 43, v->state_ok ? t->text : muted(t), v->state, 348);
+    {   /* what is held or latched */
+        char s[64] = "";
+        if (v->kb->cond[0] & 0x22) strcat(s, "Shift ");
+        if (v->kb->cond[0] & 0x11) strcat(s, "Ctrl ");
+        if (v->kb->cond[0] & 0x44) strcat(s, "Alt ");
+        if (v->kb->caps) strcat(s, "Caps Lock ");
+        label_fit(104, 58, t->ok, s[0] ? s : "", 360);
+    }
+    for (r = 0; r < KB_ROWS; r++) {
+        int q = 0;
+        for (i = 0; i < kb_row_len[r]; i++) {
+            const KbKey *k = &kb_rows[r][i];
+            int x = x0 + q * unit / 4, w = k->w * unit / 4 - 2, y = y0 + r * rh;
+            int on = r == v->kb->row && i == v->kb->col, down = kb_down(v->kb, k);
+            int letter = k->code >= 0x04 && k->code <= 0x1D;
+            const char *txt = (letter ? shift != v->kb->caps : shift) && k->shifted ? k->shifted : k->label;
+            unsigned fill = on ? t->accent : down ? t->ok : raised(t);
+            round_rect(x, y, w, rh - 3, 3, fill);
+            label(x + (w - 7 * (int)strlen(txt)) / 2, y + 7, on || down ? on_colour(fill) : t->text, txt);
+            q += k->w;
+        }
+    }
+    draw_footer(2, 476, keys, 7, NULL, t);
     ui_end();
 }

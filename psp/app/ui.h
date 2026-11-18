@@ -99,6 +99,19 @@ typedef struct {
 #define UI_KB_ROWS 4
 extern const char *const ui_kb_rows[3];
 
+/* The keyboard being typed on (keyboard.h): the VMU small, what the
+ * Dreamcast makes of the keyboard, and the keys, the chosen one lit and
+ * those held marked. */
+#include "keyboard.h"
+typedef struct {
+    const unsigned char *lcd;          /* the VMU's screen */
+    const Kb *kb;
+    const char *mode;                  /* "beside the pad", "alone" */
+    const char *state;                 /* what the Dreamcast makes of it */
+    int state_ok;                      /* 1: it reads the keyboard */
+} UiKeys;
+void ui_page_keys(const UiKeys *v, const UiTheme *t);
+
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
  * Cards, 3 System), and at their right the link and the status line. In the
  * menu the bar is lit, L and R beside the tabs; playing it is dim, with
@@ -145,12 +158,14 @@ typedef struct {
     const char *rows[UI_SYS_ROWS], *values[UI_SYS_ROWS];   /* the settings: a name, its value */
     int nrows, sel;                    /* sel: the row chosen */
     unsigned off_rows;                 /* bits: rows that cannot be used now (greyed) */
+    unsigned arrow_rows;               /* bits: rows shown as ◀ value ▶ */
     int keys;
 } UiSystem;
 void ui_page_system(const UiSystem *s, const UiTheme *t);
 /* a panel of settings at x, y, w wide: a name and its value a row, the
- * chosen one lit, greyed those in off; arrows_row (or -1) shows ◀ value ▶ */
+ * chosen one lit, greyed those in off; the rows in arrows (bits) show
+ * ◀ value ▶ */
 void ui_settings(int x, int y, int w, const char *head, const char *const *rows, const char *const *values,
-                 int n, int sel, unsigned off, int arrows_row, const UiTheme *t);
+                 int n, int sel, unsigned off, unsigned arrows, const UiTheme *t);
 
 #endif
