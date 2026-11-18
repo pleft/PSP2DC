@@ -516,7 +516,10 @@ Typing on the PSP, for Typing of the Dead, Phantasy Star Online's chat and Quake
   - The PSP sends the 8 bytes when they change and every half second.
   - The adapter lets go of the keys when the PSP goes quiet or away. It keeps the mode, so the Dreamcast is not shown another device.
 - **Telling whether a game reads it:** the adapter counts the keyboard's Get Conditions (status, protocol 6). The keyboard page says "the Dreamcast is reading it" while the count rises. Details shows the count and the LEDs the Dreamcast set.
-- **Tested:** PPSSPP demo only, which checks the page and the buttons. Not yet tried on the Dreamcast.
+- **Tested:**
+  - PPSSPP demo: the page and the buttons.
+  - Hardware, keyboard only (18 November 2026, RP2040-Zero): openMenu takes the keys.
+  - With the pad: not yet tried.
 
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
