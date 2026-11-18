@@ -214,11 +214,11 @@ typedef struct {
  * second. The adapter shows the Dreamcast a keyboard as Sega's "Maple Bus
  * 1.0 Function Type Specifications FT6: Keyboard" (rev. 0.90) has it, a US
  * 104-key one with its own LEDs (Caps Lock kept by the PSP).
- *   mode OFF:  the pad only, as before.
- *   PAD:       one device with both functions, pad and keyboard, the VMU
- *              still in it. Sega's spec lets a device have several
- *              functions; whether games take a keyboard so is to be seen.
+ *   mode OFF:  the pad and the VMU, as before.
  *   ONLY:      a keyboard alone, as Sega's: no pad, no VMU.
+ * (Mode 1 was one device with both functions, pad and keyboard, the VMU in
+ * it: Typing of the Dead never read its keys (18 November 2026). Dropped;
+ * an adapter takes it as OFF.)
  * A change of mode is the device unplugged for a second, then the new one
  * plugged in: the Dreamcast reads what it is again.
  * cond is the 8 bytes the keyboard answers the Dreamcast with (FT6 4.2):
@@ -233,7 +233,6 @@ typedef struct {
     uint8_t reserved[3];
 } __attribute__((packed)) Psp2dcKeyboard;
 #define PSP2DC_KBD_OFF  0
-#define PSP2DC_KBD_PAD  1
 #define PSP2DC_KBD_ONLY 2
 
 /* STATUS payload */

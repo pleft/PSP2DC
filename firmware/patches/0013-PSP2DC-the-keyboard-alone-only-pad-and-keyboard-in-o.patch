@@ -1,0 +1,145 @@
+From 939e18d4a9052be7f24b31af316639d0c010fbdf Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Wed, 18 Nov 2026 22:08:15 +0200
+Subject: [PATCH] PSP2DC: the keyboard alone only; pad and keyboard in one
+ device dropped
+
+Typing of the Dead never read the keys of one device with both functions
+(41h), though it took the keyboard alone at once. Mode 1 is now taken as off.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       | 55 ++++++-------------
+ 1 file changed, 17 insertions(+), 38 deletions(-)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 5c1f8e27..2be0b1ec 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -317,7 +317,7 @@ typedef enum {
+     SEND_VMU_WRITE_COMPLETE_ACK, // WR_COMPLETE ACK — always fires, aborts any stuck DMA
+     SEND_CONTROLLER_AND_VMU_INFO,
+     SEND_CONTROLLER_AND_VMU_ALL_INFO,
+-    SEND_KBD_INFO,              // PSP2DC: the keyboard's device info (with the pad, or alone)
++    SEND_KBD_INFO,              // PSP2DC: the keyboard's device info
+     SEND_KBD_ALL_INFO,
+     SEND_KBD_STATUS,            // its keys
+     SEND_KBD_ACK,               // its reply (the main device's address for the mode)
+@@ -657,9 +657,10 @@ static void __not_in_flash_func(SendControllerStatus)(void)
+ // (80h: the keyboard keeps its own LEDs), the values flycast's emulated
+ // keyboard gives; Get Condition answered with the function type and 8 bytes
+ // (the modifier keys, the LEDs, six key codes); Set Condition (the host's
+-// LEDs) answered with a reply. The PSP chooses the mode (Psp2dcKeyboard in
+-// psp2dc_protocol.h): the keyboard beside the pad in one device (functions
+-// 41h, the VMU still in it), or a keyboard alone. A change of mode is the
++// LEDs) answered with a reply. The PSP turns it on (Psp2dcKeyboard in
++// psp2dc_protocol.h): the adapter is then a keyboard alone, as Sega's, no pad
++// and no VMU. (One device with both, pad and keyboard, was tried: Typing of
++// the Dead never read its keys, 18 November 2026.) A change of mode is the
+ // device unplugged for a second, so that the Dreamcast reads it again.
+ // All of it runs on Core 0, as the replies do (CONFIG_DC_CORE1_TX is off).
+ #define FUNC_KEYBOARD 0x40
+@@ -673,7 +674,7 @@ typedef struct __attribute__((packed)) {
+     uint32_t CRC;
+ } FKeyboardPacket;
+ 
+-static uint8_t kbd_mode;                  // PSP2DC_KBD_*
++static uint8_t kbd_mode;                  // PSP2DC_KBD_OFF or PSP2DC_KBD_ONLY
+ static uint8_t kbd_cond[8];               // the PSP's: modifiers, LEDs, keys
+ static uint8_t kbd_leds_set;              // what the Dreamcast last set
+ static uint32_t kbd_reads;                // Get Conditions for the keyboard
+@@ -690,33 +691,15 @@ static bool kbd_unplugged(void)
+     return false;
+ }
+ 
+-// The main device's address byte: with the pad, the pad's sub-units (the VMU
+-// once the card is in); a keyboard alone has none.
+-static uint8_t kbd_origin(void)
+-{
+-    return kbd_mode == PSP2DC_KBD_ONLY ? ADDRESS_CONTROLLER : ADDRESS_CONTROLLER_AND_SUBS;
+-}
+-
+ static void kbd_build(void)
+ {
+     PacketDeviceInfo *i = &KbdInfoPacket.Info;
+     memset(i, 0, sizeof(*i));
+-    if (kbd_mode == PSP2DC_KBD_PAD) {
+-        // two functions: their blocks from the highest function bit down, as a
+-        // VMU's (timer, LCD, then the card's)
+-        i->Func = __builtin_bswap32(FUNC_KEYBOARD | FUNC_CONTROLLER);
+-        i->FuncData[0] = __builtin_bswap32(KBD_FUNC_DATA);
+-        i->FuncData[1] = __builtin_bswap32(0x000f06fe);   // the pad's (BuildInfoPacket)
+-        memcpy(i->ProductName, "Dreamcast Controller          ", sizeof(i->ProductName));
+-        i->StandbyPower = 430;
+-        i->MaxPower = 500;
+-    } else {
+-        i->Func = __builtin_bswap32(FUNC_KEYBOARD);
+-        i->FuncData[0] = __builtin_bswap32(KBD_FUNC_DATA);
+-        memcpy(i->ProductName, "Keyboard                      ", sizeof(i->ProductName));
+-        i->StandbyPower = 0x01AE;
+-        i->MaxPower = 0x01F5;
+-    }
++    i->Func = __builtin_bswap32(FUNC_KEYBOARD);
++    i->FuncData[0] = __builtin_bswap32(KBD_FUNC_DATA);
++    memcpy(i->ProductName, "Keyboard                      ", sizeof(i->ProductName));
++    i->StandbyPower = 0x01AE;
++    i->MaxPower = 0x01F5;
+     i->AreaCode = -1;
+     i->ConnectorDirection = 0;
+     memcpy(i->ProductLicense, "Produced By or Under License From SEGA ENTERPRISES,LTD.     ", sizeof(i->ProductLicense));
+@@ -740,11 +723,10 @@ static void kbd_build(void)
+     KbdPacket.Func = __builtin_bswap32(FUNC_KEYBOARD);
+ }
+ 
+-// a keyboard packet out, its address and check made now (the VMU comes and
+-// goes in the pad's address)
++// a keyboard packet out, its address and check made now
+ static void __not_in_flash_func(kbd_send)(void *pkt, uint32_t bytes, PacketHeader *h)
+ {
+-    h->Origin = kbd_origin();
++    h->Origin = ADDRESS_CONTROLLER;           // (a keyboard has no sub-units)
+     h->Destination = ADDRESS_DREAMCAST;
+     *(uint32_t *)((uint8_t *)pkt + bytes - 4) = CalcCRC((uint32_t *)h, bytes / sizeof(uint32_t) - 2);
+     SendPacket((uint32_t *)pkt, bytes / sizeof(uint32_t));
+@@ -759,9 +741,8 @@ static void __not_in_flash_func(kbd_reply)(ESendState what)
+         memcpy(KbdPacket.Cond, kbd_cond, sizeof(KbdPacket.Cond));
+         kbd_send(&KbdPacket, sizeof(KbdPacket), &KbdPacket.Header);
+         break;
+-    case SEND_KBD_ACK:
+-        if (kbd_mode == PSP2DC_KBD_ONLY) SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+-        else SendPacket((uint32_t *)pACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
++    case SEND_KBD_ACK:                    // the controller-only reply: the address alone
++        SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+         break;
+     default: break;
+     }
+@@ -777,7 +758,6 @@ static bool __not_in_flash_func(kbd_consume)(const PacketHeader *h, const uint32
+     case CMD_ALL_STATUS_REQUEST: NextPacketSend = SEND_KBD_ALL_INFO; return true;
+     case CMD_GET_CONDITION:
+         if (func == FUNC_KEYBOARD) { kbd_reads++; NextPacketSend = SEND_KBD_STATUS; return true; }
+-        if (func == FUNC_CONTROLLER && kbd_mode == PSP2DC_KBD_PAD) { NextPacketSend = SEND_CONTROLLER_STATUS; return true; }
+         return false;
+     case CMD_SET_CONDITION:      // the LEDs: the write format's first byte (FT6 4.1)
+         if (func == FUNC_KEYBOARD && h->NumWords >= 2) {
+@@ -795,7 +775,7 @@ static bool __not_in_flash_func(kbd_consume)(const PacketHeader *h, const uint32
+ // of every key (the LEDs kept).
+ void dreamcast_set_keyboard(uint8_t mode, const uint8_t *cond)
+ {
+-    if (mode > PSP2DC_KBD_ONLY) mode = PSP2DC_KBD_OFF;
++    if (mode != PSP2DC_KBD_ONLY) mode = PSP2DC_KBD_OFF;   // (1, the pad beside it, was dropped)
+     if (cond) memcpy(kbd_cond, cond, sizeof(kbd_cond));
+     else { uint8_t leds = kbd_cond[1]; memset(kbd_cond, 0, sizeof(kbd_cond)); kbd_cond[1] = leds; }
+     if (mode != kbd_mode) {
+@@ -849,8 +829,7 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
+ 
+ #ifdef CONFIG_PSP2DC
+     if (kbd_unplugged()) return false;     // the mode changing: nothing there for a moment
+-    if (kbd_mode && DestPeripheral == ADDRESS_CONTROLLER) return kbd_consume(Header, PacketData);
+-    if (kbd_mode == PSP2DC_KBD_ONLY) return false;   // a keyboard alone has no VMU
++    if (kbd_mode) return DestPeripheral == ADDRESS_CONTROLLER && kbd_consume(Header, PacketData);   // (no VMU)
+ #endif
+ 
+     // Handle main controller requests (address 0x20)
+-- 
+2.54.0 (Apple Git-157)
+

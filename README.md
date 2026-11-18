@@ -191,12 +191,10 @@ and openMenu.
 
 ### The keyboard
 
-The PSP can also be a Dreamcast keyboard. Turn it on with **Keyboard** in System:
-
-- **with the pad:** the controller and the keyboard together, the VMU still in. Untested with games.
-- **keyboard only:** a keyboard alone, as Sega's: no pad, no VMU.
-
-Then **START** in the menu opens the keyboard, and SELECT goes back to the menu.
+The PSP can also be a Dreamcast keyboard, for Typing of the Dead and the
+like. Turn **Keyboard** on in System: the adapter is then a keyboard alone,
+as Sega's, with no pad and no VMU. Playing is then typing, and SELECT
+switches between the keyboard and the menu.
 
 | Key | Action |
 |---|---|
@@ -206,7 +204,7 @@ Then **START** in the menu opens the keyboard, and SELECT goes back to the menu.
 | L | Shift, held |
 | Nub | Arrow keys |
 
-The layout is a US keyboard.
+The layout is a US keyboard. Works in openMenu and Typing of the Dead.
 
 ### Memory cards
 

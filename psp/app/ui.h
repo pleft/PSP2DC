@@ -106,7 +106,6 @@ extern const char *const ui_kb_rows[3];
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
     const Kb *kb;
-    const char *mode;                  /* "beside the pad", "alone" */
     const char *state;                 /* what the Dreamcast makes of it */
     int state_ok;                      /* 1: it reads the keyboard */
 } UiKeys;

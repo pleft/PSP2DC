@@ -1163,7 +1163,7 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
     y += 15;
     for (k = 0, x = R + 10; k < 4; k++) x = key_item(&sel2[k], x, y, t->text, t) + 10;
     y += 20;
-    panel_head(R + 8, y, "THE KEYBOARD (MENU: START)", t);  y += 14;
+    panel_head(R + 8, y, "THE KEYBOARD (SETTING ON)", t);  y += 14;
     for (k = 0, x = R + 10; k < 3; k++) x = key_item(&kb1[k], x, y, t->text, t) + 10;
     y += 15;
     for (k = 0, x = R + 10; k < 4; k++) x = key_item(&kb2[k], x, y, t->text, t) + 10;
@@ -1192,7 +1192,6 @@ void ui_page_keys(const UiKeys *v, const UiTheme *t)
     ui_lcd_fit(v->lcd, 12, 24, 72, 48, t);
     round_rect(96, 22, 380, 52, 6, t->panel);
     label_bold(104, 28, strong(t), "KEYBOARD");
-    label(104 + 9 * 7, 28, muted(t), v->mode);
     disc(110, 47, 4, v->state_ok ? t->ok : muted(t));
     label_fit(120, 43, v->state_ok ? t->text : muted(t), v->state, 348);
     {   /* what is held or latched */

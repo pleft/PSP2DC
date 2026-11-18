@@ -504,12 +504,12 @@ Typing on the PSP, for Typing of the Dead, Phantasy Star Online's chat and Quake
   - Get Condition answers with 8 bytes: the modifier bits, the LEDs, then six key codes, left-aligned. The codes are USB's (a = 04h). Seven keys at once is a rollover error: 01h in all six.
   - Set Condition sets the LEDs and is answered with a reply.
   - flycast's emulated keyboard sends the same function definition bytes (02 05 00 80 for US).
-- **Modes** (System → Keyboard): off, with the pad, keyboard only.
-  - With the pad, one device has both functions (41h). The blocks go from the highest function bit down, as on a VMU. The VMU stays in the device.
-  - Sega's spec allows a device to have several functions. No game is known to have been tried with such a device, so this mode is untested.
-  - Keyboard only is the device Sega made: a keyboard alone, with no pad and no VMU.
-  - A change of mode leaves the device unanswered for a second, so the Dreamcast sees it unplugged and reads it again.
-- **PSP:** START in the menu opens the keyboard (`keyboard.c`, `ui_page_keys`); SELECT goes back to the menu.
+- **The setting** (System → Keyboard, on/off): on, the adapter is a keyboard alone, the device Sega made, with no pad and no VMU. A change leaves the device unanswered for a second, so the Dreamcast sees it unplugged and reads it again.
+- **Pad and keyboard in one device: tried, dropped.** It announced both functions (41h), which Sega's spec allows; the blocks went from the highest function bit down, as on a VMU, and the VMU stayed in.
+  - Typing of the Dead never read its keys (the keyboard's Get Condition count stayed still), though it took the keyboard alone at once (18 November 2026).
+  - Likely reason: Sega's library seems to file a device under one function (its light gun is a gun and a controller together), here the controller.
+  - Not tried, as the odds looked low: other ways of describing the combined device. The alternative that would work is a second Maple cable to port B for the keyboard, as with a real keyboard.
+- **PSP:** with the keyboard on, playing is typing: SELECT switches between it and the menu (`keyboard.c`, `ui_page_keys`).
   - Choosing keys: the d-pad chooses a key (held, it repeats) and X presses it for as long as X is held.
   - A modifier chosen on the keyboard is latched for the next key.
   - Buttons: □ Backspace, △ Space, START Enter, ○ Esc, L Shift held, the nub the arrow keys.
@@ -518,8 +518,7 @@ Typing on the PSP, for Typing of the Dead, Phantasy Star Online's chat and Quake
 - **Telling whether a game reads it:** the adapter counts the keyboard's Get Conditions (status, protocol 6). The keyboard page says "the Dreamcast is reading it" while the count rises. Details shows the count and the LEDs the Dreamcast set.
 - **Tested:**
   - PPSSPP demo: the page and the buttons.
-  - Hardware, keyboard only (18 November 2026, RP2040-Zero): openMenu takes the keys.
-  - With the pad: not yet tried.
+  - Hardware (18 November 2026, RP2040-Zero): openMenu and Typing of the Dead take the keys.
 
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 

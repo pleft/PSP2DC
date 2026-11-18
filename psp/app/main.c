@@ -221,8 +221,8 @@ static int g_no_usb;              /* --no-usb: the driver is not there (PPSSPP);
 enum { PAGE_VMU, PAGE_SAVES, PAGE_CARDS, PAGE_SYSTEM, PAGES };
 static int g_page = PAGE_VMU, g_theme, g_saves_first, g_saves_count;
 static int g_per_game = 1;                /* openMenu's Game ID puts that game's own card in */
-/* The Dreamcast keyboard (keyboard.c): shown to the Dreamcast as the System
- * setting has it (PSP2DC_KBD_*), typed on while g_typing (START in the menu). */
+/* The Dreamcast keyboard (keyboard.c): on (PSP2DC_KBD_ONLY) or off as the
+ * System setting has it; while on, playing is typing. */
 static int g_kbd_mode, g_typing;
 static Kb g_kb;
 static Psp2dcGameId g_gid;                /* the last Game ID from the adapter (reader thread) */
@@ -483,7 +483,7 @@ static void settings_load(void)
     if ((p = strstr(buf, "page=")))  g_page = atoi(p + 5) % PAGES;
     if ((p = strstr(buf, "theme="))) g_theme = atoi(p + 6) % ui_theme_count;
     if ((p = strstr(buf, "pergame="))) g_per_game = atoi(p + 8) != 0;
-    if ((p = strstr(buf, "keyboard="))) g_kbd_mode = atoi(p + 9) % 3;
+    if ((p = strstr(buf, "keyboard="))) g_kbd_mode = atoi(p + 9) ? PSP2DC_KBD_ONLY : PSP2DC_KBD_OFF;
     if ((p = strstr(buf, "card="))) {
         int i;
         for (i = 0; i < CARD_NAME_MAX - 1 && p[5 + i] && p[5 + i] != '\n' && p[5 + i] != '\r'; i++) g_card_name[i] = p[5 + i];
@@ -1656,8 +1656,8 @@ static void system_do(int d, int *settings_due)
         g_per_game = !g_per_game;
         *settings_due = 1;
         break;
-    case SYS_KEYBOARD:                     /* the Dreamcast keyboard: off, beside the pad, alone */
-        g_kbd_mode = (g_kbd_mode + (d ? d : 1) + 3) % 3;
+    case SYS_KEYBOARD:                     /* the Dreamcast keyboard, instead of the pad and VMU */
+        g_kbd_mode = g_kbd_mode ? PSP2DC_KBD_OFF : PSP2DC_KBD_ONLY;
         if (!g_kbd_mode) g_typing = 0;
         *settings_due = 1;
         break;
@@ -1708,14 +1708,13 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
     v->rows[SYS_PERGAME] = "Card per game"; v->values[SYS_PERGAME] = g_per_game ? "on" : "off";
     {
-        static const char *const kbd[3] = { "off", "with the pad", "keyboard only" };
-        v->rows[SYS_KEYBOARD] = "Keyboard"; v->values[SYS_KEYBOARD] = kbd[g_kbd_mode];
+        v->rows[SYS_KEYBOARD] = "Keyboard"; v->values[SYS_KEYBOARD] = g_kbd_mode ? "on" : "off";
     }
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
-    v->arrow_rows = 1u << SYS_THEME | 1u << SYS_KEYBOARD;
-    v->keys = g_sys_sel == SYS_THEME || g_sys_sel == SYS_KEYBOARD ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_OPEN;
+    v->arrow_rows = 1u << SYS_THEME;
+    v->keys = g_sys_sel == SYS_THEME ? UI_KEYS_SYSTEM : UI_KEYS_SYSTEM_OPEN;
     (void)standalone;
 }
 
@@ -1821,7 +1820,7 @@ int main(int argc, char *argv[])
                 g_menu = !g_menu;
                 if (!g_menu) {
                     g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0;
-                    g_typing = g_kbd_mode == PSP2DC_KBD_ONLY;   /* (alone, the keyboard is all there is) */
+                    g_typing = g_kbd_mode != PSP2DC_KBD_OFF;   /* (the keyboard is all there is) */
                 }
                 combo = held_before & pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go
                                                                      * (one pressed with SELECT in the same turn counts) */
@@ -1837,15 +1836,6 @@ int main(int argc, char *argv[])
                 } else if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER))
                     box_page(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);   /* (a long list: a page at a time) */
                 pressed &= ~(PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
-                if ((pressed & PSP_CTRL_START) && g_kbd_mode && g_box == BOX_NONE && !g_alone) {
-                    /* START: playing on the keyboard (a box's START is its own) */
-                    g_menu = 0;
-                    g_page = PAGE_VMU; g_sys_details = 0;
-                    g_typing = 1;
-                    combo = pad.Buttons;           /* held across the switch: not typed until let go */
-                    pressed = 0;
-                    settings_due = saves_due = 1;
-                }
                 if (pressed) page_keys(pressed, &settings_due);
                 if (pressed) saves_due = 1;   /* shown at once */
                 pad.Buttons = 0;
@@ -2086,7 +2076,6 @@ int main(int argc, char *argv[])
                 memset(&k, 0, sizeof(k));
                 k.lcd = g_lcd;
                 k.kb = &g_kb;
-                k.mode = g_kbd_mode == PSP2DC_KBD_ONLY ? "alone" : "with the pad";
                 k.state_ok = up && kb_reads_us && now_us() - kb_reads_us < 2500000;
                 k.state = !up ? "not connected to the Dreamcast"
                         : g_status_count && g_adapter_version < 6 ? "the adapter's firmware is too old for it"
