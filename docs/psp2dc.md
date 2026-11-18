@@ -183,7 +183,7 @@ A Waveshare RP2040-Zero as a smaller adapter. Found before the board was at hand
 - **joypad-os supports it:** target `usb2dc_rp2040zero`, documented as USB4Maple-compatible ("existing USB4Maple hardware can run Joypad OS firmware as a drop-in replacement"), Maple on GP14/GP15, the WS2812 on GP16 (`docs/adapters/dreamcast.md`, `src/CMakeLists.txt` there). USB4Maple hardware can therefore run this firmware too.
 - **The board, from Waveshare's schematic (`RP2040_Zero.pdf`, files.waveshare.com):** the USB-C connector's VBUS pins are the net VSYS, which is also header pin 23, the "5V" edge pin, with no diode between them; VSYS feeds the 3.3 V regulator (RT9013-33 in the schematic; the product page names an ME6217C33). CC1 and CC2 have 5.1 kΩ pull-downs. The WS2812B's data is GPIO16. Header P1: GPIO0–GPIO15, GPIO26–GPIO29, 3V3, GND, VSYS (23 edge pins); GPIO17–GPIO25 and a second GND are pads underneath. Seen from above with the USB-C at the top, as in joypad-os's wiring drawing: left edge 5V, GND, 3V3, GP29, GP28, GP27, GP26, GP15, GP14; bottom GP13–GP9; right GP0–GP8.
 - **So:** the Dreamcast's 5 V on the 5V pin powers the board and the USB-C VBUS the PSP is plugged into, as the Pico's VBUS pad does on the SuperPico. The two must never be powered together: unplug the Dreamcast before connecting the board to a computer. The PSP connects through a USB-C OTG adapter and the usual A-to-Mini-B cable.
-- **Firmware:** target `usb2dc_psp2dc_rp2040zero` (patch 0009): the SuperPico target's PSP2DC build (PSP host driver, memory card in RAM, no Bluetooth) with Maple on GP14/GP15, the WS2812 on GP16 and the debug UART0 TX on GP0. It builds, 219 KB of static RAM as on the SuperPico; `scripts/build-firmware.sh rp2040zero`. Not yet run on hardware.
+- **Firmware:** target `usb2dc_psp2dc_rp2040zero` (patch 0009): the SuperPico target's PSP2DC build (PSP host driver, memory card in RAM, no Bluetooth) with Maple on GP14/GP15, the WS2812 on GP16 and the debug UART0 TX on GP0. It builds, 219 KB of static RAM as on the SuperPico; `scripts/build-firmware.sh rp2040zero`. Works on hardware (18 November 2026, build `psp2dc_rp2040zero_20261117_2326`, with patch 0011).
 - Wiring drawing: `docs/wiring-rp2040zero.svg`, in the README.
 
 ## 4. Firmware Foundation
@@ -740,12 +740,12 @@ Completed:
 - Changing card while connected, through the adapter: works on hardware (17 November 2026, on earlier builds).
 - A card per game through openMenu's Game ID (5.0e5): works on hardware with GDEMU and openMenu (17 November 2026).
 - The Dreamcast no longer loses the controller or its card now and then (5.0e6, patch 0011).
+- The Waveshare RP2040-Zero as the adapter (3.5): works on hardware (18 November 2026).
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
-- The Waveshare RP2040-Zero adapter (3.5): firmware target built, the board not yet here.
 - Permanent (soldered) wiring.
 
 ## 11. First Major Milestone

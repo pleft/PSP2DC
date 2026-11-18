@@ -90,7 +90,7 @@ cables can use other colours.
 
 A smaller adapter: the [RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm)
 wired the same way as USB4Maple, which joypad-os already supports. It has no
-buffers, so every pin is free. Not yet tried with PSP2DC.
+buffers, so every pin is free. Works with PSP2DC.
 
 ![Wiring: the RP2040-Zero and the Dreamcast plug](docs/wiring-rp2040zero.svg)
 
