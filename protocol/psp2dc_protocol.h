@@ -350,6 +350,87 @@ typedef struct {
 #define PSP2DC_REC_ECHO    0x7F   /* any bytes (at most PSP2DC_COMP_EVENT_MAX - 3): sent back as they are */
 /* PSP -> Dreamcast */
 #define PSP2DC_REC_BUTTONS 0x01   /* the PSP's buttons (4 bytes, PSP_CTRL_* bits), when they change */
+#define PSP2DC_REC_CAPS    0x02   /* Psp2dcCompCaps, in answer to a QUERY */
 /*      PSP2DC_REC_ECHO    0x7F      an ECHO's bytes */
+
+/*
+ * The screen (docs/psp2dc-companion.md, Appendix C): what a program shows on
+ * the PSP beyond rows of text. The adapter only carries these records, so
+ * they need no protocol version of their own: a PSP that knows them answers
+ * a QUERY, an older one ignores them all.
+ *
+ * The PSP keeps and draws two kinds of thing, on its whole screen. Widgets
+ * (a label, a number, a bar, a light, a list) are made once and then sent
+ * only what changes; the PSP gives them its theme's look. Regions are
+ * rectangles of pixels the program draws into (filled rectangles, lines,
+ * text); what is drawn shows at the next PRESENT. Regions are under the
+ * widgets, and widgets are drawn in the order of their ids. A new session
+ * starts with neither.
+ *
+ * Coordinates are pixels from the screen's top left (a region's drawing:
+ * from the region's), signed 16 bits; colours are RGB565; text is ASCII
+ * (0x20 to 0x7E), a list's lines parted by a line feed.
+ */
+#define PSP2DC_REC_NOP      0x00  /* nothing: the program is still there (once a second when nothing else goes) */
+#define PSP2DC_REC_QUERY    0x03  /* asks for the PSP's Psp2dcCompCaps */
+#define PSP2DC_REC_RESET    0x04  /* every widget and region removed */
+#define PSP2DC_REC_WIDGET   0x10  /* Psp2dcCompWidget, then its text: a widget made, or made again */
+#define PSP2DC_REC_VALUE    0x11  /* id (1), value (4, signed) */
+#define PSP2DC_REC_TEXT     0x12  /* id (1), then the text */
+#define PSP2DC_REC_REMOVE   0x13  /* id (1) */
+#define PSP2DC_REC_NOTIFY   0x14  /* text, shown over the screen for a moment */
+#define PSP2DC_REC_REGION   0x20  /* Psp2dcCompRect: a region made, black; every other region is emptied
+                                   * too. w or h 0: removed */
+#define PSP2DC_REC_FILL     0x21  /* Psp2dcCompRect, colour (2) */
+#define PSP2DC_REC_LINE     0x22  /* Psp2dcCompRect holding x0, y0, x1, y1, then colour (2) */
+#define PSP2DC_REC_DRAWTEXT 0x23  /* id (1), x (2), y (2), colour (2), size (1: 1 to 4 times 8 pixels), text */
+#define PSP2DC_REC_CLIP     0x24  /* Psp2dcCompRect: the region's drawing is kept inside it from here on */
+#define PSP2DC_REC_PRESENT  0x25  /* id (1): what was drawn since the last one shows */
+
+#define PSP2DC_WIDGETS         64    /* ids 0 to 63 */
+#define PSP2DC_REGIONS         4     /* ids 0 to 3 */
+#define PSP2DC_WIDGET_TEXT_MAX 200
+#define PSP2DC_SCREEN_W        480
+#define PSP2DC_SCREEN_H        272
+#define PSP2DC_REGION_PIXELS   (480 * 272)   /* all regions together, at most */
+#define PSP2DC_RGB565(r, g, b) ((uint16_t)(((r) >> 3) << 11 | ((g) >> 2) << 5 | (b) >> 3))
+
+#define PSP2DC_WIDGET_LABEL  0   /* its text */
+#define PSP2DC_WIDGET_NUMBER 1   /* its text at the left, its value at the right */
+#define PSP2DC_WIDGET_BAR    2   /* its value of its max as a bar; taller than 19 pixels, the text and the
+                                  * two numbers above the bar */
+#define PSP2DC_WIDGET_LIGHT  3   /* a dot, lit when the value is not 0, and its text */
+#define PSP2DC_WIDGET_LIST   4   /* its text's lines, the one numbered by the value marked (none: -1) */
+#define PSP2DC_WF_COLOUR 0x01    /* the colour field is used; without, the PSP's theme chooses */
+#define PSP2DC_WF_BIG    0x02    /* a label's text or a number's value twice the size */
+#define PSP2DC_WF_CENTRE 0x04    /* a label's text in the middle of its width */
+#define PSP2DC_WF_RIGHT  0x08    /* ... or at its right */
+#define PSP2DC_WF_PANEL  0x10    /* a panel behind the widget */
+typedef struct {
+    uint8_t id;
+    int16_t x, y;
+    uint16_t w, h;
+} __attribute__((packed)) Psp2dcCompRect;
+typedef struct {
+    uint8_t id;
+    uint8_t type;         /* PSP2DC_WIDGET_* */
+    uint8_t flags;        /* PSP2DC_WF_* */
+    uint8_t reserved;
+    int16_t x, y;
+    uint16_t w, h;
+    uint16_t colour;
+    int32_t value;
+    int32_t max;          /* a bar's full value */
+} __attribute__((packed)) Psp2dcCompWidget;
+typedef struct {
+    uint8_t level;        /* 2: the records above */
+    uint8_t widgets;      /* PSP2DC_WIDGETS */
+    uint8_t regions;      /* PSP2DC_REGIONS */
+    uint8_t text_max;     /* PSP2DC_WIDGET_TEXT_MAX */
+    uint16_t width, height;   /* the screen */
+    uint32_t region_pixels;
+    uint32_t widget_types;    /* bit n: PSP2DC_WIDGET_ n is known */
+    uint32_t formats;         /* bitmap formats: none yet (0) */
+} __attribute__((packed)) Psp2dcCompCaps;
 
 #endif /* PSP2DC_PROTOCOL_H */

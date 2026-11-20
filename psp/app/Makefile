@@ -3,7 +3,7 @@
 PSPEXP_USB ?= ../usb
 
 TARGET = psp2dc_app
-OBJS = main.o tools.o ui.o keyboard.o companion.o vmu_sa.o vmu_game.o vmu_core.o cards.o card_sync.o cardfs.o
+OBJS = main.o tools.o ui.o keyboard.o companion.o comp_screen.o vmu_sa.o vmu_game.o vmu_core.o cards.o card_sync.o cardfs.o
 
 INCDIR = $(PSPEXP_USB)
 CFLAGS = -O2 -G0 -Wall -std=gnu17

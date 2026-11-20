@@ -3,7 +3,7 @@
  * (scripts/dev/companion-test.sh): a Dreamcast program's frames with a
  * Maple bus that loses commands and replies, a PSP that reads slowly,
  * restarts or is not there, and a memory card unit that goes away.
- * KallistiOS is the few functions below, with its own checks.
+ * KallistiOS is the few functions of kos_mock.h, with its own checks.
  *
  *   test <scenario>      one of them (each starts from nothing)
  */
@@ -16,89 +16,7 @@
 #include "../../../psp/app/companion.h"
 #include "sim.h"
 
-/* ---- KallistiOS ---- */
-static maple_frame_t *queued;
-static maple_device_t card = { 0, 1, { MAPLE_FUNC_MEMCARD } };    /* the adapter's memory card unit */
-static maple_device_t sega = { 0, 1, { MAPLE_FUNC_MEMCARD } };   /* a memory card of Sega's, in port A */
-static int card_there = 1, sega_there;
-static int lose_request, lose_reply;       /* in a thousand */
-static int usb_every = 1;                  /* an exchange with the PSP every so many vblanks */
-static unsigned vblanks, lost_requests, lost_replies, agains, sleeps;
-
-maple_device_t *maple_enum_dev(int p, int u)
-{
-    if (sega_there && p == sega.port && u == sega.unit) return &sega;
-    return card_there && p == card.port && u == card.unit ? &card : NULL;
-}
-maple_device_t *maple_enum_type(int n, uint32_t func)
-{
-    if (!(func & MAPLE_FUNC_MEMCARD)) return NULL;
-    if (sega_there && n-- == 0) return &sega;
-    return card_there && n == 0 ? &card : NULL;
-}
-int maple_frame_trylock(maple_frame_t *f)
-{
-    if (f->state != MAPLE_FRAME_VACANT) return -1;
-    f->state = MAPLE_FRAME_UNSENT;
-    return 0;
-}
-void maple_frame_init(maple_frame_t *f)
-{
-    assert(f->state == MAPLE_FRAME_UNSENT);
-    assert(!f->queued);
-    f->recv_buf = f->recv_buf_arr;
-    f->send_buf = (uint32_t *)f->recv_buf;
-    f->cmd = f->dst_port = f->dst_unit = -1;
-    f->length = 0;
-    f->callback = NULL;
-}
-void maple_frame_unlock(maple_frame_t *f)
-{
-    assert(f->state == MAPLE_FRAME_RESPONDED);
-    f->state = MAPLE_FRAME_VACANT;
-}
-int maple_queue_frame(maple_frame_t *f)
-{
-    assert(!queued && f->state == MAPLE_FRAME_UNSENT && f->length <= 255);
-    f->queued = 1;
-    queued = f;
-    return 0;
-}
-
-/* a vblank: what is queued goes out, and its reply comes back */
-static void vblank(void)
-{
-    maple_frame_t *f = queued;
-    vblanks++;
-    if (vblanks % (unsigned)usb_every == 0) sim_usb();
-    if (!f) return;
-    {
-        maple_response_t *resp = (maple_response_t *)f->recv_buf;
-        static uint32_t out[256];
-        int words = 0, code = -1;
-        assert(f->cmd == PSP2DC_COMP_CMD);
-        if (sega_there && f->dst_port == sega.port && f->dst_unit == sega.unit) {
-            code = 0xFD;                                 /* no such command */
-        } else if (card_there && f->dst_port == card.port && f->dst_unit == card.unit) {
-            if (rand() % 1000 < lose_request) lost_requests++;
-            else {
-                code = sim_maple(f->send_buf, f->length, out, &words);
-                if (rand() % 1000 < lose_reply) { lost_replies++; code = -1; }
-            }
-        }
-        if (code == 0xFC) { agains++; return; }          /* (KallistiOS sends it again at the next vblank) */
-        if (code < 0) memset(resp, 0xFF, 4);
-        else {
-            resp->response = (int8_t)code; resp->dst_addr = 0; resp->src_addr = 1; resp->data_len = (uint8_t)words;
-            memcpy(resp->data, out, (size_t)words * 4);
-        }
-        f->state = MAPLE_FRAME_RESPONDED;
-        f->queued = 0;
-        queued = NULL;
-        f->callback(NULL, f);
-    }
-}
-void thd_sleep(int ms) { (void)ms; sleeps++; vblank(); }
+#include "kos_mock.h"
 
 /* ---- a Dreamcast program ---- */
 static const Comp *psp;
@@ -371,6 +289,216 @@ static void everything(void)
            lost_replies);
 }
 
+/* ---- the screen: widgets and regions ---- */
+typedef struct { int used, type, flags, x, y, w, h, value, max, colour; char text[PSP2DC_WIDGET_TEXT_MAX + 1]; } Want;
+static Want want[PSP2DC_WIDGETS];          /* what the program made: what the PSP must hold in the end */
+static int pic, pic_shown = -1, region_made;
+
+static unsigned abgr(int c)                /* RGB565 as the PSP's pixel */
+{
+    unsigned r = (unsigned)c >> 11, g = ((unsigned)c >> 5) & 63, b = (unsigned)c & 31;
+    return 0xFF000000 | (b << 3 | b >> 2) << 16 | (g << 2 | g >> 4) << 8 | (r << 3 | r >> 2);
+}
+static int pic_colour(int n, int k) { return (n * 2654435761u >> (k * 5)) & 0xFFFF; }
+/* picture n in region 0, whole: 0 when all of it is queued */
+static int draw(int n)
+{
+    char s[16];
+    if (psp2dc_room() < 400) return -1;
+    snprintf(s, sizeof(s), "%d", n);
+    if (psp2dc_region_clip(0, 0, 0, 240, 240)) return -1;
+    if (psp2dc_draw_rect(0, -5, -5, 300, 300, pic_colour(n, 0))) return -1;
+    if (psp2dc_draw_rect(0, 10, 10, 50, 50, pic_colour(n, 1))) return -1;
+    if (psp2dc_draw_line(0, -20, 239, 300, 239, pic_colour(n, 2))) return -1;
+    if (psp2dc_draw_line(0, 100, 100, 200, 180, pic_colour(n, 2))) return -1;
+    if (psp2dc_region_clip(0, 60, 60, 40, 40)) return -1;
+    if (psp2dc_draw_rect(0, 0, 0, 240, 240, pic_colour(n, 1))) return -1;   /* (only inside the clip) */
+    if (psp2dc_draw_text(0, 62, 62, pic_colour(n, 0), 2, s)) return -1;
+    return psp2dc_present(0);
+}
+static void screen_frame(void)
+{
+    psp2dc_event_t ev;
+    vblank();
+    psp2dc_update();
+    while (psp2dc_poll(&ev)) CHECK(ev.type == PSP2DC_REC_BUTTONS && ev.len == 4);
+    if (psp2dc_psp() && psp2dc_session() != session) { session = psp2dc_session(); pic_shown = -1; restarts++; }
+    if (!region_made && psp2dc_region_create(0, 8, 16, 240, 240) == 0) { region_made = 1; pic_shown = -1; }
+    if (region_made && psp2dc_psp() && pic_shown != pic && draw(pic) == 0) pic_shown = pic;
+}
+static void screen_frames(int n) { while (n-- > 0) screen_frame(); }
+static void want_widget(int id, int type, int flags, int x, int y, int w, int h, const char *text)
+{
+    Want *v = &want[id];
+    CHECK(psp2dc_widget_create(id, type, flags, x, y, w, h, text) == 0);
+    if (!v->used) { v->value = type == PSP2DC_WIDGET_LIST ? -1 : 0; v->max = type == PSP2DC_WIDGET_BAR ? 100 : 0; v->colour = -1; }
+    v->used = 1; v->type = type; v->flags = flags; v->x = x; v->y = y; v->w = w; v->h = h;
+    snprintf(v->text, sizeof(v->text), "%s", text);
+}
+/* the PSP holds what the program made, and shows its last picture */
+static void screen_same(void)
+{
+    int i;
+    for (i = 0; i < PSP2DC_WIDGETS; i++) {
+        const CompWidget *w = &psp->widgets[i];
+        const Want *v = &want[i];
+        CHECK(w->used == v->used);
+        if (!w->used || !v->used) continue;
+        CHECK(w->type == v->type && (w->flags & ~PSP2DC_WF_COLOUR) == v->flags);
+        CHECK(w->x == v->x && w->y == v->y && w->w == v->w && w->h == v->h);
+        CHECK(w->value == v->value && w->max == v->max);
+        CHECK(!(w->flags & PSP2DC_WF_COLOUR) == (v->colour < 0) && (v->colour < 0 || w->colour == v->colour));
+        CHECK(!strcmp(w->text, v->text));
+    }
+    CHECK(psp->screen_bad == 0 && psp->stream_bad == 0);
+    if (region_made) {
+        const CompRegion *r = &psp->regions[0];
+        CHECK(r->w == 240 && r->h == 240 && r->x == 8 && r->y == 16);
+        CHECK(pic_shown == pic);
+        if (r->w == 240 && r->h == 240) {
+            CHECK(r->front[0] == abgr(pic_colour(pic, 0)) && r->front[239 * 240 + 239] == abgr(pic_colour(pic, 2)));
+            CHECK(r->front[20 * 240 + 20] == abgr(pic_colour(pic, 1)) && r->front[238 * 240 + 100] == abgr(pic_colour(pic, 0)));
+            CHECK(r->front[140 * 240 + 150] == abgr(pic_colour(pic, 2)));          /* on the slanted line */
+            CHECK(r->front[99 * 240 + 99] == abgr(pic_colour(pic, 1)) && r->front[100 * 240 + 100] == abgr(pic_colour(pic, 2)));
+        }
+    } else CHECK(psp->regions[0].w == 0);
+}
+static void random_text(char *t, int lines)
+{
+    int n = rand() % 4 ? rand() % 30 : rand() % (PSP2DC_WIDGET_TEXT_MAX + 1), i;
+    for (i = 0; i < n; i++) t[i] = lines && rand() % 12 == 0 ? '\n' : (char)(0x20 + rand() % 95);
+    t[n] = 0;
+}
+/* something a program does to its screen */
+static void screen_op(void)
+{
+    int id = rand() % 4 ? rand() % 6 : rand() % PSP2DC_WIDGETS, op = rand() % 12;   /* (a few of them often) */
+    Want *v = &want[id];
+    char t[PSP2DC_WIDGET_TEXT_MAX + 1];
+    if (op < 3 || !v->used) {
+        int type = rand() % 5;
+        random_text(t, type == PSP2DC_WIDGET_LIST);
+        want_widget(id, type, (rand() % 16) << 1, rand() % 600 - 60, rand() % 400 - 60, rand() % 500, rand() % 300, t);
+    } else if (op < 7) {
+        v->value = rand() % 3 ? rand() % 1000 : rand();
+        CHECK(psp2dc_widget_set_u32(id, (uint32_t)v->value) == 0);
+    } else if (op < 9) {
+        random_text(v->text, v->type == PSP2DC_WIDGET_LIST);
+        CHECK(psp2dc_widget_set_text(id, v->text) == 0);
+    } else if (op == 9) {
+        v->max = 1 + rand() % 5000;
+        CHECK(psp2dc_widget_set_range(id, (uint32_t)v->max) == 0);
+    } else if (op == 10) {
+        v->colour = rand() % 4 ? rand() & 0xFFFF : -1;
+        CHECK(psp2dc_widget_set_colour(id, v->colour) == 0);
+    } else {
+        v->used = 0;
+        CHECK(psp2dc_widget_remove(id) == 0);
+    }
+}
+
+static void screen(void)
+{
+    psp2dc_caps_t caps;
+    psp2dc_stats_t st;
+    sim_psp_plug(0);
+    CHECK(psp2dc_init() == 0);
+    /* made with no PSP there: it all goes when one comes */
+    want_widget(0, PSP2DC_WIDGET_LABEL, PSP2DC_WF_BIG | PSP2DC_WF_CENTRE, 256, 8, 216, 24, "DASHBOARD");
+    want_widget(1, PSP2DC_WIDGET_BAR, PSP2DC_WF_PANEL, 256, 40, 216, 36, "Health");
+    want_widget(2, PSP2DC_WIDGET_NUMBER, PSP2DC_WF_PANEL | PSP2DC_WF_BIG, 256, 80, 216, 28, "Score");
+    want_widget(3, PSP2DC_WIDGET_LIGHT, 0, 256, 112, 216, 14, "Danger");
+    want_widget(63, PSP2DC_WIDGET_LIST, PSP2DC_WF_PANEL, 256, 130, 216, 80, "Sword\nShield\nKey");
+    want[1].value = 84; psp2dc_widget_set_u32(1, 84);
+    CHECK(psp2dc_widget_set_u32(5, 1) == -1 && psp2dc_widget_create(64, 0, 0, 0, 0, 1, 1, "") == -1);
+    CHECK(psp2dc_draw_rect(0, 0, 0, 1, 1, 0) == -1);       /* no such region yet */
+    screen_frames(30);
+    CHECK(!psp2dc_get_caps(&caps) && !psp->screen);
+    sim_psp_plug(1);
+    screen_frames(30);
+    CHECK(psp2dc_psp() && psp->screen);
+    CHECK(psp2dc_get_caps(&caps) && caps.level == 2 && caps.width == 480 && caps.height == 272);
+    CHECK(caps.widgets == PSP2DC_WIDGETS && caps.regions == PSP2DC_REGIONS && caps.widget_types == 0x1F);
+    screen_same();
+    /* what changes goes alone: a value is 8 bytes on the way, and one that did not change is none */
+    psp2dc_stats(&st);
+    {
+        unsigned before = st.bytes_out;
+        int i;
+        for (i = 0; i < 50; i++) { psp2dc_widget_set_u32(2, 1234); want[2].value = 1234; screen_frame(); }
+        psp2dc_stats(&st);
+        CHECK(st.bytes_out - before == 8);
+        printf("    50 frames setting a number to the same value: %u bytes sent\n", (unsigned)st.bytes_out - before);
+    }
+    want[63].value = 2; psp2dc_widget_set_u32(63, 2);
+    snprintf(want[0].text, sizeof(want[0].text), "PAUSED"); psp2dc_widget_set_text(0, "PAUSED");
+    want[3].colour = PSP2DC_RGB565(255, 0, 0); psp2dc_widget_set_colour(3, want[3].colour);
+    want[2].used = 0; psp2dc_widget_remove(2);
+    pic = 7;
+    CHECK(psp2dc_notify("Key found") == 0);
+    screen_frames(30);
+    screen_same();
+    CHECK(!strcmp(psp->notice, "Key found"));
+    /* a region too large, and regions beyond what the PSP has room for, are refused there */
+    CHECK(psp2dc_region_create(1, 0, 0, 481, 10) == -1 && psp2dc_region_create(4, 0, 0, 10, 10) == -1);
+    CHECK(psp2dc_region_create(1, 0, 0, 480, 272) == 0);
+    screen_frames(30);
+    CHECK(psp->screen_bad == 1 && psp->regions[1].w == 0);
+    CHECK(psp2dc_region_remove(1) == 0);
+    pic_shown = -1;                                        /* (making a region emptied the other) */
+    screen_frames(30);
+    psp->screen_bad == 1 ? (void)(((Comp *)psp)->screen_bad = 0) : (void)0;
+    screen_same();
+    /* nothing sent for a while: the PSP still hears of the program every second */
+    {
+        unsigned before = psp->records;
+        screen_frames(600);
+        CHECK(psp->records - before >= 9 && psp->records - before <= 11);
+    }
+    /* all of it gone */
+    psp2dc_screen_reset();
+    memset(want, 0, sizeof(want));
+    region_made = 1; pic_shown = pic;                      /* (no region made again here) */
+    screen_frames(30);
+    region_made = 0;
+    screen_same();
+    CHECK(!psp->screen);
+    sim_psp_screen_save("/dev/null");
+}
+
+/* the screen through everything at once: in the end the PSP holds what the program made */
+static void screen_faults(void)
+{
+    int i, away = 0, round;
+    sim_psp_plug(1);
+    psp2dc_init();
+    for (round = 0; round < 20; round++) {
+        lose_request = lose_reply = 20;
+        for (i = 0; i < 5000; i++) {
+            screen_frame();
+            if (rand() % 3 == 0) { int k = 1 + rand() % 6; while (k--) screen_op(); }   /* (several between two frames) */
+            if (rand() % 40 == 0) pic++;
+            if (rand() % 3000 == 0) {
+                psp2dc_screen_reset();
+                memset(want, 0, sizeof(want));
+                region_made = 0;
+            }
+            if (rand() % 2000 == 0) usb_every = 1 + rand() % 4;
+            if (rand() % 1500 == 0) { sim_psp_plug(0); screen_frames(rand() % 200); sim_psp_plug(1); }
+            if (rand() % 1200 == 0) sim_usb_fail();
+            if (!away && rand() % 2000 == 0) { card_there = 0; away = 10 + rand() % 120; }
+            if (away && --away == 0) card_there = 1;
+            if (rand() % 500 == 0) sim_psp_buttons((unsigned)rand());
+        }
+        card_there = 1; away = 0; usb_every = 1; lose_request = lose_reply = 0;
+        screen_frames(400);
+        screen_same();
+        if (failures) break;
+    }
+    printf("    %u vblanks, %d screen starts, %u \"again\", %u + %u lost\n", vblanks, restarts, agains, lost_requests,
+           lost_replies);
+}
+
 static const struct { const char *name, *what; void (*run)(void); } scenarios[] = {
     { "plain",      "found; rows of text; records of every size arrive, each once and whole", plain },
     { "slow",       "a PSP that reads slowly: \"again\", and nothing lost", slow_psp },
@@ -382,6 +510,8 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "events",     "the PSP's buttons in order; an ECHO's bytes back", events },
     { "card-away",  "the memory card unit gone for up to two seconds", card_away },
     { "everything", "all of it at once, 300000 frames", everything },
+    { "screen",     "widgets and a region: made, changed, removed; what the PSP can show", screen },
+    { "screen-faults", "the screen through everything at once, 100000 frames", screen_faults },
 };
 
 int main(int argc, char **argv)

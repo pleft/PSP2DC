@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1: not implemented |
+| Status | Draft v0.1. Phases 1 and 2 are built and tested without hardware (Appendices B and C); not yet tried on a Dreamcast |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -703,6 +703,8 @@ Achieving this would establish the foundation for an open second-screen ecosyste
 
 **Widgets first, or raw graphics first.** Whether the companion protocol exposes high-level UI widgets as its primary interface, with raw graphics as an optional capability. Widgets first reduces bandwidth, simplifies development, and leaves room for devices beyond the PSP. To be settled before implementation.
 
+Settled on 20 November 2026 for widgets first (A.4): phase 2 is widgets, with drawing commands into regions beside them, and bitmaps left to phase 3 (Appendix C).
+
 ---
 
 ## Appendix A. Constraints Checked So Far (20 November 2026)
@@ -832,7 +834,7 @@ The same test fails on the library as it was before these.
 
 | Record size | Commands/s | Bytes/s | Errors |
 |---|---|---|---|
-| polls only | 60 | 79 | 0 |
+| polls only | 60 | 81 | 0 |
 | 4 | 60 | 498 | 0 |
 | 64 | 60 | 4088 | 0 |
 | 256 | 60 | 15 581 | 0 |
@@ -844,10 +846,114 @@ These are an emulator's figures: one command a vblank is KallistiOS's own pace, 
 
 **Read in the source, for the same reason:** nothing in the adapter's receive path is sized below a 255-word frame (the ring is 4096 bytes, the packet buffer 1032, the reply goes out by DMA at any length), and the PSP's USB driver reads up to 64 KB a transfer, so the 1280-byte transfers fit.
 
+**Worked out from the built firmware**, on the two questions that seemed to need the hardware:
+
+- **The reply's timing.** Replies are made on Core 0 after its other work (docs/psp2dc.md, 5.0e6), so a reply is late when one pass of Core 0's loop is long, whatever the command. The companion adds two things to a pass. The command's handler, counted from the compiled code at 200 MHz (derived): about 55 µs to copy 1000 bytes that are not word-aligned and 13 µs when they are, 8 µs to sum a 1 KB reply, and about 15 µs for the byte swap of a 1 KB packet; under 0.1 ms for a full command with a short reply, about 0.15 ms at worst. And filling a transfer for the PSP, one copy of up to 1280 bytes. That leaves room in the bus's 1 ms, but only the Dreamcast shows the sum: the PSP's Details counts the replies begun 1 ms late and shows the longest wait (its `maple` lines), so those are read while the test runs.
+- **Receiving a long frame** is the same loop as a short one: Core 1 takes each byte from the PIO's queue of a few entries as it comes, and nothing builds up over a frame's length. A loop slower than the wire would already lose the VMU's screen (a frame of about 200 bytes, far more than the queue holds), and those arrive whole on hardware.
+- **The adapter's RAM** is not short: code and data take 234 400 of the 262 144 bytes of main RAM (the linker's map), no allocator is linked in, and both stacks are in the two 4 KB scratch banks outside it.
+
 **Still open, for the Dreamcast:**
 
-- Whether the adapter's reply to a 1 KB command starts within the bus's timeout (about 1 ms): the handler copies up to 1000 bytes each way and sums the reply first.
+- Whether a pass of Core 0's loop stays under the bus's 1 ms with the companion's traffic (above).
 - Whether frames this long arrive whole on the real wire, at the rate of one a vblank beside the controller's and the VMU's.
 - The real speed to the PSP, and the round trip.
-- The adapter's RAM: about 230 KB of 264 KB is in use before the stacks.
 
+---
+
+## Appendix C. Phase 2: The Screen (20 November 2026)
+
+Widgets, drawing regions and a way to ask what the PSP can show, built on phase 1's path. Run against the simulator, in PPSSPP and in Flycast (C.6); not yet on a Dreamcast. The adapter is not touched: it carries the new records as it carries any bytes, so phase 1's firmware serves.
+
+![The demo's dashboard as the PSP draws it](images/companion-demo.png)
+
+### C.1 Decisions
+
+- **Widgets first** (section 18). At 61 KB a second at most (A.2) a value that changes should cost a few bytes, and a program should not have to draw a health bar.
+- **The whole screen is the program's** (480 × 272) once it has a widget or a region: no header and no line of keys. SELECT still opens PSP2DC's menu, and PSP2DC's own notices are drawn over the program's screen: that is the system overlay of 5.1.
+- **Widgets live on the PSP and are remembered by the library.** A program makes them once and sets values as often as it likes; the library sends only what changed, and everything again when the PSP starts over. So a program need not know whether a PSP is there, or when it came back.
+- **Regions are drawn into, not described.** A region is a rectangle of pixels with two copies: drawing goes to one, PRESENT shows it. The PSP keeps the pixels, so a program draws only what changes (a tile, a marker). What was drawn is not remembered by the library: when the session changes, the program draws its regions again.
+- **Regions under widgets, widgets in the order of their ids.** No transparency.
+- **Asking what the PSP can show** is between the program and the PSP (QUERY, CAPS). A PSP application older than this ignores the records and does not answer, and the program sees that no answer came.
+- **A word a second.** The PSP shows the companion's screen while its bytes arrive, so the library sends an empty record (NOP) when a second passes with nothing else to send. Three seconds without any, and the PSP is back on its own page: a program that ended, or a Dreamcast switched off.
+
+### C.2 Records
+
+Dreamcast to PSP, after phase 1's (B.3). Coordinates are signed 16-bit pixels, colours RGB565, text ASCII.
+
+| Record | Data | Does |
+|---|---|---|
+| NOP 0x00 | none | the program is still there |
+| QUERY 0x03 | none | the PSP answers with CAPS |
+| RESET 0x04 | none | every widget and region removed |
+| WIDGET 0x10 | id, type, flags, x, y, w, h, colour, value, max (22 bytes), text | a widget made, or made again |
+| VALUE 0x11 | id, value (4) | its value |
+| TEXT 0x12 | id, text | its text |
+| REMOVE 0x13 | id | gone |
+| NOTIFY 0x14 | text | a line over the screen for 2.5 s |
+| REGION 0x20 | id, x, y, w, h | a region made, black (every region is emptied); w or h 0 removes it |
+| FILL 0x21 | id, x, y, w, h, colour | a filled rectangle |
+| LINE 0x22 | id, x0, y0, x1, y1, colour | a line |
+| DRAWTEXT 0x23 | id, x, y, colour, size, text | text, 1 to 4 times the 8-pixel font |
+| CLIP 0x24 | id, x, y, w, h | drawing kept inside from here on |
+| PRESENT 0x25 | id | what was drawn shows |
+
+PSP to Dreamcast: CAPS 0x02 (20 bytes): level (2), how many widgets (64) and regions (4), a widget's longest text (200), the screen's size, the pixels all regions may have together (480 × 272), the widget types known (a bit each), the bitmap formats known (none yet).
+
+A record for a widget or a region that is not there is skipped without complaint: after the PSP starts over, a few such records from before are still on their way.
+
+### C.3 Widgets
+
+The PSP draws them in its theme's colours; a widget may carry a colour of its own.
+
+| Type | Shows | Its value | Its text |
+|---|---|---|---|
+| LABEL | a line of text; twice the size, centred or at the right by its flags | | the line |
+| NUMBER | a caption at the left, a number at the right | the number | the caption |
+| BAR | a bar; when 20 pixels or taller, the caption and "value/max" above it | how full, of max | the caption |
+| LIGHT | a dot, lit or not, and a caption | lit when not 0 | the caption |
+| LIST | lines, one of them marked; a page of them at a time | the marked line, -1 for none | the lines, parted by line feeds |
+
+A flag puts a panel behind any of them.
+
+### C.4 The library
+
+```c
+psp2dc_init();
+psp2dc_widget_create(HEALTH, PSP2DC_WIDGET_BAR, PSP2DC_WF_PANEL, 256, 36, 216, 36, "Health");
+psp2dc_region_create(0, 8, 16, 240, 240);
+for (;;) {
+    vid_waitvbl();
+    psp2dc_update();
+    psp2dc_widget_set_u32(HEALTH, health);          /* sent only when it changes */
+    if (psp2dc_session() != session) {              /* the PSP is new: its regions are empty */
+        session = psp2dc_session();
+        draw_whole_map();
+    }
+    psp2dc_draw_rect(0, x * 12, y * 12, 12, 12, PSP2DC_RGB565(60, 200, 250));
+    psp2dc_present(0);
+}
+```
+
+- Widgets: `psp2dc_widget_create`, `_set_u32`, `_set_text`, `_set_range`, `_set_colour`, `_remove`; `psp2dc_screen_reset` removes everything. None of them sends or fails for want of room: `psp2dc_update` sends what changed when the queue has room.
+- Regions: `psp2dc_region_create`, `_remove`, `_clip`, `psp2dc_draw_rect`, `_draw_line`, `_draw_text`, `psp2dc_present`. These queue a record at once and say when they cannot (the queue is full, or no PSP is there), so a program draws what fits now and the rest next frame.
+- `psp2dc_notify`, `psp2dc_get_caps`.
+- `psp2dc_session()` now changes only once the library has started the PSP's screen for the new session, so whatever a program draws on seeing the change lands after that.
+
+### C.5 As built
+
+- **PSP:** `psp/app/companion.c` keeps the widgets and the regions' pixels (about 1 MB set aside) and does the regions' drawing; `psp/app/comp_screen.c` draws the screen from them. Neither uses anything of the PSP's, so the simulator runs the same two files. `ui_page_screen` shows the result when something changed. `ms0:/PSP2DC/dev_companion.bin`, a file of records, is fed in at the start for trying it in PPSSPP.
+- **Dreamcast:** `dreamcast/libpsp2dc` as in C.4. `dreamcast/demo` is a small game: a maze on the television, five keys to find, lava; the PSP shows the map as it is found out, health, score, steps, the tile stood on, a light for the lava, what to do next, and the keys carried, where the PSP's L and R move the mark. `scripts/build-dreamcast.sh` builds it as `build/psp2dc_demo.cdi` beside the test.
+- **What it costs on the path:** a value 8 bytes, a widget 25 bytes and its text, a rectangle 14. The demo's whole screen, map and all, is about 6 KB when a PSP starts; a step in the maze about 110 bytes.
+
+### C.6 Checked without hardware
+
+- **The library's test** (B.7) has two more cases, 12 in all, and all pass. `screen`: widgets made before a PSP is there, changed, removed; a region drawn into with clipping; CAPS; a region too large refused; a value set to what it already is sends nothing; the word a second. `screen-faults`: 100 000 frames of a program changing its widgets and its picture at random while commands and replies are lost, the PSP is slow, unplugged and back, and the memory card unit goes away; after each round the PSP must hold exactly what the program made and show its last picture. The library broken on purpose in two places (not sending everything again at a new session; a widget removed and made again in the same frame) fails it.
+- **The demo on the computer.** `scripts/dev/companion-demo.sh` runs `dreamcast/demo` as it is against the simulator, with a controller that walks to three keys, and saves the PSP's screen (the picture above) and the records the PSP got.
+- **The PSP application in PPSSPP**, fed those records as `dev_companion.bin`, draws the same screen.
+- **In Flycast** with the simulator (B.7) the demo disc runs on the real KallistiOS: the maze on the television, the dashboard on the simulated PSP's screen, which `PSP2DC_SIM_SCREEN=file` saves as a picture ten times a second. The test disc gives the figures of B.7 as before.
+- **Not checked:** how long the PSP takes to draw a full screen, the PSP's buttons reaching the demo on real hardware, and everything B.7 leaves to the Dreamcast.
+
+### C.7 Left for later
+
+- Input focus (section 11): the PSP's buttons still go to the Dreamcast as the controller's as well.
+- Bitmaps, sprites, palettes and cached assets (phase 3); storage (phase 4).

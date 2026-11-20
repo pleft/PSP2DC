@@ -38,9 +38,11 @@ Not done yet:
 - Configurable button mapping.
 
 In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
-use the PSP as a second screen. The proposal and its phase 1 are in
-[docs/psp2dc-companion.md](docs/psp2dc-companion.md); phase 1 is built and
-tested against a simulated adapter and PSP, and not yet tried on a Dreamcast.
+use the PSP as a second screen. The proposal and its first two phases are in
+[docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
+widgets (labels, numbers, bars, lists) on the PSP and draw into regions of
+its screen. Both are built and tested against a simulated adapter and PSP,
+and not yet tried on a Dreamcast.
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
@@ -241,11 +243,11 @@ the PSP.
 | `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
 | `firmware/` | joypad-os patches for the `usb2dc_superpico` target |
-| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`) and its test program |
+| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`), its test program and a demo |
 | `scripts/` | Build scripts |
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
-| `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phase 1 |
+| `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phases 1 and 2 |
 
 ## Development without hardware
 
@@ -262,9 +264,12 @@ but the Dreamcast link can be tried there.
   compares them frame by frame.
 - `scripts/dev/companion-sim/` is the adapter and a PSP as a library, built
   from their own sources. `scripts/dev/companion-test.sh` tests the
-  Dreamcast library against it, and `scripts/dev/flycast-companion.sh` puts
-  it into Flycast, where a program built on `libpsp2dc` then finds a
-  companion.
+  Dreamcast library against it, `scripts/dev/companion-demo.sh` runs the
+  demo on it and saves the PSP's screen as a picture, and
+  `scripts/dev/flycast-companion.sh` puts it into Flycast, where a program
+  built on `libpsp2dc` then finds a companion.
+- A file `ms0:/PSP2DC/dev_companion.bin` of the companion's records (the
+  demo script writes one) is shown by the app as if a Dreamcast had sent it.
 
 No game files or saves are included. The tests read your own files from
 wherever you keep them.

@@ -1,7 +1,7 @@
 /*
  * The adapter and a PSP on the computer, for trying the companion's
  * Dreamcast side without either. The adapter's part is the firmware's own
- * vmu.c and the PSP's is psp/app/companion.c; what joins them (a USB
+ * vmu.c and the PSP's is psp/app/companion.c and comp_screen.c; what joins them (a USB
  * transfer's messages, what the PSP sends back) follows psp2dc_host.c and
  * psp/app/main.c by hand.
  *
@@ -31,11 +31,19 @@ void sim_psp_buttons(unsigned buttons);
 const void *sim_psp_page(void);       /* a Comp (psp/app/companion.h) */
 void sim_psp_print(FILE *f);
 void sim_adapter_stats(uint32_t out[4]);   /* commands, "again" answers, bytes in, bytes out */
+/* The PSP's screen as it would draw the program's widgets and regions: 480 x 272
+ * pixels (0xAABBGGRR), or saved as a BMP file (0, or -1). */
+const unsigned *sim_psp_screen(void);
+int  sim_psp_screen_save(const char *file);
+/* The Dreamcast program's records as the PSP gets them, written to f from here on: fed to
+ * the PSP application as ms0:/PSP2DC/dev_companion.bin, it shows what it would on a Dreamcast. */
+void sim_psp_log(FILE *f);
 
 /* Behind an emulator's memory card: a command in, the reply out (its code
  * as sim_maple's). The PSP is plugged in at the first one and an exchange
  * runs after each. The environment sets the rest:
- *   PSP2DC_SIM_PAGE=file    the PSP's page, written there once a second
+ *   PSP2DC_SIM_PAGE=file    the PSP's page as text, written there once a second
+ *   PSP2DC_SIM_SCREEN=file  the PSP's screen as a picture (BMP), ten times a second
  *   PSP2DC_SIM_SLOW=n       an exchange every n commands only (the PSP reads slowly)
  *   PSP2DC_SIM_REPLUG=n     the PSP unplugged and back every n seconds
  *   PSP2DC_SIM_NO_PSP=1     no PSP on the adapter */

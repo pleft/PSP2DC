@@ -116,6 +116,9 @@ void ui_page_keys(const UiKeys *v, const UiTheme *t);
  * checked. */
 #include "companion.h"
 void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, const UiTheme *t);
+/* The companion's screen (comp_screen.h): the program's widgets and regions
+ * on the whole screen, in the theme's colours. */
+void ui_page_screen(const Comp *c, const UiTheme *t, unsigned now_us);
 
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
  * Cards, 3 System), and at their right the link and the status line. In the

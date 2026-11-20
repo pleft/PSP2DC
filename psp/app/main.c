@@ -546,7 +546,8 @@ static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s
 static int comp_on(void) { return g_comp.last_us && now_us() - g_comp.last_us < 3000000; }
 /* ms0:/PSP2DC/dev_companion.txt, for seeing the companion's page without a
  * Dreamcast: its lines as PRINT records, row by row, once at the start and
- * kept as if still arriving. Absent, nothing. */
+ * kept as if still arriving. Or dev_companion.bin: a Dreamcast program's
+ * records as they are (the screen's too), fed the same way. Absent, nothing. */
 static int g_dev_comp;
 static void dev_companion_load(void)
 {
@@ -554,7 +555,16 @@ static void dev_companion_load(void)
     unsigned char r[4 + COMP_COLS];
     SceUID fd = sceIoOpen("ms0:/PSP2DC/dev_companion.txt", PSP_O_RDONLY, 0);
     int n, row = 0;
-    if (fd < 0) return;
+    if (fd < 0) {
+        static unsigned char raw[4096];
+        fd = sceIoOpen("ms0:/PSP2DC/dev_companion.bin", PSP_O_RDONLY, 0);
+        if (fd < 0) return;
+        comp_reset();
+        while ((n = sceIoRead(fd, raw, sizeof(raw))) > 0) comp_feed(raw, n);
+        sceIoClose(fd);
+        g_dev_comp = 1;
+        return;
+    }
     n = sceIoRead(fd, buf, sizeof(buf) - 1);
     sceIoClose(fd);
     if (n <= 0) return;
@@ -2048,11 +2058,11 @@ int main(int argc, char *argv[])
                 if (!kb_sent_us || memcmp(&kb, &last_kb, sizeof(kb)) || now_us() - kb_sent_us > 500000)
                     if (send_msg(PSP2DC_MSG_KEYBOARD, &kb, sizeof(kb)) >= 0) { last_kb = kb; kb_sent_us = now_us() | 1; }
             }
-            if (comp_on()) {   /* the companion: the buttons when they change, an ECHO's bytes back */
+            if (comp_on()) {   /* the companion: the buttons when they change, what it was asked for */
                 static unsigned comp_buttons = ~0u;
                 unsigned char ev[PSP2DC_COMP_EVENT_MAX];
-                int n = comp_echo_take(ev);
-                if (n) send_msg(PSP2DC_MSG_COMP_EVENT, ev, n);
+                int n;
+                while ((n = comp_event_take(ev)) > 0) send_msg(PSP2DC_MSG_COMP_EVENT, ev, n);
                 if (pad.Buttons != comp_buttons) {
                     ev[0] = PSP2DC_REC_BUTTONS; ev[1] = 4; ev[2] = 0;
                     ev[3] = (unsigned char)pad.Buttons; ev[4] = (unsigned char)(pad.Buttons >> 8);
@@ -2163,7 +2173,15 @@ int main(int argc, char *argv[])
                 bytes0 = g_comp.bytes; recs0 = g_comp.records;
                 at = now_us() | 1;
             }
-            if (frame % 4 == 0) ui_page_companion(&g_comp, rate_b, rate_r, &ui_themes[g_theme]);
+            if (g_comp.screen) {           /* the program's own screen: when it changes (and for a notice's end) */
+                static unsigned shown_gen = ~0u;
+                if (g_comp.gen != shown_gen || frame % 15 == 0) {
+                    shown_gen = g_comp.gen;
+                    ui_page_screen(&g_comp, &ui_themes[g_theme], now_us());
+                }
+            } else if (frame % 4 == 0) {
+                ui_page_companion(&g_comp, rate_b, rate_r, &ui_themes[g_theme]);
+            }
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
             UiHome h;
             int up = !g_no_usb && pspexpUsbConnected();

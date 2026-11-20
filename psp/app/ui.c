@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "comp_screen.h"
 #include "vmu_game.h"
 #include "cardfs.h"
 
@@ -1204,6 +1205,26 @@ void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, cons
     for (r = 0; r < COMP_ROWS; r++)
         if (c->rows[r][0]) label_fit(10, 68 + r * 15, t->text, c->rows[r], 462);
     draw_footer(2, 476, keys, 1, NULL, t);
+    ui_end();
+}
+
+void ui_page_screen(const Comp *c, const UiTheme *t, unsigned now_us)
+{
+    CompColours col;
+    unsigned gen;
+    col.bg = t->bg; col.panel = t->panel;
+    col.text = t->text; col.muted = muted(t);
+    col.strong = strong(t); col.faint = faint(t);
+    col.accent = t->accent; col.on_accent = on_colour(t->accent);
+    col.ok = t->ok;
+    ui_begin(t->bg);
+    g_page_theme = t;
+    gen = c->gen;
+    comp_screen_draw(c, g_back, LINE, &col, now_us);
+    if (c->gen != gen) {                   /* it changed meanwhile (the reader thread): once more, whole */
+        ui_fill(0, 0, 480, 272, t->bg);
+        comp_screen_draw(c, g_back, LINE, &col, now_us);
+    }
     ui_end();
 }
 

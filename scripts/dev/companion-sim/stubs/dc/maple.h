@@ -4,6 +4,12 @@
 #include <stdint.h>
 
 #define MAPLE_FUNC_MEMCARD      0x02000000
+#define MAPLE_FUNC_CONTROLLER   0x01000000
+#define CONT_START              (1 << 3)
+#define CONT_DPAD_UP            (1 << 4)
+#define CONT_DPAD_DOWN          (1 << 5)
+#define CONT_DPAD_LEFT          (1 << 6)
+#define CONT_DPAD_RIGHT         (1 << 7)
 #define MAPLE_RESPONSE_DATATRF  8
 #define MAPLE_RESPONSE_NONE     (-1)
 #define MAPLE_RESPONSE_AGAIN    (-4)
@@ -30,6 +36,8 @@ typedef struct {
 typedef struct { uint32_t functions; } maple_devinfo_t;
 typedef struct { int port, unit; maple_devinfo_t info; } maple_device_t;
 
+typedef struct { uint32_t buttons; } cont_state_t;
+void *maple_dev_status(maple_device_t *dev);
 maple_device_t *maple_enum_dev(int port, int unit);
 maple_device_t *maple_enum_type(int n, uint32_t func);
 int  maple_frame_trylock(maple_frame_t *frame);
