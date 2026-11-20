@@ -2,7 +2,8 @@
  * PSP2DC companion demo (docs/psp2dc-companion.md, Appendix C): a small game
  * on the television with its dashboard on the PSP. Walk the maze with the
  * d-pad, pick up the five keys, reach the exit; lava costs health. The PSP
- * shows the map as it is found out, health, score, steps, where you are,
+ * shows the map as it is found out (the same tiles, sent to it once as
+ * sprites), health, score, steps, where you are,
  * what to do next and what you carry; the PSP's L and R move the mark in
  * that list. The game plays the same with no PSP there.
  */
@@ -10,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "psp2dc.h"
+#include "tiles.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -45,31 +47,39 @@ static uint8_t tv_dirty[N][N], psp_dirty[N][N];
 static int px, py, health, score, steps, keys, marked;
 static char items[128];
 
+/* The tiles, 12 x 12 each, side by side in one picture (tiles.png, made into tiles.h by
+ * dreamcast/tools/psp2dc-image.py): the PSP keeps each as a sprite, the television draws
+ * them twice the size. */
+enum { T_FLOOR, T_WALL, T_LAVA, T_KEY, T_SHUT, T_OPEN, T_PLAYER, TILES };
 #define RGB(r, g, b) PSP2DC_RGB565(r, g, b)
-static int tile_colour(int x, int y)
+static int tile_of(int x, int y)
 {
     char c = map[y][x];
-    return c == '#' ? RGB(120, 120, 140) : c == '~' ? RGB(230, 90, 20) : c == 'E' ? (keys == 5 ? RGB(40, 220, 80) : RGB(20, 70, 30))
-                                                                                  : RGB(28, 28, 36);
+    return c == '#' ? T_WALL : c == '~' ? T_LAVA : c == 'E' ? (keys == 5 ? T_OPEN : T_SHUT) : T_FLOOR;
 }
-static void tv_rect(int x, int y, int w, int h, int c)
+static void tv_sprite(int t, int x, int y, int keyed)
 {
     int i, j;
-    for (j = 0; j < h; j++)
-        for (i = 0; i < w; i++) vram_s[(y + j) * 640 + x + i] = (uint16_t)c;
+    for (j = 0; j < 12; j++)
+        for (i = 0; i < 12; i++) {
+            int v = (tiles[j * TILES_STRIDE + t * 6 + i / 2] >> (i & 1 ? 0 : 4)) & 15;
+            uint16_t *p = vram_s + (y + 2 * j) * 640 + x + 2 * i;
+            if (keyed && v == TILES_KEY) continue;
+            p[0] = p[1] = p[640] = p[641] = tiles_palette[v];
+        }
 }
 static void tv_tile(int x, int y)          /* 24 pixels a tile */
 {
-    tv_rect(x * 24, y * 24, 24, 24, tile_colour(x, y));
-    if (map[y][x] == 'K') tv_rect(x * 24 + 7, y * 24 + 7, 10, 10, RGB(250, 210, 40));
-    if (x == px && y == py) tv_rect(x * 24 + 4, y * 24 + 4, 16, 16, RGB(60, 200, 250));
+    tv_sprite(tile_of(x, y), x * 24, y * 24, 0);
+    if (map[y][x] == 'K') tv_sprite(T_KEY, x * 24, y * 24, 1);
+    if (x == px && y == py) tv_sprite(T_PLAYER, x * 24, y * 24, 1);
 }
 static int psp_tile(int x, int y)          /* 12 pixels a tile, in region 0; 0 when it is queued */
 {
     if (!seen[y][x]) return psp2dc_draw_rect(0, x * 12, y * 12, 12, 12, 0);
-    if (psp2dc_draw_rect(0, x * 12, y * 12, 12, 12, tile_colour(x, y))) return -1;
-    if (map[y][x] == 'K' && psp2dc_draw_rect(0, x * 12 + 3, y * 12 + 3, 6, 6, RGB(250, 210, 40))) return -1;
-    if (x == px && y == py && psp2dc_draw_rect(0, x * 12 + 2, y * 12 + 2, 8, 8, RGB(60, 200, 250))) return -1;
+    if (psp2dc_draw_sprite(0, tile_of(x, y), x * 12, y * 12, -1)) return -1;
+    if (map[y][x] == 'K' && psp2dc_draw_sprite(0, T_KEY, x * 12, y * 12, TILES_KEY)) return -1;
+    if (x == px && y == py && psp2dc_draw_sprite(0, T_PLAYER, x * 12, y * 12, TILES_KEY)) return -1;
     return 0;
 }
 static void touch(int x, int y) { tv_dirty[y][x] = psp_dirty[y][x] = 1; }
@@ -153,6 +163,8 @@ int main(int argc, char **argv)
     psp2dc_init();
     /* The PSP's screen: made once, here; the library sends it whenever a PSP is there. */
     psp2dc_region_create(0, 8, 16, 240, 240);
+    psp2dc_region_palette(0, 0, 16, tiles_palette);
+    for (x = 0; x < TILES; x++) psp2dc_sprite_create(x, 12, 12, TILES_FORMAT, tiles + x * 6, TILES_STRIDE);
     psp2dc_widget_create(W_TITLE, PSP2DC_WIDGET_LABEL, PSP2DC_WF_BIG | PSP2DC_WF_CENTRE, 256, 10, 216, 20, "KEY HUNT");
     psp2dc_widget_create(W_HEALTH, PSP2DC_WIDGET_BAR, PSP2DC_WF_PANEL, 256, 36, 216, 36, "Health");
     psp2dc_widget_create(W_SCORE, PSP2DC_WIDGET_NUMBER, PSP2DC_WF_PANEL | PSP2DC_WF_BIG, 256, 76, 216, 28, "Score");

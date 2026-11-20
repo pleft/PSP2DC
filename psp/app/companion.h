@@ -25,7 +25,13 @@ typedef struct {
     unsigned short w, h;               /* w 0: none */
     short cx0, cy0, cx1, cy1;          /* drawing is kept inside (cx1 and cy1 are outside) */
     unsigned *back, *front;            /* w * h pixels each (ABGR): the one drawn into, the one shown */
+    unsigned pal[256];                 /* its palette (ABGR) */
 } CompRegion;
+typedef struct {
+    unsigned short w, h;               /* w 0: none */
+    unsigned char format;              /* PSP2DC_FMT_8 (a byte a pixel, whatever it came as) or PSP2DC_FMT_565 */
+    unsigned char *pixels;
+} CompSprite;
 typedef struct {
     char rows[COMP_ROWS][COMP_COLS + 1];
     unsigned bytes, records;           /* of the stream, since the session began */
@@ -37,6 +43,8 @@ typedef struct {
     /* the screen */
     CompWidget widgets[PSP2DC_WIDGETS];
     CompRegion regions[PSP2DC_REGIONS];
+    CompSprite sprites[PSP2DC_SPRITES];
+    unsigned sprite_bytes;             /* of PSP2DC_SPRITE_BYTES, taken */
     int screen;                        /* a widget or a region is there: the screen is the program's */
     char notice[64];                   /* a NOTIFY's text */
     unsigned notice_us;                /* ... and when it came (0: none) */

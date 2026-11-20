@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 are built and tested without hardware (Appendices B and C); not yet tried on a Dreamcast |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D); not yet tried on a Dreamcast |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -858,6 +858,17 @@ These are an emulator's figures: one command a vblank is KallistiOS's own pace, 
 - Whether frames this long arrive whole on the real wire, at the rate of one a vblank beside the controller's and the VMU's.
 - The real speed to the PSP, and the round trip.
 
+### B.8 The test on a Dreamcast
+
+What is needed: the adapter with phase 1's firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
+
+1. **`psp2dc_test.cdi`.** The television shows whether the companion is found, then commands and bytes a second and errors for each record size, and the round trip. The PSP shows what arrives and whether the test records came whole.
+2. **On the PSP, System, Details, while the test runs:** the `maple` lines (replies begun 1 ms late, the longest wait, packets that failed their check) and the companion's line. This is where a late reply or a damaged long frame shows.
+3. **Y on the controller** (the VMU's screen drawn every frame) and X (pause), then the same readings: the companion beside ordinary traffic.
+4. **`psp2dc_demo.cdi`.** The maze on the television, the dashboard on the PSP; walk, take a key, stand in the lava; the PSP's L and R move the mark in the list. Unplug the PSP and plug it back, and change its card: the dashboard must come back whole each time.
+
+The numbers of step 1 go into B.7's table beside the emulator's; errors at the larger sizes only would mean shorter records (`PSP2DC_COMP_DATA_MAX`), which nothing above depends on.
+
 ---
 
 ## Appendix C. Phase 2: The Screen (20 November 2026)
@@ -943,7 +954,7 @@ for (;;) {
 
 - **PSP:** `psp/app/companion.c` keeps the widgets and the regions' pixels (about 1 MB set aside) and does the regions' drawing; `psp/app/comp_screen.c` draws the screen from them. Neither uses anything of the PSP's, so the simulator runs the same two files. `ui_page_screen` shows the result when something changed. `ms0:/PSP2DC/dev_companion.bin`, a file of records, is fed in at the start for trying it in PPSSPP.
 - **Dreamcast:** `dreamcast/libpsp2dc` as in C.4. `dreamcast/demo` is a small game: a maze on the television, five keys to find, lava; the PSP shows the map as it is found out, health, score, steps, the tile stood on, a light for the lava, what to do next, and the keys carried, where the PSP's L and R move the mark. `scripts/build-dreamcast.sh` builds it as `build/psp2dc_demo.cdi` beside the test.
-- **What it costs on the path:** a value 8 bytes, a widget 25 bytes and its text, a rectangle 14. The demo's whole screen, map and all, is about 6 KB when a PSP starts; a step in the maze about 110 bytes.
+- **What it costs on the path:** a value 8 bytes, a widget 25 bytes and its text, a rectangle 14. The demo's whole screen, map and all, is about 6.6 KB when a PSP starts (with Appendix D's sprites); a step in the maze about 100 bytes.
 
 ### C.6 Checked without hardware
 
@@ -951,9 +962,63 @@ for (;;) {
 - **The demo on the computer.** `scripts/dev/companion-demo.sh` runs `dreamcast/demo` as it is against the simulator, with a controller that walks to three keys, and saves the PSP's screen (the picture above) and the records the PSP got.
 - **The PSP application in PPSSPP**, fed those records as `dev_companion.bin`, draws the same screen.
 - **In Flycast** with the simulator (B.7) the demo disc runs on the real KallistiOS: the maze on the television, the dashboard on the simulated PSP's screen, which `PSP2DC_SIM_SCREEN=file` saves as a picture ten times a second. The test disc gives the figures of B.7 as before.
-- **Not checked:** how long the PSP takes to draw a full screen, the PSP's buttons reaching the demo on real hardware, and everything B.7 leaves to the Dreamcast.
+- **Not checked:** how long the PSP takes to draw a full screen, the PSP's buttons reaching the demo on real hardware, and everything B.7 leaves to the Dreamcast (B.8).
 
 ### C.7 Left for later
 
 - Input focus (section 11): the PSP's buttons still go to the Dreamcast as the controller's as well.
 - Bitmaps, sprites, palettes and cached assets (phase 3); storage (phase 4).
+
+---
+
+## Appendix D. Phase 3, First Part: Pictures (20 November 2026)
+
+Bitmaps with palettes, sprites the PSP keeps, and a converter for images. Tested as Appendix C was (D.5). Not here: assets kept on the Memory Stick (6.5), and the measuring, which needs the Dreamcast. The adapter is again untouched.
+
+### D.1 Decisions
+
+- **Four formats:** 1, 4 and 8 bits a pixel through a palette, and RGB565. A region has one palette of 256 colours; it starts as red, green and blue in an index's 3, 3 and 2 bits, so 8-bit pictures work with none set.
+- **A bitmap goes in pieces.** A record holds as many whole rows as fit; `psp2dc_draw_bitmap` queues what the queue takes now and says how many rows went, and the program goes on with the rest next frame. It always leaves 1 KB of the 4 KB queue free, so a widget's change is never held up behind a picture (7.1).
+- **A sprite is sent once and drawn by its number.** The program hands the library a picture that stays in its own memory; the library sends it a little each frame, behind everything else, and again when the PSP starts over. Drawing one is 12 bytes, with one index (or colour) left out when asked: the transparent part.
+- **The PSP keeps sprites in RAM** (64 of them, 512 KB together) for the session only.
+
+### D.2 Records
+
+| Record | Data | Does |
+|---|---|---|
+| PALETTE 0x26 | region, first, colours | the region's palette from that entry on |
+| BLIT 0x27 | region, x, y, w, h, format, rows | pixels into the region |
+| SPRITE 0x28 | sprite, format, w, h, first row, rows | a sprite made (first row 0) or gone on with |
+| DRAWSPRITE 0x29 | region, sprite, x, y, keyed, key | the sprite drawn in the region's palette |
+
+CAPS says level 3 and adds the formats known, how many sprites and how many bytes of them.
+
+### D.3 The library and the tool
+
+- `psp2dc_region_palette`, `psp2dc_draw_bitmap`, `psp2dc_sprite_create`, `psp2dc_sprite_ready`, `psp2dc_draw_sprite` (`dreamcast/libpsp2dc/psp2dc.h`). The palette is remembered with its region and sent again with it.
+- `dreamcast/tools/psp2dc-image.py picture.png name > name.h` turns a PNG into the pixels and the palette as C, in the smallest format its colours fit, with a key for what is transparent. It needs only Python.
+- Several pictures side by side in one image can each be a sprite: the row distance passed to `psp2dc_sprite_create` is the whole image's. The demo's seven tiles are one 84 × 12 image, drawn by the same data on the television.
+
+### D.4 What a picture costs (derived from A.2's ceiling)
+
+| Picture | Bytes | Time at 60 KB a second |
+|---|---|---|
+| 240 × 240, 8 bits | 57 600 | about 1 s |
+| 240 × 240, 4 bits | 28 800 | about 0.5 s |
+| 240 × 240, 1 bit | 7 200 | 8 frames |
+| a 32 × 32 tile, 8 bits | 1 024 | 2 frames |
+| a sprite drawn | 12 | about 80 in a frame |
+
+So a map made of tiles is sprites, sent once and then placed; a picture of the whole viewport is for a still.
+
+### D.5 Checked without hardware
+
+- **Two more cases** in the library's test, 14 in all, all passing. `pictures`: a palette, a bitmap in each format partly outside the region, each sprite drawn plain and keyed; the region must match, pixel for pixel, a model the test keeps by plain steps; the starting palette; a value set while a 40 KB bitmap goes arrives in 5 frames. `pictures-faults`: 60 000 frames of new pictures and palettes while everything of C.6 goes wrong, the region compared the same way after each round. The library broken on purpose in three places (sprites not sent again at a new session, the palette not sent again, no room left in the queue) fails them.
+- **The converter** against another PNG decoder on a 480 × 272 image: no pixel differs.
+- **The demo** with its tiles as sprites, on the simulator and, on the real KallistiOS, in Flycast: the picture in Appendix C.
+- **Not checked:** this build of the PSP application running (phase 2's was seen in PPSSPP; the code added is the code the simulator runs), and everything on hardware.
+
+### D.6 Left of phase 3
+
+- Assets kept on the Memory Stick, with a version to ask for (6.5), so that a game's pictures are sent once ever, not once a session.
+- The throughput measured, and what follows from it.

@@ -43,6 +43,15 @@ typedef struct {
 } widget_t;
 static widget_t widgets[PSP2DC_WIDGETS];
 static Psp2dcCompRect regions[PSP2DC_REGIONS];   /* w 0: none */
+static uint16_t palettes[PSP2DC_REGIONS][256];   /* what the program set of each region's palette, */
+static int palette_n[PSP2DC_REGIONS];            /* up to this entry (0: nothing) */
+static struct {
+    const uint8_t *pixels;               /* the program's own: it must stay where it is (NULL: no sprite) */
+    uint16_t w, h, stride;
+    uint8_t format;
+    int sent;                            /* rows the PSP has been sent this session */
+} sprites[PSP2DC_SPRITES];
+#define RESERVE 1024                     /* room pictures leave in the queue, for widgets and what is small */
 static int told = -1;                    /* the session the PSP's screen was started for: psp2dc_session() */
 static int reset_due;                    /* psp2dc_screen_reset(): the RESET is still to go */
 static int quiet;                        /* frames with nothing sent */
@@ -154,6 +163,8 @@ int psp2dc_init(void)
 }
 
 static void caps_look(void);
+static int palette_send(int id, int first, int n);
+static int sprite_send(int id);
 static void caps_take(const uint8_t *d, int len);
 static void screen_flush(void);
 
@@ -260,11 +271,13 @@ static int live(void) { return psp2dc_psp() && told == session_now(); }
 static void caps_take(const uint8_t *d, int len)
 {
     Psp2dcCompCaps c;
-    if (len < (int)sizeof(c)) return;
-    memcpy(&c, d, sizeof(c));
+    if (len < 20) return;                        /* (level 2's: without the last fields) */
+    memset(&c, 0, sizeof(c));
+    memcpy(&c, d, len < (int)sizeof(c) ? len : (int)sizeof(c));
     caps.level = c.level; caps.widgets = c.widgets; caps.regions = c.regions; caps.text_max = c.text_max;
     caps.width = c.width; caps.height = c.height; caps.region_pixels = c.region_pixels;
     caps.widget_types = c.widget_types; caps.formats = c.formats;
+    caps.sprites = c.sprites; caps.sprite_bytes = c.sprite_bytes;
     caps_have = 1;
 }
 /* The PSP's CAPS among what has come, for a program that does not call psp2dc_poll() (which
@@ -278,9 +291,10 @@ static void caps_look(void)
         uint32_t len = in[(in_seen + 1) & (IN_SIZE - 1)] | in[(in_seen + 2) & (IN_SIZE - 1)] << 8;
         if (len > PSP2DC_COMP_EVENT_MAX) { in_seen = put; break; }
         if (put - in_seen < 3 + len) break;
-        if (in[in_seen & (IN_SIZE - 1)] == PSP2DC_REC_CAPS && len >= sizeof(d)) {
-            for (i = 0; i < sizeof(d); i++) d[i] = in[(in_seen + 3 + i) & (IN_SIZE - 1)];
-            caps_take(d, sizeof(d));
+        if (in[in_seen & (IN_SIZE - 1)] == PSP2DC_REC_CAPS) {
+            uint32_t n = len < sizeof(d) ? len : sizeof(d);
+            for (i = 0; i < n; i++) d[i] = in[(in_seen + 3 + i) & (IN_SIZE - 1)];
+            caps_take(d, (int)n);
         }
         in_seen += 3 + len;
     }
@@ -322,6 +336,47 @@ static int widget_send(int id)
     return 0;
 }
 
+static int palette_send(int id, int first, int n)
+{
+    uint8_t d[2 + 2 * 256];
+    d[0] = (uint8_t)id; d[1] = (uint8_t)first;
+    memcpy(d + 2, &palettes[id][first], 2 * n);
+    return psp2dc_record(PSP2DC_REC_PALETTE, d, 2 + 2 * n);
+}
+/* rows of a picture as records of `type` (BLIT or SPRITE: its header is `head`, whose two
+ * bytes at `at` are the first row of each piece, and its count of rows at `count` when
+ * there is one), as many as fit while the queue keeps its reserve. How many rows went. */
+static int rows_send(int type, uint8_t *head, int head_len, int at, int count, int y0,
+                     const uint8_t *pixels, int stride, int row, int rows)
+{
+    uint8_t d[PSP2DC_RECORD_MAX];
+    int done = 0;
+    while (done < rows) {
+        int fit = (PSP2DC_RECORD_MAX - head_len) / row, room = (psp2dc_room() - RESERVE - 3 - head_len) / row, n, j;
+        n = rows - done < fit ? rows - done : fit;
+        if (n > room) n = room;
+        if (n <= 0) break;
+        head[at] = (uint8_t)(y0 + done); head[at + 1] = (uint8_t)((y0 + done) >> 8);
+        if (count >= 0) { head[count] = (uint8_t)n; head[count + 1] = (uint8_t)(n >> 8); }
+        memcpy(d, head, head_len);
+        for (j = 0; j < n; j++) memcpy(d + head_len + j * row, pixels + (size_t)(done + j) * stride, row);
+        if (psp2dc_record(type, d, head_len + n * row) < 0) break;
+        done += n;
+    }
+    return done;
+}
+/* more of a sprite's rows; 0 when all of it has gone */
+static int sprite_send(int id)
+{
+    Psp2dcCompSprite h;
+    int row = PSP2DC_FMT_ROW(sprites[id].format, sprites[id].w);
+    h.id = (uint8_t)id; h.format = sprites[id].format; h.w = sprites[id].w; h.h = sprites[id].h; h.y = 0;
+    sprites[id].sent += rows_send(PSP2DC_REC_SPRITE, (uint8_t *)&h, sizeof(h), 6, -1, sprites[id].sent,
+                                  sprites[id].pixels + (size_t)sprites[id].sent * sprites[id].stride,
+                                  sprites[id].stride, row, sprites[id].h - sprites[id].sent);
+    return sprites[id].sent == sprites[id].h ? 0 : -1;
+}
+
 /* Once a frame: a new session's screen started (the PSP's is empty: RESET, the regions, every
  * widget), then what changed since. */
 static void screen_flush(void)
@@ -329,12 +384,19 @@ static void screen_flush(void)
     int i;
     if (!psp2dc_psp()) return;
     if (told != session_now()) {
-        if (psp2dc_room() < 16 + PSP2DC_REGIONS * (3 + (int)sizeof(Psp2dcCompRect))) return;
+        int need = 16;
+        for (i = 0; i < PSP2DC_REGIONS; i++)
+            if (regions[i].w) need += 3 + (int)sizeof(Psp2dcCompRect) + 5 + 2 * palette_n[i];
+        if (psp2dc_room() < need) return;
         psp2dc_record(PSP2DC_REC_RESET, NULL, 0);
         psp2dc_record(PSP2DC_REC_QUERY, NULL, 0);
-        for (i = 0; i < PSP2DC_REGIONS; i++)
-            if (regions[i].w) psp2dc_record(PSP2DC_REC_REGION, &regions[i], sizeof(regions[i]));
+        for (i = 0; i < PSP2DC_REGIONS; i++) {
+            if (!regions[i].w) continue;
+            psp2dc_record(PSP2DC_REC_REGION, &regions[i], sizeof(regions[i]));
+            if (palette_n[i]) palette_send(i, 0, palette_n[i]);
+        }
         for (i = 0; i < PSP2DC_WIDGETS; i++) widgets[i].dirty = widgets[i].used ? D_ALL : 0;
+        for (i = 0; i < PSP2DC_SPRITES; i++) sprites[i].sent = 0;
         reset_due = 0;
         caps_have = 0;
         told = session_now();                    /* (from here the program's own records are in their place) */
@@ -345,6 +407,8 @@ static void screen_flush(void)
     }
     for (i = 0; i < PSP2DC_WIDGETS; i++)
         if (widgets[i].dirty && widget_send(i) < 0) return;
+    for (i = 0; i < PSP2DC_SPRITES; i++)         /* the sprites' pixels, behind everything else */
+        if (sprites[i].pixels && sprites[i].sent < sprites[i].h && sprite_send(i) < 0) return;
 }
 
 static widget_t *widget_at(int id) { return id >= 0 && id < PSP2DC_WIDGETS && widgets[id].used ? &widgets[id] : NULL; }
@@ -420,6 +484,8 @@ void psp2dc_screen_reset(void)
 {
     memset(widgets, 0, sizeof(widgets));
     memset(regions, 0, sizeof(regions));
+    memset(palette_n, 0, sizeof(palette_n));
+    memset(sprites, 0, sizeof(sprites));
     reset_due = 1;
 }
 int psp2dc_notify(const char *text)
@@ -452,6 +518,7 @@ int psp2dc_region_create(int id, int x, int y, int w, int h)
     if (!w || !h) r.w = r.h = 0;
     if (live() && region_record(PSP2DC_REC_REGION, &r, sizeof(r)) < 0) return -1;
     regions[id] = r;                             /* (no PSP now: it goes when one starts) */
+    palette_n[id] = 0;                           /* (a region made has the palette it starts with) */
     return 0;
 }
 int psp2dc_region_remove(int id) { return psp2dc_region_create(id, 0, 0, 0, 0); }
@@ -498,4 +565,57 @@ int psp2dc_present(int id)
     uint8_t d = (uint8_t)id;
     if (!region_ok(id)) return -1;
     return region_record(PSP2DC_REC_PRESENT, &d, 1);
+}
+
+/* ---- pictures -------------------------------------------------------------- */
+int psp2dc_region_palette(int id, int first, int count, const uint16_t *rgb565)
+{
+    if (!region_ok(id) || first < 0 || count < 1 || first + count > 256) return -1;
+    if (first > palette_n[id])                   /* (what lies between is as the PSP starts it) */
+        return -1;
+    memcpy(&palettes[id][first], rgb565, 2 * count);
+    if (live()) {
+        if (reset_due || psp2dc_room() < 5 + 2 * count) return -1;
+        palette_send(id, first, count);
+    }
+    if (first + count > palette_n[id]) palette_n[id] = first + count;
+    return 0;
+}
+int psp2dc_draw_bitmap(int id, int x, int y, int w, int h, int format, const void *pixels, int stride)
+{
+    uint8_t head[sizeof(Psp2dcCompRect) + 1];
+    Psp2dcCompRect r = rect(id, x, y, w, 0);
+    int row;
+    if (!region_ok(id) || w < 1 || h < 1 || format < 0 || format > PSP2DC_FMT_565) return -1;
+    row = PSP2DC_FMT_ROW(format, w);
+    if (row > PSP2DC_RECORD_MAX - (int)sizeof(head)) return -1;
+    if (!live() || reset_due) return live() ? 0 : -2;
+    memcpy(head, &r, sizeof(r));
+    head[sizeof(r)] = (uint8_t)format;
+    /* each piece: its own y (2 bytes at 3 in the rectangle) and its rows (the rectangle's h, at 7) */
+    return rows_send(PSP2DC_REC_BLIT, head, sizeof(head), 3, 7, y, pixels, stride, row, h);
+}
+int psp2dc_sprite_create(int id, int w, int h, int format, const void *pixels, int stride)
+{
+    if (id < 0 || id >= PSP2DC_SPRITES || w < 1 || h < 1 || w > 1024 || h > 1024 || format < 0 || format > PSP2DC_FMT_565 ||
+        !pixels || PSP2DC_FMT_ROW(format, w) > PSP2DC_RECORD_MAX - (int)sizeof(Psp2dcCompSprite)) return -1;
+    sprites[id].pixels = pixels;
+    sprites[id].w = (uint16_t)w; sprites[id].h = (uint16_t)h; sprites[id].stride = (uint16_t)stride;
+    sprites[id].format = (uint8_t)format;
+    sprites[id].sent = 0;
+    return 0;
+}
+int psp2dc_sprite_ready(int id)
+{
+    return id >= 0 && id < PSP2DC_SPRITES && sprites[id].pixels && live() && sprites[id].sent == sprites[id].h;
+}
+int psp2dc_draw_sprite(int region, int id, int x, int y, int key)
+{
+    uint8_t d[9];
+    if (!region_ok(region) || id < 0 || id >= PSP2DC_SPRITES || !sprites[id].pixels) return -1;
+    if (!psp2dc_sprite_ready(id)) return live() ? -1 : -2;
+    d[0] = (uint8_t)region; d[1] = (uint8_t)id;
+    d[2] = (uint8_t)x; d[3] = (uint8_t)(x >> 8); d[4] = (uint8_t)y; d[5] = (uint8_t)(y >> 8);
+    d[6] = key >= 0; d[7] = (uint8_t)key; d[8] = (uint8_t)(key >> 8);
+    return region_record(PSP2DC_REC_DRAWSPRITE, d, sizeof(d));
 }

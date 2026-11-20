@@ -386,6 +386,32 @@ typedef struct {
 #define PSP2DC_REC_DRAWTEXT 0x23  /* id (1), x (2), y (2), colour (2), size (1: 1 to 4 times 8 pixels), text */
 #define PSP2DC_REC_CLIP     0x24  /* Psp2dcCompRect: the region's drawing is kept inside it from here on */
 #define PSP2DC_REC_PRESENT  0x25  /* id (1): what was drawn since the last one shows */
+/* Pictures (Appendix D). A region has a palette of 256 colours for the formats that index
+ * one; at first entry i is the colour whose red, green and blue are i's top 3, next 3 and
+ * low 2 bits. A sprite is a picture the PSP keeps, sent once (in pieces, a few rows a
+ * record) and then drawn wherever by its number. */
+#define PSP2DC_REC_PALETTE    0x26  /* id (1), first (1), then colours (2 each): the region's palette from
+                                     * entry `first` on */
+#define PSP2DC_REC_BLIT       0x27  /* Psp2dcCompRect, format (1), then h rows of w pixels */
+#define PSP2DC_REC_SPRITE     0x28  /* Psp2dcCompSprite, then rows of its pixels from row y on: a sprite made
+                                     * (y 0) or gone on with */
+#define PSP2DC_REC_DRAWSPRITE 0x29  /* region (1), sprite (1), x (2), y (2), keyed (1), key (2): the sprite
+                                     * drawn, in the region's palette; keyed 1: pixels equal to key (an
+                                     * index, or with RGB565 a colour) are left out */
+#define PSP2DC_FMT_1    0     /* 1 bit a pixel, the top bit first: palette entries 0 and 1 */
+#define PSP2DC_FMT_4    1     /* 4 bits a pixel, the high half first */
+#define PSP2DC_FMT_8    2     /* a byte a pixel */
+#define PSP2DC_FMT_565  3     /* RGB565, the low byte first: no palette */
+#define PSP2DC_FMT_ROW(format, w) /* a row's bytes (each row starts on a byte) */ \
+    ((format) == PSP2DC_FMT_1 ? ((w) + 7) / 8 : (format) == PSP2DC_FMT_4 ? ((w) + 1) / 2 : (format) == PSP2DC_FMT_8 ? (w) : 2 * (w))
+#define PSP2DC_SPRITES       64             /* ids 0 to 63 */
+#define PSP2DC_SPRITE_BYTES  (512 * 1024)   /* all sprites together: a byte a pixel, two with RGB565 */
+typedef struct {
+    uint8_t id;
+    uint8_t format;       /* PSP2DC_FMT_* */
+    uint16_t w, h;
+    uint16_t y;           /* the first row that follows */
+} __attribute__((packed)) Psp2dcCompSprite;
 
 #define PSP2DC_WIDGETS         64    /* ids 0 to 63 */
 #define PSP2DC_REGIONS         4     /* ids 0 to 3 */
@@ -423,14 +449,17 @@ typedef struct {
     int32_t max;          /* a bar's full value */
 } __attribute__((packed)) Psp2dcCompWidget;
 typedef struct {
-    uint8_t level;        /* 2: the records above */
+    uint8_t level;        /* 2: the screen; 3: pictures too (and the last two fields) */
     uint8_t widgets;      /* PSP2DC_WIDGETS */
     uint8_t regions;      /* PSP2DC_REGIONS */
     uint8_t text_max;     /* PSP2DC_WIDGET_TEXT_MAX */
     uint16_t width, height;   /* the screen */
     uint32_t region_pixels;
     uint32_t widget_types;    /* bit n: PSP2DC_WIDGET_ n is known */
-    uint32_t formats;         /* bitmap formats: none yet (0) */
+    uint32_t formats;         /* bit n: PSP2DC_FMT_ n is known */
+    uint8_t sprites;          /* PSP2DC_SPRITES */
+    uint8_t reserved;
+    uint32_t sprite_bytes;    /* PSP2DC_SPRITE_BYTES */
 } __attribute__((packed)) Psp2dcCompCaps;
 
 #endif /* PSP2DC_PROTOCOL_H */

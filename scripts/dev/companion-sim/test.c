@@ -417,7 +417,8 @@ static void screen(void)
     sim_psp_plug(1);
     screen_frames(30);
     CHECK(psp2dc_psp() && psp->screen);
-    CHECK(psp2dc_get_caps(&caps) && caps.level == 2 && caps.width == 480 && caps.height == 272);
+    CHECK(psp2dc_get_caps(&caps) && caps.level == 3 && caps.width == 480 && caps.height == 272);
+    CHECK(caps.formats == 0xF && caps.sprites == PSP2DC_SPRITES && caps.sprite_bytes == PSP2DC_SPRITE_BYTES);
     CHECK(caps.widgets == PSP2DC_WIDGETS && caps.regions == PSP2DC_REGIONS && caps.widget_types == 0x1F);
     screen_same();
     /* what changes goes alone: a value is 8 bytes on the way, and one that did not change is none */
@@ -499,6 +500,177 @@ static void screen_faults(void)
            lost_replies);
 }
 
+/* ---- pictures: bitmaps, palettes, sprites ---- */
+/* The program's region as it must look, kept here by the same steps done plainly. */
+#define PW 200
+#define PH 120
+static unsigned model[PW * PH], model_pal[256];
+static uint16_t my_pal[256];
+static uint8_t art[4][64 * 64 * 2];        /* a picture in each format, 64 x 64 at most */
+static int art_w[4], art_h[4];
+static int pictures_due, pictures_step;    /* the whole picture is to be drawn; how far that is */
+static int palette_due;                    /* the palette is to be set: once, the library sends it again */
+
+static unsigned art_pixel(int f, int x, int y)   /* as the program holds it: an index, or a colour */
+{
+    const uint8_t *row = art[f] + y * PSP2DC_FMT_ROW(f, art_w[f]);
+    return f == 0 ? (row[x >> 3] >> (7 - (x & 7))) & 1 : f == 1 ? (row[x >> 1] >> (x & 1 ? 0 : 4)) & 15
+         : f == 2 ? row[x] : (unsigned)(row[2 * x] | row[2 * x + 1] << 8);
+}
+static void model_put(int x, int y, unsigned c) { if (x >= 0 && y >= 0 && x < PW && y < PH) model[y * PW + x] = c; }
+static void model_art(int f, int x, int y, int key)
+{
+    int i, j;
+    for (j = 0; j < art_h[f]; j++)
+        for (i = 0; i < art_w[f]; i++) {
+            unsigned v = art_pixel(f, i, j);
+            if (key >= 0 && v == (unsigned)key) continue;
+            model_put(x + i, y + j, f == 3 ? abgr((int)v) : model_pal[v]);
+        }
+}
+static void pictures_new(void)             /* other pictures, another palette */
+{
+    int f, i;
+    for (f = 0; f < 4; f++) {
+        art_w[f] = 1 + rand() % 64; art_h[f] = 1 + rand() % 64;
+        for (i = 0; i < (int)sizeof(art[f]); i++) art[f][i] = (uint8_t)rand();
+        CHECK(psp2dc_sprite_create(f, art_w[f], art_h[f], f, art[f], PSP2DC_FMT_ROW(f, art_w[f])) == 0);
+    }
+    for (i = 0; i < 256; i++) my_pal[i] = (uint16_t)rand();
+    pictures_due = palette_due = 1;
+}
+/* The whole picture, a step at a time as the queue takes it: the palette, a bitmap in each
+ * format, then each sprite twice (once keyed). 1 when it is all queued and presented. */
+static int pictures_draw(void)
+{
+    static int rows;
+    int f, i;
+    if (pictures_due) { pictures_due = 0; pictures_step = 0; rows = 0; }
+    for (;;) {
+        if (pictures_step == 0) {
+            if (psp2dc_draw_rect(0, 0, 0, PW, PH, 0x1234)) return 0;
+            for (i = 0; i < PW * PH; i++) model[i] = abgr(0x1234);
+            for (i = 0; i < 256; i++) model_pal[i] = abgr(my_pal[i]);
+        } else if (pictures_step <= 4) {
+            int n;
+            f = pictures_step - 1;
+            n = psp2dc_draw_bitmap(0, f * 45 - 10, f * 20 - 5 + rows, art_w[f], art_h[f] - rows, f,
+                                   art[f] + rows * PSP2DC_FMT_ROW(f, art_w[f]), PSP2DC_FMT_ROW(f, art_w[f]));
+            if (n < 0) return 0;
+            rows += n;
+            if (rows < art_h[f]) return 0;
+            model_art(f, f * 45 - 10, f * 20 - 5, -1);
+            rows = 0;
+        } else if (pictures_step <= 8) {
+            f = pictures_step - 5;
+            if (!psp2dc_sprite_ready(f) || psp2dc_room() < 100) return 0;
+            if (psp2dc_draw_sprite(0, f, 150 - f * 40, 70 - f * 9, -1)) return 0;
+            if (psp2dc_draw_sprite(0, f, 20 + f * 30, 60, f == 3 ? art[3][0] | art[3][1] << 8 : 1)) return 0;
+            model_art(f, 150 - f * 40, 70 - f * 9, -1);
+            model_art(f, 20 + f * 30, 60, f == 3 ? art[3][0] | art[3][1] << 8 : 1);
+        } else {
+            if (psp2dc_present(0)) return 0;
+            return 1;
+        }
+        pictures_step++;
+    }
+}
+static int pictures_shown;
+static void pictures_frame(void)
+{
+    vblank();
+    psp2dc_update();
+    if (psp2dc_psp() && psp2dc_session() != session) { session = psp2dc_session(); pictures_due = 1; pictures_shown = 0; restarts++; }
+    if (!region_made && psp2dc_region_create(0, 30, 40, PW, PH) == 0) { region_made = 1; pictures_due = palette_due = 1; pictures_shown = 0; }
+    if (region_made && palette_due && psp2dc_region_palette(0, 0, 256, my_pal) == 0) palette_due = 0;
+    if (pictures_due) pictures_shown = 0;
+    if (region_made && !palette_due && psp2dc_psp() && !pictures_shown) pictures_shown = pictures_draw();
+}
+static void pictures_same(void)
+{
+    const CompRegion *r = &psp->regions[0];
+    int i, bad = 0;
+    CHECK(pictures_shown && r->w == PW && r->h == PH && psp->screen_bad == 0 && psp->stream_bad == 0);
+    if (r->w != PW || r->h != PH) return;
+    for (i = 0; i < PW * PH; i++) bad += r->front[i] != model[i];
+    CHECK(bad == 0);
+    if (bad) printf("    %d pixels differ\n", bad);
+}
+
+static void pictures(void)
+{
+    psp2dc_stats_t st;
+    int i;
+    sim_psp_plug(1);
+    psp2dc_init();
+    pictures_new();
+    for (i = 0; i < 400 && !pictures_shown; i++) pictures_frame();
+    psp2dc_stats(&st);
+    printf("    the picture: %u bytes, queued in %d frames\n", (unsigned)st.bytes_out, i);
+    for (i = 0; i < 20; i++) pictures_frame();
+    pictures_same();
+    CHECK(psp->sprite_bytes == (unsigned)(art_w[0] * art_h[0] + art_w[1] * art_h[1] + art_w[2] * art_h[2] + 2 * art_w[3] * art_h[3]));
+    /* a widget set while a large bitmap goes is not held up by it */
+    {
+        static uint8_t big[240 * 2 * 100];
+        unsigned at = vblanks;
+        int rows = 0, n, seen = 0;
+        want_widget(9, PSP2DC_WIDGET_NUMBER, 0, 300, 10, 100, 10, "n");
+        for (i = 0; i < 20; i++) pictures_frame();
+        while (rows < 100) {
+            n = psp2dc_draw_bitmap(0, 0, rows, 200, 100 - rows, PSP2DC_FMT_565, big + rows * 480, 480);
+            CHECK(n >= 0 && psp2dc_room() >= 1024);          /* (room is left for what is small) */
+            rows += n;
+            if (!seen && rows > 20) { psp2dc_widget_set_u32(9, 77); at = vblanks; seen = 1; }
+            pictures_frame();
+            if (seen == 1 && psp->widgets[9].value == 77) { seen = 2; printf("    a value set amid a bitmap arrives in %u frames\n", vblanks - at); CHECK(vblanks - at <= 6); }
+        }
+        CHECK(seen == 2);
+    }
+    /* the palette a region starts with: red in an index's top 3 bits, green in the next 3, blue in the low 2 */
+    {
+        static const uint8_t four[4] = { 0xE0, 0x1C, 0x03, 0xFF };
+        CHECK(psp2dc_region_create(1, 0, 0, 4, 1) == 0);
+        CHECK(psp2dc_draw_bitmap(1, 0, 0, 4, 1, PSP2DC_FMT_8, four, 4) == 1 && psp2dc_present(1) == 0);
+        for (i = 0; i < 20; i++) { vblank(); psp2dc_update(); }
+        CHECK(psp->regions[1].w == 4 && psp->regions[1].front[0] == 0xFF0000FF && psp->regions[1].front[1] == 0xFF00FF00);
+        CHECK(psp->regions[1].w == 4 && psp->regions[1].front[2] == 0xFFFF0000 && psp->regions[1].front[3] == 0xFFFFFFFF);
+    }
+    /* what cannot be */
+    CHECK(psp2dc_draw_bitmap(0, 0, 0, 500, 1, PSP2DC_FMT_565, art[3], 1000) == -1);   /* a row longer than a record */
+    CHECK(psp2dc_draw_bitmap(2, 0, 0, 4, 4, PSP2DC_FMT_8, art[2], 4) == -1);
+    CHECK(psp2dc_draw_sprite(0, 9, 0, 0, -1) == -1 && psp2dc_sprite_create(64, 1, 1, 0, art[0], 1) == -1);
+    CHECK(psp2dc_region_palette(0, 300, 1, my_pal) == -1);
+}
+
+/* pictures through everything at once: in the end the region is, pixel for pixel, what the program drew */
+static void pictures_faults(void)
+{
+    int i, away = 0, round;
+    sim_psp_plug(1);
+    psp2dc_init();
+    pictures_new();
+    for (round = 0; round < 15; round++) {
+        lose_request = lose_reply = 20;
+        for (i = 0; i < 4000; i++) {
+            pictures_frame();
+            if (rand() % 150 == 0) pictures_new();
+            if (rand() % 2500 == 0) { psp2dc_screen_reset(); region_made = 0; pictures_new(); }
+            if (rand() % 2000 == 0) usb_every = 1 + rand() % 4;
+            if (rand() % 1500 == 0) { sim_psp_plug(0); frames(rand() % 200); sim_psp_plug(1); }
+            if (rand() % 1200 == 0) sim_usb_fail();
+            if (!away && rand() % 2000 == 0) { card_there = 0; away = 10 + rand() % 120; }
+            if (away && --away == 0) card_there = 1;
+        }
+        card_there = 1; away = 0; usb_every = 1; lose_request = lose_reply = 0;
+        for (i = 0; i < 600; i++) pictures_frame();
+        pictures_same();
+        if (failures) break;
+    }
+    printf("    %u vblanks, %d screen starts, %u \"again\", %u + %u lost\n", vblanks, restarts, agains, lost_requests,
+           lost_replies);
+}
+
 static const struct { const char *name, *what; void (*run)(void); } scenarios[] = {
     { "plain",      "found; rows of text; records of every size arrive, each once and whole", plain },
     { "slow",       "a PSP that reads slowly: \"again\", and nothing lost", slow_psp },
@@ -512,6 +684,8 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "everything", "all of it at once, 300000 frames", everything },
     { "screen",     "widgets and a region: made, changed, removed; what the PSP can show", screen },
     { "screen-faults", "the screen through everything at once, 100000 frames", screen_faults },
+    { "pictures",   "a palette, bitmaps in every format, sprites: pixel for pixel", pictures },
+    { "pictures-faults", "pictures through everything at once, 60000 frames", pictures_faults },
 };
 
 int main(int argc, char **argv)

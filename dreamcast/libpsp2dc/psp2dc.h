@@ -91,17 +91,40 @@ int  psp2dc_present(int region);
 /* A line of text over the PSP's screen for a moment. */
 int  psp2dc_notify(const char *text);
 
+/*
+ * Pictures. format: PSP2DC_FMT_1, _4, _8 (indexes into the region's palette)
+ * or _565; rows are `stride` bytes apart, each starting on a byte.
+ *
+ * A region's palette: `count` colours from entry `first` on. Remembered and
+ * sent again with the region; set it from entry 0 up. 0, or -1 (try again).
+ */
+int  psp2dc_region_palette(int region, int first, int count, const uint16_t *rgb565);
+/* A bitmap into a region, as many of its rows as the queue takes now: how
+ * many went (go on with the rest next frame), or -1 for what cannot be, -2
+ * without a PSP. Room is left in the queue, so widgets are never held up. */
+int  psp2dc_draw_bitmap(int region, int x, int y, int w, int h, int format, const void *pixels, int stride);
+/* A sprite: a picture the PSP keeps and draws by its id (0 to 63). The
+ * pixels are not copied: they must stay where they are. psp2dc_update()
+ * sends them a little at a time, and again when the PSP starts over;
+ * psp2dc_sprite_ready() says when the PSP has them all. */
+int  psp2dc_sprite_create(int id, int w, int h, int format, const void *pixels, int stride);
+int  psp2dc_sprite_ready(int id);
+/* key: a palette index (or with PSP2DC_FMT_565 a colour) not drawn, or -1.
+ * 0, -1 when the sprite is not ready or the queue is full, -2 without a PSP. */
+int  psp2dc_draw_sprite(int region, int id, int x, int y, int key);
+
 /* What the PSP can show, once it has said (shortly after each new session):
  * 1 and the answer, or 0 (not yet, or a PSP whose application is older than
  * the screen: then nothing above shows). */
 typedef struct {
-    int level;                    /* 2 */
+    int level;                    /* 2: widgets and regions; 3: pictures too */
     int width, height;            /* the screen */
     int widgets, regions;         /* how many of each */
     int region_pixels;            /* all regions together, at most */
     int text_max;                 /* a widget's text, at most */
     uint32_t widget_types;        /* bit n: PSP2DC_WIDGET_ type n */
-    uint32_t formats;             /* bitmap formats (none yet) */
+    uint32_t formats;             /* bit n: PSP2DC_FMT_ format n */
+    int sprites, sprite_bytes;    /* how many sprites, and their pixels together at most */
 } psp2dc_caps_t;
 int  psp2dc_get_caps(psp2dc_caps_t *out);
 
