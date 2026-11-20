@@ -742,3 +742,45 @@ Facts that bear on sections 7, 9 and 15, from the KallistiOS source (master, 15 
 - openMenu Virtual Folder Bundle, `vm2_api.c` (github.com/DerekPascarella/openMenu-Virtual-Folder-Bundle).
 - The timeout's unit: the Linux Maple driver's comment, `drivers/sh/maple/maple.c`.
 - PSP2DC: docs/psp2dc.md, sections 5.0e5 to 5.0e7.
+
+---
+
+## Appendix B. Phase 1 Design (20 November 2026, not built yet)
+
+The proof of concept and the measurement step in one: a KallistiOS program finds the companion, sends text and test data to the PSP, and gets PSP button events back, while the controller and the VMU work as before.
+
+### B.1 The Maple side
+
+- **One new Maple command, 0x50**, sent to the memory card unit with the memory card's function code in word 0, as openMenu's 0x21 is (A.1). The library uses a frame of its own, so it does not wait on the VMU driver's.
+- **Request**, after the function word: `op` (1 byte), `seq` (1), `len` (2, little-endian), then `len` bytes of data, padded to a word. `op` 0 HELLO, 1 SEND (data for the PSP), 2 POLL (nothing to send).
+- **Reply**, a data transfer (8), after the function word: `status` (0 fine, 1 no PSP), `session` (changes each time the PSP's link opens, so both sides know to start over), `seq` echoed, a spare byte, `room` (2: bytes free in the adapter's buffer towards the PSP), `len` (2), then `len` bytes from the PSP. Every reply carries what the PSP has sent since the last one, so any command is also a poll. HELLO's reply data is `PSP2DC`, the protocol version and a spare byte.
+- **Full buffer:** the adapter answers "again" (0xFC) and KallistiOS resends at the next vblank (A.3). **No PSP:** status 1, the data dropped.
+- The adapter answers from two byte queues in its RAM, one each way, and never waits for the PSP.
+
+### B.2 The USB side (protocol 7)
+
+- `COMP_DATA` (adapter to PSP) and `COMP_EVENT` (PSP to adapter): each a piece of the byte stream in that direction, up to 255 bytes a message, several messages a transfer.
+- The stream is a run of records: `type` (1), `len` (2), data. A record is at most 1000 bytes, so one fits a Maple frame.
+
+### B.3 Records in phase 1
+
+| Direction | Record | Content |
+|---|---|---|
+| Dreamcast to PSP | CLEAR | none |
+| Dreamcast to PSP | PRINT | a row, then text for that row |
+| Dreamcast to PSP | TEST | a running number, then a known pattern (the PSP checks both and counts) |
+| Dreamcast to PSP | ECHO | any bytes: the PSP sends them back |
+| PSP to Dreamcast | BUTTONS | the PSP's buttons, when they change |
+| PSP to Dreamcast | ECHO | the bytes of an ECHO |
+
+### B.4 The three programs
+
+- **Adapter:** the command above in the VMU's command handler, and the two queues, in one new file; the USB driver forwards them.
+- **PSP:** while companion data arrives, the VMU page gives way to a companion page: the printed rows, and counts (bytes and records a second, errors found in TEST). The buttons still go to the Dreamcast as the controller's; focus is a later phase (section 11).
+- **Dreamcast (`dreamcast/`):** `libpsp2dc` with detect, send, poll; and a test program that shows on the TV what it finds, then sends TEST records of 4, 64, 256 and 1000 bytes for a few seconds each, one command a vblank, and reports commands and bytes a second, the ECHO round trip in frames, the PSP's button events, and the controller's state throughout.
+
+### B.5 What phase 1 answers
+
+- Whether KallistiOS and the adapter exchange the new command with no effect on the controller and the VMU.
+- The real throughput each way, and where it is lost (Maple, the adapter's queue, or USB: today the adapter sends the PSP one transfer of up to 576 bytes per PSP frame, about half the Maple ceiling).
+- The round-trip time of a small message.
