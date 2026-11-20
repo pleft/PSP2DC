@@ -40,7 +40,7 @@ Not done yet:
 In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
 use the PSP as a second screen. The proposal and its phase 1 are in
 [docs/psp2dc-companion.md](docs/psp2dc-companion.md); phase 1 is built and
-not yet tried on a Dreamcast.
+tested against a simulated adapter and PSP, and not yet tried on a Dreamcast.
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
@@ -243,7 +243,7 @@ the PSP.
 | `firmware/` | joypad-os patches for the `usb2dc_superpico` target |
 | `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`) and its test program |
 | `scripts/` | Build scripts |
-| `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison |
+| `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
 | `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phase 1 |
 
@@ -260,6 +260,11 @@ but the Dreamcast link can be tried there.
   `card-sync-test.c`).
 - `scripts/dev/vmucore-compare/` runs the VMU core against libevmu and
   compares them frame by frame.
+- `scripts/dev/companion-sim/` is the adapter and a PSP as a library, built
+  from their own sources. `scripts/dev/companion-test.sh` tests the
+  Dreamcast library against it, and `scripts/dev/flycast-companion.sh` puts
+  it into Flycast, where a program built on `libpsp2dc` then finds a
+  companion.
 
 No game files or saves are included. The tests read your own files from
 wherever you keep them.

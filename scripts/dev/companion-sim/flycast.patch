@@ -1,0 +1,54 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c5ac6f6e8..fb46f9575 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1568,3 +1568,11 @@ if(${CMAKE_GENERATOR} MATCHES "^Xcode.*|^Visual Studio.*")
+ 	file(GLOB_RECURSE SRC_FILES *.h *.cpp *.c *.cc *.mm)
+ 	source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_FILES})
+ endif()
++
++# PSP2DC's companion behind port A's first memory card: the simulator's library
++# (PSP2DC: scripts/dev/companion-sim), -DPSP2DC_SIM=/path/to/libpsp2dcsim.a
++set(PSP2DC_SIM "" CACHE FILEPATH "PSP2DC companion simulator library")
++if(PSP2DC_SIM)
++	target_compile_definitions(${PROJECT_NAME} PRIVATE PSP2DC_SIM)
++	target_link_libraries(${PROJECT_NAME} PRIVATE ${PSP2DC_SIM})
++endif()
+diff --git a/core/hw/maple/maple_devs.cpp b/core/hw/maple/maple_devs.cpp
+index ecb89c744..897ebcc62 100755
+--- a/core/hw/maple/maple_devs.cpp
++++ b/core/hw/maple/maple_devs.cpp
+@@ -16,6 +16,11 @@
+ #include <thread>
+ #include <chrono>
+ 
++#ifdef PSP2DC_SIM
++// PSP2DC's companion: its adapter and PSP, simulated (PSP2DC: scripts/dev/companion-sim)
++extern "C" int sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes);
++#endif
++
+ const char* maple_sega_controller_name = "Dreamcast Controller";
+ const char* maple_sega_vmu_name        = "Visual Memory";
+ const char* maple_sega_kbd_name        = "Emulated Dreamcast Keyboard";
+@@ -797,6 +802,21 @@ struct maple_sega_vmu: maple_base
+ 			aica::sgc::vmuBeep(0, 0);
+ 			return MDRS_DeviceReply;
+ 
++#ifdef PSP2DC_SIM
++		case 0x50:	// PSP2DC's companion, on port A's first memory card
++			if (bus_id == 0 && bus_port == 0)
++			{
++				static u8 reply[1024];
++				int len = 0;
++				int code = sim_emulator(dma_buffer_in, (int)dma_count_in, reply, &len);
++				if (code < 0)
++					return MDRE_UnknownCmd;
++				wptr(reply, len);
++				return (u32)code;
++			}
++			return MDRE_UnknownCmd;
++#endif
++
+ 		default:
+ 			DEBUG_LOG(MAPLE, "Unknown MAPLE COMMAND %d", cmd);
+ 			return MDRE_UnknownCmd;

@@ -144,7 +144,7 @@ int main(int argc, char **argv)
         if (cs) line(13, "controller: %04X  stick %d,%d  L %d R %d", (unsigned)cs->buttons, cs->joyx, cs->joyy,
                      cs->ltrig, cs->rtrig);
         else line(13, "controller: none");
-        line(14, "totals: %u commands, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
+        line(14, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
              (unsigned)st.bytes_in, (unsigned)st.errors);
         line(16, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
     }

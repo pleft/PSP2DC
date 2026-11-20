@@ -794,7 +794,60 @@ Built as designed, with what B.1 and B.2 now say. Not yet tried on a Dreamcast.
 
 - **Adapter** (joypad-os patch 0014): the command and the two 4 KB queues are in the VMU's file (`vmu.c`), which has the unit's address and the RAM-resident copy routines the Maple path needs; the USB side is in `psp2dc_host.c`. Both targets build.
 - **PSP:** `psp/app/companion.c` reads the stream; the page shows while bytes arrived in the last three seconds. System, Details has a line of the companion's counts on both ends. `ms0:/PSP2DC/dev_companion.txt` shows the page in PPSSPP without a Dreamcast (its lines as printed rows).
-- **Dreamcast:** `dreamcast/libpsp2dc` (`psp2dc_init`, `psp2dc_update` once a frame, `psp2dc_print`, `psp2dc_record`, `psp2dc_poll`) and `dreamcast/test`. `scripts/build-dreamcast.sh` builds the test with KallistiOS in Docker (the `kazade/dreamcast-sdk` image) and makes `build/psp2dc_test.cdi` for GDEMU.
+- **Dreamcast:** `dreamcast/libpsp2dc` (`psp2dc_init`, `psp2dc_update` once a frame, `psp2dc_print`, `psp2dc_record`, `psp2dc_poll`) and `dreamcast/test`. Only `psp2dc_init` waits (up to half a second for each memory card unit); after it, a program with no companion asks one memory card unit a second and goes on. `scripts/build-dreamcast.sh` builds the test with KallistiOS in Docker (the `kazade/dreamcast-sdk` image) and makes `build/psp2dc_test.cdi` for GDEMU.
 - **The test** runs five sizes in turn, five seconds each: polls only, then TEST records of 4, 64, 256 and 996 bytes, one a frame. The TV shows commands and bytes a second for each size, errors, the ECHO round trip in frames, the PSP's buttons and the controller's state; X pauses, Y draws the VMU's screen every frame. The PSP shows what arrives a second and whether the TEST records came whole and in order.
-- **Checked without hardware:** the PSP page in PPSSPP with sample rows; the test disc boots in Flycast and reports no companion, as it should there (the emulated VMUs answer the unknown command with an error and nothing else happens).
+- **Checked without hardware:** the PSP page in PPSSPP with sample rows; the rest is B.7.
+
+### B.7 Checked without hardware (20 November 2026)
+
+The three parts were run against each other on the computer. Nothing here says anything about the bus itself: the timing of a reply, a 1 KB frame on the wire and the real speeds still need a Dreamcast.
+
+**The simulator** (`scripts/dev/companion-sim`) is the adapter and a PSP as one small library. The adapter's part is the firmware's own `vmu.c`, built for the computer, and the PSP's is `psp/app/companion.c`; the USB transfer between them is written again by hand after `psp2dc_host.c` (the same message sizes, the reset, the lost transfer).
+
+**The library's test** (`scripts/dev/companion-test.sh`) runs `libpsp2dc` on that, with KallistiOS replaced by the seven functions it uses (and their checks). Ten cases, each from nothing:
+
+| Case | What happens | What must hold |
+|---|---|---|
+| plain | 3000 frames of records of every size up to 1000 bytes | each arrives once, whole, in order; the printed rows are there |
+| slow | the PSP takes a quarter of what is sent | "again" answers, nothing lost |
+| lossy | a tenth of the commands and a tenth of the replies are lost | nothing lost, nothing twice |
+| far-apart | two sends with 240 to 270 polls between them | both arrive |
+| restarts | the PSP unplugged and back, transfers to it lost | the PSP's stream never loses its place; the program starts its page again and all is whole |
+| psp-later | no PSP at first | records are refused until it is there |
+| no-companion | a memory card that is no companion, then the adapter beside it in port B | no waiting, no errors counted, found within seconds |
+| events | six button changes, six ECHOs | in order, the same bytes back |
+| card-away | the memory card unit gone for up to two seconds, as when the PSP changes its card | found again; the program starts its page again |
+| everything | all of it at once, 300 000 frames | as above |
+
+**What it found**, all in `libpsp2dc`, now fixed:
+
+- The command's `seq` moved on with every poll, so a SEND exactly 255 commands after the last one carried the same `seq`, and the adapter took it for a repeat and dropped it. Only SENDs count now.
+- With no companion found, `psp2dc_update` waited up to half a second for each memory card unit, once a second: a game would have stopped that long. It now sends one HELLO a second and does not wait.
+- When the companion went away for more than half a second, the records queued were dropped and the program was not told. `psp2dc_session()` now changes then too, so the program sends its page again.
+- `psp2dc_idle()` was never true after `psp2dc_update()` (a poll is always out).
+
+The same test fails on the library as it was before these.
+
+**In Flycast.** `scripts/dev/flycast-companion.sh` builds Flycast with the simulator behind port A's first memory card (`companion-sim/flycast.patch`, 54 lines), so the test disc runs on the real KallistiOS: its frame queue, its interrupt handlers, its resend of "again". The test disc there:
+
+| Record size | Commands/s | Bytes/s | Errors |
+|---|---|---|---|
+| polls only | 60 | 79 | 0 |
+| 4 | 60 | 498 | 0 |
+| 64 | 60 | 4088 | 0 |
+| 256 | 60 | 15 581 | 0 |
+| 996 | 60 | 58 873 | 0 |
+
+The round trip of an ECHO was 4 frames, the PSP's buttons arrived, and the simulated PSP counted no bad record. With a PSP reading a third as fast and unplugged every 11 seconds: 37 commands and 36 644 bytes a second at 996 bytes (the rest answered "again"), still no errors and no bad record. In the unchanged Flycast (its memory cards answer the command with "unknown"), the disc reports no companion, counts no errors and keeps running.
+
+These are an emulator's figures: one command a vblank is KallistiOS's own pace, and the emulated bus neither loses nor delays anything. They show the library, the protocol and the adapter's queues agree; the 60 KB/s is the ceiling A.2 derived, not a measurement.
+
+**Read in the source, for the same reason:** nothing in the adapter's receive path is sized below a 255-word frame (the ring is 4096 bytes, the packet buffer 1032, the reply goes out by DMA at any length), and the PSP's USB driver reads up to 64 KB a transfer, so the 1280-byte transfers fit.
+
+**Still open, for the Dreamcast:**
+
+- Whether the adapter's reply to a 1 KB command starts within the bus's timeout (about 1 ms): the handler copies up to 1000 bytes each way and sums the reply first.
+- Whether frames this long arrive whole on the real wire, at the rate of one a vblank beside the controller's and the VMU's.
+- The real speed to the PSP, and the round trip.
+- The adapter's RAM: about 230 KB of 264 KB is in use before the stacks.
 

@@ -318,8 +318,9 @@ typedef struct {
 typedef struct {
     uint8_t op;           /* PSP2DC_COMP_OP_* */
     uint8_t seq;          /* echoed in the reply. A SEND with the seq of the last one taken is not
-                           * taken twice (its reply was lost, it is sent again); 1 to 255, HELLO
-                           * starts the count over */
+                           * taken twice (its reply was lost, it is sent again); 1 to 255, moving
+                           * on with each new SEND only (the others carry 0), HELLO starts the
+                           * count over */
     uint16_t len;         /* data bytes that follow */
 } __attribute__((packed)) Psp2dcCompRequest;
 typedef struct {

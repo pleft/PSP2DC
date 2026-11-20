@@ -17,8 +17,9 @@
 
 #define PSP2DC_RECORD_MAX 1000   /* a record's data, at most */
 
-/* Looks for the companion on every memory card unit (up to about a second).
- * 0 when found, -1 when there is none. psp2dc_update() goes on looking. */
+/* Looks for the companion on every memory card unit, waiting up to half a
+ * second for each. 0 when found, -1 when there is none: psp2dc_update()
+ * goes on looking, a unit a second, without waiting. */
 int  psp2dc_init(void);
 /* Once a frame. */
 void psp2dc_update(void);
@@ -27,7 +28,8 @@ void psp2dc_update(void);
 int  psp2dc_found(void);          /* an adapter that answers the companion's command */
 int  psp2dc_psp(void);            /* ... with a PSP on it */
 int  psp2dc_version(void);        /* the adapter's protocol version */
-int  psp2dc_session(void);        /* changes when the PSP starts over: send the screen again */
+int  psp2dc_session(void);        /* changes when the PSP starts over, or records queued here were
+                                   * dropped (the companion went away): send the screen again */
 void psp2dc_where(int *port, int *unit);
 
 /* A record for the PSP, queued for the next command. 0, or -1 when it does
