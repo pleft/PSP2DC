@@ -167,6 +167,8 @@ int cards_new(char out[CARD_NAME_MAX])
         if (!exists(path) && !exists(tmp)) break;
     }
     if (i == 100) return -1;
+    path_of(tmp, sizeof(tmp), out, "txt");
+    sceIoRemove(tmp);                      /* (a game's name left from a card deleted on a computer) */
     cards_format(img);
     return cards_write(out, img);
 }
@@ -178,6 +180,8 @@ int cards_create(const char *name)
     path_of(path, sizeof(path), name, "bin");
     path_of(tmp, sizeof(tmp), name, "new");
     if (exists(path) || exists(tmp)) return 1;
+    path_of(tmp, sizeof(tmp), name, "txt");
+    sceIoRemove(tmp);                      /* (a game's name left from a card deleted on a computer) */
     cards_format(img);
     return cards_write(name, img) < 0 ? -1 : 0;
 }
@@ -320,21 +324,73 @@ int cards_rename(const char *from, const char *to)
     path_of(a, sizeof(a), from, "bin");
     path_of(b, sizeof(b), to, "bin");
     if (strcasecmp(from, to) && exists(b)) return -2;   /* (FAT names: any case) */
-    return sceIoRename(a, b) < 0 ? -1 : 0;
+    if (sceIoRename(a, b) < 0) return -1;
+    path_of(a, sizeof(a), from, "txt");
+    path_of(b, sizeof(b), to, "txt");
+    if (strcasecmp(from, to)) sceIoRemove(b);           /* (a game's name left from a card deleted on a computer) */
+    sceIoRename(a, b);
+    return 0;
 }
 
 int cards_delete(const char *name)
 {
     char path[128];
     path_of(path, sizeof(path), name, "bin");
-    return sceIoRemove(path) < 0 ? -1 : 0;
+    if (sceIoRemove(path) < 0) return -1;
+    path_of(path, sizeof(path), name, "txt");
+    sceIoRemove(path);
+    return 0;
 }
 
 int cards_duplicate(const char *name, char out[CARD_NAME_MAX])
 {
     static unsigned char img[PSP2DC_CARD_BYTES];
+    char title[CARD_TITLE_MAX], path[128];
     if (!cards_read(name, img) || cards_unique(name, "-copy", out) < 0) return -1;
-    return cards_write(out, img);
+    if (cards_write(out, img) < 0) return -1;
+    path_of(path, sizeof(path), out, "txt");
+    sceIoRemove(path);
+    if (cards_title(name, title)) cards_set_title(out, title);
+    return 0;
+}
+
+/* ---- a card's game (NAME.txt) ---- */
+
+int cards_title(const char *name, char out[CARD_TITLE_MAX])
+{
+    char path[128];
+    SceUID fd;
+    int n, i;
+    out[0] = 0;
+    path_of(path, sizeof(path), name, "txt");
+    if ((fd = sceIoOpen(path, PSP_O_RDONLY, 0)) < 0) return 0;
+    n = sceIoRead(fd, out, CARD_TITLE_MAX - 1);
+    sceIoClose(fd);
+    if (n < 0) n = 0;
+    out[n] = 0;
+    for (i = 0; i < n; i++)                /* the first line, as typed on a computer too */
+        if (out[i] == '\r' || out[i] == '\n') { out[i] = 0; break; }
+        else if (out[i] < 0x20 || out[i] > 0x7E) out[i] = '?';
+    for (n = (int)strlen(out); n > 0 && out[n - 1] == ' '; n--) out[n - 1] = 0;
+    return out[0] != 0;
+}
+
+int cards_set_title(const char *name, const char *title)
+{
+    char t[CARD_TITLE_MAX], had[CARD_TITLE_MAX], path[128];
+    SceUID fd;
+    int i, n;
+    while (*title == ' ') title++;
+    for (i = 0; title[i] && i < CARD_TITLE_MAX - 1; i++)
+        t[i] = title[i] >= 0x20 && title[i] <= 0x7E ? title[i] : '?';
+    for (n = i; n > 0 && t[n - 1] == ' '; n--) ;
+    t[n] = 0;
+    if (!t[0] || (cards_title(name, had) && !strcmp(had, t))) return 0;
+    path_of(path, sizeof(path), name, "txt");
+    if ((fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777)) < 0) return -1;
+    n = sceIoWrite(fd, t, n) == n && sceIoWrite(fd, "\n", 1) == 1;
+    sceIoClose(fd);
+    return n ? 0 : -1;
 }
 
 /* ---- saves to import: in SAVES_DIR, .DCI, or .VMS (with a .VMI of the same

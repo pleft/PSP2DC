@@ -65,6 +65,14 @@ int  cards_rename(const char *from, const char *to);
 int  cards_delete(const char *name);
 int  cards_duplicate(const char *name, char out[CARD_NAME_MAX]);   /* as NAME-copy */
 
+/* A card's game: the disc's name openMenu gave as the game started (Card
+ * per game), kept beside the card as NAME.txt, one line. Rename, Delete and
+ * Duplicate take it along. Get: 1 and the name in out, or 0 when it has
+ * none. Set: printable ASCII kept (others as ?), written only when changed. */
+#define CARD_TITLE_MAX 48
+int  cards_title(const char *name, char out[CARD_TITLE_MAX]);
+int  cards_set_title(const char *name, const char *title);
+
 /* Saves to import from SAVES_DIR: .DCI files, and .VMS files (with their .VMI
  * when there is one); by name. Read: the file into data (its length, or -1)
  * and its VMI into vmi when it has one. */

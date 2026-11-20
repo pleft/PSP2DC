@@ -185,6 +185,8 @@ With GDEMU and openMenu, each game can get its own memory card
 automatically. When openMenu starts a disc, it sends the game's ID to the
 adapter, which passes it to the PSP. The PSP then puts in a card named after
 the game's product number (for example `t-8101n`), creating it the first time.
+When openMenu also sends the game's name, the PSP keeps it beside the card
+(`t-8101n.txt`) and shows it on the Cards page.
 In openMenu, set **VMU Game ID** to send. On the PSP, it is the **Card per
 game** setting in System (on by default). Works on a Dreamcast with GDEMU
 and openMenu.

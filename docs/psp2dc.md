@@ -520,6 +520,16 @@ Typing on the PSP, for Typing of the Dead, Phantasy Star Online's chat and Quake
   - PPSSPP demo: the page and the buttons.
   - Hardware (18 November 2026, RP2040-Zero): openMenu and Typing of the Dead take the keys.
 
+### 5.0e8 Game Names on Per-Game Cards (20 November 2026)
+
+A per-game card's file is named after the disc's product number (`t41405n`), which says little on the Cards page. openMenu's Game ID also carries the game's name when openMenu has one (5.0e5), so the PSP now keeps it.
+
+- **Where.** Beside the card, as `NAME.txt` in `ms0:/PSP2DC/cards` (one line, printable ASCII, other bytes as `?`, at most 47 characters). It can be written or changed on a computer too. It is written when a Game ID with a name arrives, also for a card already in use, and only when the name differs.
+- **Shown.** The Cards page shows the game's name as the row's title, with the file's name before the saves count under it. The VMU page's card panel and the Saves page's title show the name of the card in use. The status line at the bottom keeps the file's name.
+- **Kept with the card.** Rename moves the `.txt`, Duplicate copies it, and Delete removes it. A new card (New card, or a game's card made the first time) removes a `.txt` of the same name left over from a card deleted on a computer.
+- **No name.** A card with no `.txt`, or whose game openMenu sent without a name, shows its file's name as before.
+- **Checked in PPSSPP** with dev_gameid.txt: three IDs with names made three cards with their `.txt` files; the Cards page and the VMU page showed the names (a long name cut with an ellipsis). Duplicate copied the `.txt` and Delete removed it. Rename was not run in the emulator. On hardware: not yet tried; it depends on openMenu sending the name.
+
 ### 5.0f Which Copy of a Card Counts (protocol 5)
 
 The adapter keeps the card in its RAM for as long as the Dreamcast is on, also while the PSP is unplugged, so a save made meanwhile is not lost. Protocol 4 sent that copy to the PSP at the next connection, and the PSP took it as the card it had in use.

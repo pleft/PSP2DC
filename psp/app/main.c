@@ -72,6 +72,18 @@ static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
 #define CARD_DIR   "ms0:/PSP2DC"
 #define CARD_QUIET_US 700000   /* this long with no block coming before the file is written */
 static char g_card_name[CARD_NAME_MAX] = "card1";
+static int g_title_due = 1;                /* a card's game's name changed (card_title) */
+/* the card in use's disc game (cards_title), or NULL */
+static const char *card_title(void)
+{
+    static char of[CARD_NAME_MAX], title[CARD_TITLE_MAX];
+    if (g_title_due || strcmp(of, g_card_name)) {
+        snprintf(of, sizeof(of), "%s", g_card_name);
+        cards_title(g_card_name, title);
+        g_title_due = 0;
+    }
+    return title[0] ? title : NULL;
+}
 static SceUID g_card_lock = -1;
 static char g_switch_to[CARD_NAME_MAX];    /* connected: the card to change to once the adapter has let go */
 
@@ -663,6 +675,7 @@ static int g_cd_sel, g_cd_first;           /* the Cards page: row 0 "New card", 
 static char g_cd_names[CARDS_MAX][CARD_NAME_MAX];
 static int g_cd_n, g_cd_saves[CARDS_MAX], g_cd_free[CARDS_MAX];
 static char g_cd_game[CARDS_MAX][13];
+static char g_cd_title[CARDS_MAX][CARD_TITLE_MAX];   /* each card's disc game (cards_title) */
 static int g_cd_due = 1;                   /* the cards' summaries to be read again */
 static char g_box_card[CARD_NAME_MAX];     /* the card the box is about */
 static CardImport g_imports[UI_BOX_ITEMS];
@@ -1132,6 +1145,7 @@ static void cards_summary(void)
     for (i = 0; i < g_cd_n; i++) {
         g_cd_saves[i] = g_cd_free[i] = 0;
         g_cd_game[i][0] = 0;
+        cards_title(g_cd_names[i], g_cd_title[i]);
         if (!card_get(g_cd_names[i], img)) continue;
         n = cardfs_list(img, f, 200);
         g_cd_saves[i] = n;
@@ -1177,16 +1191,18 @@ static void card_selected(int rc, const char *name)
  * The card is named after the disc's product number ("T-8101N" -> t-8101n),
  * made empty the first time; the change goes as changing card by hand does
  * (connected: the adapter lets the card go first), tried again for ten
- * seconds while the card is busy. openMenu's own ID at its start is left. */
+ * seconds while the card is busy. openMenu's own ID at its start is left.
+ * The game's name, when openMenu sends one, is kept beside its card. */
 static char g_gid_card[CARD_NAME_MAX];
 static unsigned g_gid_until;
 static void game_id_got(const char *id12, const char *name128)
 {
-    char id[13], name[25], card[CARD_NAME_MAX];
+    char id[13], name[25], full[129], card[CARD_NAME_MAX];
     int i, k;
     memcpy(id, id12, 12); id[12] = 0;
     for (i = (int)strlen(id); i > 0 && id[i - 1] == ' '; i--) id[i - 1] = 0;
-    snprintf(name, sizeof(name), "%.24s", name128);
+    memcpy(full, name128, 128); full[128] = 0;
+    snprintf(name, sizeof(name), "%.24s", full);
     if (!g_per_game || !id[0] || !strcasecmp(id, "openmenu")) return;
     for (i = k = 0; id[i] && k < CARD_NAME_MAX - 1; i++) {
         char c = id[i];
@@ -1194,9 +1210,14 @@ static void game_id_got(const char *id12, const char *name128)
         card[k++] = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ? c : '_';
     }
     card[k] = 0;
-    if (g_card_have && !strcasecmp(card, g_card_name)) { if (name[0]) say("%s", name); return; }
+    if (g_card_have && !strcasecmp(card, g_card_name)) {
+        if (full[0] && cards_set_title(card, full) == 0) g_cd_due = g_title_due = 1;
+        if (name[0]) say("%s", name);
+        return;
+    }
     if (cards_create(card) < 0) { say("could not make card %s", card); return; }
-    g_cd_due = 1;
+    if (full[0]) cards_set_title(card, full);
+    g_cd_due = g_title_due = 1;
     snprintf(g_gid_card, sizeof(g_gid_card), "%s", card);
     g_gid_until = now_us() + 10000000;
     if (name[0]) notice(name);
@@ -1469,6 +1490,7 @@ static void cards_view(UiCards *v, int standalone)
         v->free[i] = g_cd_free[i];
         v->in_use[i] = g_card_have && !strcasecmp(g_cd_names[i], g_card_name);
         v->game[i] = g_cd_game[i][0] ? g_cd_game[i] : NULL;
+        v->title[i] = g_cd_title[i][0] ? g_cd_title[i] : NULL;
     }
     if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;   /* (the chosen row in sight, wherever it moved) */
     if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
@@ -2058,7 +2080,7 @@ int main(int argc, char *argv[])
                 saves_view(&v, standalone);
                 saves_due = 0;
                 g_saves_count = ui_page_saves(g_card, g_card_have, &v, &ui_themes[g_theme],
-                                              now_us() / 1000, g_card_name);
+                                              now_us() / 1000, card_title() ? card_title() : g_card_name);
             }
         } else if (g_typing && !g_menu) {
             /* the keyboard: drawn when something on it changes, or every 3 frames */
@@ -2095,7 +2117,7 @@ int main(int argc, char *argv[])
             h.card = g_card;
             h.card_have = g_card_have;
             h.card_note = g_card_note;
-            h.card_name = g_card_name;
+            h.card_name = card_title() ? card_title() : g_card_name;
             h.notice = g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
             /* the icons: the VMU's own when on its own; connected, ATTENTION
              * while the card is being written, as the manual has it (VMU-7:

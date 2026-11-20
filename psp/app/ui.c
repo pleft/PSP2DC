@@ -1071,15 +1071,18 @@ void ui_page_cards(const UiCards *v, const UiTheme *t)
             }
         } else {
             int i = row - 1, used = 200 - v->free[i];
+            /* a card for a game: the game's name, its file's name under it */
+            const char *head = v->title[i] ? v->title[i] : v->name[i];
             round_rect(4, y, 472, 30, 5, t->panel);
-            label_fit(14, y + 6, strong(t), v->name[i], 220);
+            label_fit(14, y + 6, strong(t), head, 220);
             if (v->in_use[i]) {
-                int x = 14 + 7 * ((int)strlen(v->name[i]) < 31 ? (int)strlen(v->name[i]) : 31) + 10;
+                int x = 14 + 7 * ((int)strlen(head) < 31 ? (int)strlen(head) : 31) + 10;
                 round_rect(x, y + 4, 7 * 6 + 8, 12, 3, t->ok);
                 label(x + 4, y + 6, on_colour(t->ok), "in use");
             }
-            snprintf(s, sizeof(s), "%d save%s, %d blocks free", v->saves[i], v->saves[i] == 1 ? "" : "s", v->free[i]);
-            label(14, y + 18, t->text, s);
+            snprintf(s, sizeof(s), "%s%s%d save%s, %d blocks free", v->title[i] ? v->name[i] : "", v->title[i] ? ", " : "",
+                     v->saves[i], v->saves[i] == 1 ? "" : "s", v->free[i]);
+            label_fit(14, y + 18, t->text, s, 280);
             if (v->game[i]) { snprintf(s, sizeof(s), "game %s", v->game[i]); label_fit(300, y + 6, muted(t), s, 168); }
             if (used < 0) used = 0;
             ui_fill(300, y + 20, 160, 4, raised(t));

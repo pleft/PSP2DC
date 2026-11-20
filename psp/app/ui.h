@@ -140,7 +140,8 @@ typedef struct {
     int n;                             /* cards */
     const char *name[UI_CARDS_MAX];
     int saves[UI_CARDS_MAX], free[UI_CARDS_MAX], in_use[UI_CARDS_MAX];
-    const char *game[UI_CARDS_MAX];    /* its game's name, or NULL */
+    const char *game[UI_CARDS_MAX];    /* the VMU game on it, or NULL */
+    const char *title[UI_CARDS_MAX];   /* the disc game it is for (Card per game), or NULL */
     int first, sel;                    /* rows: 0 is "New card", 1 + i card i; sel -1: view only */
     int new_off;                       /* "New card" cannot be used now (greyed) */
     UiBox box;
