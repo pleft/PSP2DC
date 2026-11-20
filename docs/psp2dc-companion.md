@@ -745,7 +745,7 @@ Facts that bear on sections 7, 9 and 15, from the KallistiOS source (master, 15 
 
 ---
 
-## Appendix B. Phase 1 Design (20 November 2026, not built yet)
+## Appendix B. Phase 1 Design (20 November 2026)
 
 The proof of concept and the measurement step in one: a KallistiOS program finds the companion, sends text and test data to the PSP, and gets PSP button events back, while the controller and the VMU work as before.
 
@@ -755,12 +755,15 @@ The proof of concept and the measurement step in one: a KallistiOS program finds
 - **Request**, after the function word: `op` (1 byte), `seq` (1), `len` (2, little-endian), then `len` bytes of data, padded to a word. `op` 0 HELLO, 1 SEND (data for the PSP), 2 POLL (nothing to send).
 - **Reply**, a data transfer (8), after the function word: `status` (0 fine, 1 no PSP), `session` (changes each time the PSP's link opens, so both sides know to start over), `seq` echoed, a spare byte, `room` (2: bytes free in the adapter's buffer towards the PSP), `len` (2), then `len` bytes from the PSP. Every reply carries what the PSP has sent since the last one, so any command is also a poll. HELLO's reply data is `PSP2DC`, the protocol version and a spare byte.
 - **Full buffer:** the adapter answers "again" (0xFC) and KallistiOS resends at the next vblank (A.3). **No PSP:** status 1, the data dropped.
+- **A lost reply:** the library sends the command again with the same `seq`, and the adapter takes a SEND's data once per `seq`.
 - The adapter answers from two byte queues in its RAM, one each way, and never waits for the PSP.
 
 ### B.2 The USB side (protocol 7)
 
 - `COMP_DATA` (adapter to PSP) and `COMP_EVENT` (PSP to adapter): each a piece of the byte stream in that direction, up to 255 bytes a message, several messages a transfer.
-- The stream is a run of records: `type` (1), `len` (2), data. A record is at most 1000 bytes, so one fits a Maple frame.
+- The stream is a run of records: `type` (1), `len` (2), data. A record is at most 1000 bytes, so one fits a Maple frame. A record from the PSP is at most 56 bytes and goes whole in one message.
+- `COMP_RESET` (adapter to PSP) comes before a session's first bytes. A session begins when the PSP's link opens, when the PSP is back after a silence, and when a transfer carrying companion bytes failed; what was on its way either way is dropped, and the Dreamcast program sees the new session number in the next reply.
+- The adapter's transfers to the PSP grow from 576 to 1280 bytes at most: the companion's bytes ride after whatever else a transfer carries (a VMU screen, a status), so a game drawing the VMU every frame does not hold them back.
 
 ### B.3 Records in phase 1
 
@@ -784,3 +787,14 @@ The proof of concept and the measurement step in one: a KallistiOS program finds
 - Whether KallistiOS and the adapter exchange the new command with no effect on the controller and the VMU.
 - The real throughput each way, and where it is lost (Maple, the adapter's queue, or USB: today the adapter sends the PSP one transfer of up to 576 bytes per PSP frame, about half the Maple ceiling).
 - The round-trip time of a small message.
+
+### B.6 As built (20 November 2026)
+
+Built as designed, with what B.1 and B.2 now say. Not yet tried on a Dreamcast.
+
+- **Adapter** (joypad-os patch 0014): the command and the two 4 KB queues are in the VMU's file (`vmu.c`), which has the unit's address and the RAM-resident copy routines the Maple path needs; the USB side is in `psp2dc_host.c`. Both targets build.
+- **PSP:** `psp/app/companion.c` reads the stream; the page shows while bytes arrived in the last three seconds. System, Details has a line of the companion's counts on both ends. `ms0:/PSP2DC/dev_companion.txt` shows the page in PPSSPP without a Dreamcast (its lines as printed rows).
+- **Dreamcast:** `dreamcast/libpsp2dc` (`psp2dc_init`, `psp2dc_update` once a frame, `psp2dc_print`, `psp2dc_record`, `psp2dc_poll`) and `dreamcast/test`. `scripts/build-dreamcast.sh` builds the test with KallistiOS in Docker (the `kazade/dreamcast-sdk` image) and makes `build/psp2dc_test.cdi` for GDEMU.
+- **The test** runs five sizes in turn, five seconds each: polls only, then TEST records of 4, 64, 256 and 996 bytes, one a frame. The TV shows commands and bytes a second for each size, errors, the ECHO round trip in frames, the PSP's buttons and the controller's state; X pauses, Y draws the VMU's screen every frame. The PSP shows what arrives a second and whether the TEST records came whole and in order.
+- **Checked without hardware:** the PSP page in PPSSPP with sample rows; the test disc boots in Flycast and reports no companion, as it should there (the emulated VMUs answer the unknown command with an error and nothing else happens).
+

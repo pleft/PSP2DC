@@ -1,0 +1,418 @@
+From 5294abfd42afc8a8d0dcb3d1253b48804aa257fc Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Fri, 20 Nov 2026 18:11:20 +0200
+Subject: [PATCH] PSP2DC: the companion's Maple command and its two byte queues
+ (protocol 7)
+
+A Dreamcast program sends command 0x50 to the memory card unit; the adapter
+answers at once from two queues in RAM, one towards the PSP and one towards
+the Dreamcast, or "again" when a SEND has no room yet. The USB driver moves
+the bytes: COMP_DATA after whatever else a transfer carries (a transfer is
+now up to 1280 bytes), COMP_EVENT from the PSP, COMP_RESET when a session
+begins. Status carries the companion's counts.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       |  32 +++++
+ src/native/device/dreamcast/vmu.c             | 128 ++++++++++++++++++
+ src/native/device/dreamcast/vmu.h             |  17 +++
+ src/usb/usbh/psp2dc/psp2dc_host.c             |  71 +++++++++-
+ 4 files changed, 246 insertions(+), 2 deletions(-)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index 2be0b1ec..c318a025 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -321,6 +321,7 @@ typedef enum {
+     SEND_KBD_ALL_INFO,
+     SEND_KBD_STATUS,            // its keys
+     SEND_KBD_ACK,               // its reply (the main device's address for the mode)
++    SEND_COMPANION,             // PSP2DC: the companion's reply (vmu_handle_companion)
+ } ESendState;
+ 
+ static volatile ESendState NextPacketSend = SEND_NOTHING;
+@@ -938,6 +939,13 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
+                 return true;
+             }
+             break;
++        case PSP2DC_COMP_CMD:   // the companion (not Sega's): answered from the adapter's queues
++            if (Header->NumWords >= 1 && __builtin_bswap32(PacketData[0]) == FUNC_MEMORY_CARD) {
++                vmu_handle_companion(PacketData, Header->NumWords);
++                NextPacketSend = SEND_COMPANION;
++                return true;
++            }
++            break;
+ #endif
+ 
+         default:
+@@ -1344,6 +1352,14 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+                             SendPacketVMU((uint32_t *)pkt, sz);
+                             break;
+                         }
++#ifdef CONFIG_PSP2DC
++                        case SEND_COMPANION: {
++                            uint32_t sz;
++                            const void *pkt = vmu_get_companion_packet(&sz);
++                            SendPacketVMU((uint32_t *)pkt, sz);
++                            break;
++                        }
++#endif
+                         case SEND_VMU_ACK: {
+                             uint32_t sz;
+                             const void *pkt = vmu_get_ack_packet(&sz);
+@@ -1794,6 +1810,14 @@ void dreamcast_task(void)
+                 SendPacketVMU((uint32_t *)pkt, sz);
+                 break;
+             }
++#ifdef CONFIG_PSP2DC
++            case SEND_COMPANION: {
++                uint32_t sz;
++                const void *pkt = vmu_get_companion_packet(&sz);
++                SendPacketVMU((uint32_t *)pkt, sz);
++                break;
++            }
++#endif
+             case SEND_VMU_ACK: {
+                 uint32_t sz;
+                 const void *pkt = vmu_get_ack_packet(&sz);
+@@ -1888,6 +1912,14 @@ void dreamcast_task(void)
+             SendPacket((uint32_t *)pkt, sz);
+             break;
+         }
++#ifdef CONFIG_PSP2DC
++        case SEND_COMPANION: {
++            uint32_t sz;
++            const void *pkt = vmu_get_companion_packet(&sz);
++            SendPacket((uint32_t *)pkt, sz);
++            break;
++        }
++#endif
+         case SEND_VMU_ACK: {
+             uint32_t sz;
+             const void *pkt = vmu_get_ack_packet(&sz);
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 9a256908..71c9a94b 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -11,6 +11,7 @@
+ #include <stdio.h>
+ 
+ #ifdef CONFIG_PSP2DC
++#include "psp2dc_protocol.h"
+ #define PSP2DC_VMU_ID "USB RP2040 EMU  "   /* 16 characters, as openMenu compares them */
+ #endif
+ 
+@@ -348,6 +349,133 @@ bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]) {
+     return true;
+ }
+ const void* __not_in_flash_func(vmu_get_block_read_packet)(uint32_t *sz)      { *sz=sizeof(vmu_block_read_pkt)/4; return &vmu_block_read_pkt; }
++
++#ifdef CONFIG_PSP2DC
++// ---- The companion (vmu.h) ----
++// Two queues of bytes, each with one side putting and the other taking, so
++// neither needs a lock: `put` is written only by the side that puts, `got`
++// only by the side that takes, both counting on without wrapping.
++#define COMP_Q_SIZE 4096u   // a power of two
++typedef struct {
++    uint8_t buf[COMP_Q_SIZE] __attribute__((aligned(4)));
++    volatile uint32_t put, got;
++} CompQueue;
++static CompQueue comp_psp;   // towards the PSP: the Maple side puts, Core 0 takes
++static CompQueue comp_dc;    // towards the Dreamcast: Core 0 puts, the Maple side takes
++static volatile bool    comp_link;      // a PSP is there
++static volatile uint8_t comp_session;   // +1 each time its link opens
++static uint8_t          comp_session_seen;   // the Maple side's
++static uint8_t          comp_seq_taken;      // the last SEND whose data was taken (0: none since HELLO)
++static volatile uint32_t comp_cmds, comp_agains, comp_bytes_in, comp_bytes_out;
++
++static struct __attribute__((packed, aligned(4))) {
++    uint32_t BitPairsMinus1;
++    uint8_t  Command; uint8_t Destination; uint8_t Origin; uint8_t NumWords;
++    uint32_t Func;
++    Psp2dcCompReply Reply;
++    uint8_t  Data[PSP2DC_COMP_DATA_MAX + 4];   // and the CRC after them
++} comp_pkt;
++static VmuAckPkt comp_again_pkt;
++static const void *comp_send = &comp_again_pkt;
++static uint32_t comp_send_words = sizeof(comp_again_pkt) / 4;
++
++static void __not_in_flash_func(comp_q_write)(CompQueue *q, const uint8_t *src, uint32_t n)   // (room: the caller's)
++{
++    uint32_t at = q->put & (COMP_Q_SIZE - 1), first = COMP_Q_SIZE - at;
++    if (first > n) first = n;
++    vmu_ram_copy(q->buf + at, src, first);
++    vmu_ram_copy(q->buf, src + first, n - first);
++    q->put += n;
++}
++static uint32_t __not_in_flash_func(comp_q_read)(CompQueue *q, uint8_t *dst, uint32_t max)
++{
++    uint32_t n = q->put - q->got, at = q->got & (COMP_Q_SIZE - 1), first = COMP_Q_SIZE - at;
++    if (n > max) n = max;
++    if (first > n) first = n;
++    vmu_ram_copy(dst, q->buf + at, first);
++    vmu_ram_copy(dst + first, q->buf, n - first);
++    q->got += n;
++    return n;
++}
++
++void __not_in_flash_func(vmu_handle_companion)(const uint32_t *pkt, uint32_t num_words)
++{
++    const uint8_t *req = (const uint8_t *)&pkt[1];   // Psp2dcCompRequest, then its data
++    uint8_t op = 0xFF, seq = 0, status = PSP2DC_COMP_OK, session = comp_session;
++    uint32_t len = 0, n = 0, words, room;
++    comp_cmds++;
++    if (num_words >= 2) { op = req[0]; seq = req[1]; len = req[2] | (uint32_t)req[3] << 8; }
++    if (session != comp_session_seen) {   // the PSP's link opened again: what it sent before is stale
++        comp_dc.got = comp_dc.put;
++        comp_session_seen = session;
++    }
++    if (op > PSP2DC_COMP_OP_POLL || len > PSP2DC_COMP_DATA_MAX || len > (num_words - 2) * 4) {
++        status = PSP2DC_COMP_BAD;
++    } else if (!comp_link) {
++        status = PSP2DC_COMP_NO_PSP;
++    } else if (op == PSP2DC_COMP_OP_SEND) {
++        if (COMP_Q_SIZE - (comp_psp.put - comp_psp.got) < len) {   // no room yet: "again", resent at the next vblank
++            VmuAckPkt *a = &comp_again_pkt;
++            comp_agains++;
++            a->BitPairsMinus1 = (sizeof(*a) - 7) * 4 - 1; a->Command = 0xFC;
++            a->Destination = 0; a->Origin = vmu_port_addr; a->NumWords = 0;
++            a->CRC = CalcCRC((uint32_t *)&a->Command, 1);
++            comp_send = a; comp_send_words = sizeof(*a) / 4;
++            return;
++        }
++        if (seq != comp_seq_taken) {   // (the same again: its reply was lost, the data is here already)
++            comp_q_write(&comp_psp, req + sizeof(Psp2dcCompRequest), len);
++            comp_bytes_in += len;
++            comp_seq_taken = seq;
++        }
++    }
++    if (op == PSP2DC_COMP_OP_HELLO) {
++        static const char magic[6] = { 'P', 'S', 'P', '2', 'D', 'C' };
++        for (n = 0; n < 6; n++) comp_pkt.Data[n] = (uint8_t)magic[n];
++        comp_pkt.Data[n++] = PSP2DC_PROTOCOL_VERSION;
++        comp_pkt.Data[n++] = 0;
++        comp_seq_taken = 0;
++    } else if (status == PSP2DC_COMP_OK) {
++        n = comp_q_read(&comp_dc, comp_pkt.Data, PSP2DC_COMP_DATA_MAX);
++        comp_bytes_out += n;
++    }
++    room = COMP_Q_SIZE - (comp_psp.put - comp_psp.got);
++    comp_pkt.Reply.status = status;
++    comp_pkt.Reply.session = session;
++    comp_pkt.Reply.seq = seq;
++    comp_pkt.Reply.reserved = 0;
++    comp_pkt.Reply.room = (uint16_t)(room > 0xFFFF ? 0xFFFF : room);
++    comp_pkt.Reply.len = (uint16_t)n;
++    while (n & 3) comp_pkt.Data[n++] = 0;
++    words = 1 + sizeof(Psp2dcCompReply) / 4 + n / 4;   // the function word, the reply, its data
++    comp_pkt.Command = CMD_RESPOND_DATA_TRANSFER;
++    comp_pkt.Destination = 0; comp_pkt.Origin = vmu_port_addr;
++    comp_pkt.NumWords = (uint8_t)words;
++    comp_pkt.Func = __builtin_bswap32(FUNC_MEMORY);
++    comp_pkt.BitPairsMinus1 = (words * 4 + 5) * 4 - 1;   // header, payload and the CRC's byte, in pairs of bits
++    ((uint32_t *)&comp_pkt.Func)[words] = CalcCRC((uint32_t *)&comp_pkt.Command, words + 1);
++    comp_send = &comp_pkt; comp_send_words = words + 3;
++}
++const void* __not_in_flash_func(vmu_get_companion_packet)(uint32_t *sz) { *sz = comp_send_words; return comp_send; }
++
++void vmu_companion_link(bool up)
++{
++    if (up == comp_link) return;
++    if (up) { comp_psp.got = comp_psp.put; comp_session++; }
++    comp_link = up;
++}
++uint32_t vmu_companion_take(uint8_t *out, uint32_t max) { return comp_q_read(&comp_psp, out, max); }
++bool vmu_companion_put(const uint8_t *data, uint32_t len)
++{
++    if (COMP_Q_SIZE - (comp_dc.put - comp_dc.got) < len) return false;
++    comp_q_write(&comp_dc, data, len);
++    return true;
++}
++void vmu_companion_stats(uint32_t out[4])
++{
++    out[0] = comp_cmds; out[1] = comp_agains; out[2] = comp_bytes_in; out[3] = comp_bytes_out;
++}
++#endif
+ const void* __not_in_flash_func(vmu_get_ack_packet)(uint32_t *sz)             { *sz=sizeof(vmu_ack_pkt)/4;       return &vmu_ack_pkt; }
+ 
+ const void* __not_in_flash_func(vmu_handle_block_read)(const uint32_t *pkt, uint32_t *sz) {
+diff --git a/src/native/device/dreamcast/vmu.h b/src/native/device/dreamcast/vmu.h
+index b1d95b0b..ff54576f 100644
+--- a/src/native/device/dreamcast/vmu.h
++++ b/src/native/device/dreamcast/vmu.h
+@@ -86,6 +86,23 @@ bool vmu_lcd_take(uint8_t out[VMU_LCD_BYTES]);
+ void vmu_handle_game_id(const uint32_t *packet_data, uint32_t num_words);
+ bool vmu_game_id_take(char id[12], char name[128]);
+ 
++#ifdef CONFIG_PSP2DC
++// The companion (psp2dc_protocol.h): a Dreamcast program's command to the
++// memory card unit, answered at once from two byte queues, one towards the
++// PSP and one towards the Dreamcast. The Maple side builds the reply (a data
++// transfer, or "again" when a SEND has no room yet); Core 0 moves the bytes
++// between the queues and the PSP.
++void vmu_handle_companion(const uint32_t *packet_data, uint32_t num_words);
++const void *vmu_get_companion_packet(uint32_t *size_words);
++// Core 0. The PSP's link opened (what waited is dropped, the session changes)
++// or went; bytes for the PSP taken (how many); bytes from the PSP put (false:
++// no room, nothing put); counts: commands, "again" answers, bytes in, bytes out.
++void vmu_companion_link(bool up);
++uint32_t vmu_companion_take(uint8_t *out, uint32_t max);
++bool vmu_companion_put(const uint8_t *data, uint32_t len);
++void vmu_companion_stats(uint32_t out[4]);
++#endif
++
+ // The card as a whole, for a keeper outside the adapter (PSP2DC: the PSP's
+ // Memory Stick). Core 0. A block is VMU_BLOCK_SIZE bytes in VMU_CARD_PARTS parts.
+ #define VMU_CARD_PARTS      4
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index e6e9433e..3afb736f 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -48,7 +48,8 @@ enum {
+     // never completing on the 16-byte echo (2026-11-15). A card block arrives
+     // as nine reads and is put together from the stream.
+     PSP2DC_RX_SIZE     = PSP2DC_USB_PACKET_FS,
+-    PSP2DC_TX_SIZE     = 576,
++    // a screen and four pieces of the companion's stream, or a card block
++    PSP2DC_TX_SIZE     = 1280,
+     PSP2DC_STREAM_SIZE = 1024,
+     PSP2DC_SYNC_RETRY_MS = 1000,
+     PSP2DC_STATUS_MS     = 1000,
+@@ -68,6 +69,9 @@ typedef struct {
+     bool state_due;         // a CARD_STATE is owed (a HELLO came)
+     bool keeper;            // this PSP is ready to be sent the card's blocks
+     bool lcd_last;          // the last thing sent was a screen: a card block goes first next
++    bool comp;              // this PSP knows the companion's messages (protocol 7)
++    bool comp_sent;         // the transfer in flight carries companion bytes
++    bool comp_reset;        // a session began: the PSP is told before its first bytes
+     uint32_t sync_ms, status_ms, input_ms;
+     uint32_t inputs, bad;   // counters, for the log
+     uint16_t stream_len;
+@@ -171,6 +175,9 @@ static void message(uint8_t addr, psp2dc_dev_t *d, uint8_t type, const uint8_t *
+         submit(addr, d, &in);
+         d->inputs++;
+         d->input_ms = platform_time_ms();
++#ifdef CONFIG_VMU
++        if (d->silent && d->comp) { vmu_companion_link(true); d->comp_reset = true; }   // back after a silence: a new session
++#endif
+         d->silent = false;
+     } else if (type == PSP2DC_MSG_KEYBOARD && len == sizeof(Psp2dcKeyboard)) {
+         Psp2dcKeyboard k;
+@@ -181,6 +188,12 @@ static void message(uint8_t addr, psp2dc_dev_t *d, uint8_t type, const uint8_t *
+         d->state_due = true;
+         d->keeper = false;          // nothing goes to it before it says what it wants
+ #ifdef CONFIG_VMU
++        d->comp = payload[0] >= 7;
++        vmu_companion_link(false);  // the companion starts over with each hello
++        vmu_companion_link(d->comp);
++        d->comp_reset = d->comp;
++    } else if (type == PSP2DC_MSG_COMP_EVENT) {
++        if (d->comp && len) vmu_companion_put(payload, len);   // (no room: dropped, the Dreamcast is not asking)
+     } else if (type == PSP2DC_MSG_CARD_SEND && len >= 1) {
+         if (card_loaded) {
+             if (payload[0]) vmu_card_mark_all_dirty();
+@@ -307,6 +320,13 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+             st.maple_max_us = m[7] > 0xffff ? 0xffff : (uint16_t)m[7];
+         }
+         dreamcast_keyboard_status(&st.kbd_mode, &st.kbd_leds, &st.kbd_reads);
++        {
++            uint32_t c[4];
++            vmu_companion_stats(c);
++            st.comp_cmds = (uint16_t)c[0];
++            st.comp_agains = (uint16_t)c[1];
++            st.comp_bytes = c[2];
++        }
+ #endif
+         d->status_ms = now;
+         return put_msg(d->tx, PSP2DC_MSG_STATUS, &st, sizeof(st));
+@@ -330,6 +350,45 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+     return 0;
+ }
+ 
++// The companion's bytes for the PSP, after whatever else this transfer
++// carries: as many COMP_DATA messages as fit. A transfer must not end on a
++// full packet (the PSP's read would wait for more): an empty message follows
++// one that would.
++static uint16_t comp_append(psp2dc_dev_t *d, uint16_t n)
++{
++    d->comp_sent = false;
++#ifdef CONFIG_VMU
++    if (!d->comp) return n;
++    if (d->comp_reset && n + 2 * PSP2DC_HEADER_LEN <= sizeof(d->tx)) {
++        n += put_msg(d->tx + n, PSP2DC_MSG_COMP_RESET, NULL, 0);
++        d->comp_reset = false;
++        d->comp_sent = true;
++    }
++    while (n + 2 * PSP2DC_HEADER_LEN + 1 <= sizeof(d->tx)) {   // (room kept for the empty message)
++        uint32_t max = sizeof(d->tx) - n - 2 * PSP2DC_HEADER_LEN;
++        uint32_t got = vmu_companion_take(d->tx + n + PSP2DC_HEADER_LEN, max > 255 ? 255 : max);
++        if (!got) break;
++        n += put_msg(d->tx + n, PSP2DC_MSG_COMP_DATA, NULL, (uint8_t)got);
++        d->comp_sent = true;
++        if (got < 255) break;
++    }
++    if (d->comp_sent && n % PSP2DC_USB_PACKET_FS == 0) n += put_msg(d->tx + n, PSP2DC_MSG_COMP_DATA, NULL, 0);
++#endif
++    return n;
++}
++// Companion bytes that did not reach the PSP: its stream has a hole, so the
++// session changes and both ends start over.
++static void comp_lost(psp2dc_dev_t *d)
++{
++#ifdef CONFIG_VMU
++    if (!d->comp_sent) return;
++    d->comp_sent = false;
++    vmu_companion_link(false);
++    vmu_companion_link(d->comp);
++    d->comp_reset = d->comp;
++#endif
++}
++
+ void psp2dc_host_task(void)
+ {
+     psp2dc_dev_t *d = &the_dev;
+@@ -339,6 +398,9 @@ void psp2dc_host_task(void)
+     if (d->state == ST_RUNNING && d->submitted && !d->silent && now - d->input_ms > PSP2DC_SILENCE_MS) {
+         submit(d->addr, d, NULL);   // the PSP went quiet: let go of everything
+         keys_let_go();
++#ifdef CONFIG_VMU
++        vmu_companion_link(false);
++#endif
+         d->silent = true;
+     }
+     if (d->busy) return;
+@@ -357,11 +419,12 @@ void psp2dc_host_task(void)
+         return;
+     }
+     // RUNNING: one thing that is waiting goes out, then the next read
+-    uint16_t n = next_out(d, now);
++    uint16_t n = comp_append(d, next_out(d, now));
+     if (n && transfer(d->addr, d->ep_out, d->tx, n)) {
+         d->busy = true;
+         return;
+     }
++    comp_lost(d);
+ #ifdef CONFIG_VMU
+     if (n && d->tx[2] == PSP2DC_MSG_CARD_SAVE) vmu_card_mark_dirty(d->tx[PSP2DC_HEADER_LEN]);   // not sent: again later
+ #endif
+@@ -380,6 +443,9 @@ static void psp2dc_close(uint8_t addr)
+     if (!d) return;
+     if (d->submitted) router_device_disconnected(addr, 0);
+     keys_let_go();
++#ifdef CONFIG_VMU
++    vmu_companion_link(false);
++#endif
+     printf("[psp2dc] PSP %u: gone (%lu inputs, %lu bad bytes)\n", addr,
+            (unsigned long)d->inputs, (unsigned long)d->bad);
+     memset(d, 0, sizeof(*d));
+@@ -448,6 +514,7 @@ static bool psp2dc_xfer(uint8_t addr, uint8_t ep, xfer_result_t result, uint32_t
+         if (result == XFER_RESULT_SUCCESS) received(addr, d, len);
+     } else if (ep == d->ep_out) {
+         if (result != XFER_RESULT_SUCCESS) {
++            comp_lost(d);
+             if (d->state == ST_SYNC) d->sync_sent = false;
+ #ifdef CONFIG_VMU
+             else if (d->tx[2] == PSP2DC_MSG_CARD_SAVE) vmu_card_mark_dirty(d->tx[PSP2DC_HEADER_LEN]);   // lost: again later
+-- 
+2.54.0 (Apple Git-157)
+

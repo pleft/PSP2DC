@@ -1181,6 +1181,32 @@ void ui_page_system(const UiSystem *sy, const UiTheme *t)
  * Above, the VMU small and what the Dreamcast makes of the keyboard; below,
  * the keys in six rows 15 keys wide, the chosen one in the accent, those
  * held (and the modifiers latched, Caps Lock on) in the in-use green. */
+void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, const UiTheme *t)
+{
+    static const UiKey keys[] = { K1(G_CAP, "SELECT", "menu") };
+    char s[80];
+    int r;
+    ui_begin(t->bg);
+    ui_header(0, t);
+    round_rect(4, 22, 472, 36, 6, t->panel);
+    label_bold(12, 27, strong(t), "COMPANION");
+    snprintf(s, sizeof(s), "%u B/s  %u records/s", bytes_s, records_s);
+    label(476 - 8 - 7 * (int)strlen(s), 27, t->text, s);
+    if (c->test_records || c->test_bad || c->stream_bad) {
+        int bad = c->test_bad || c->stream_bad;
+        snprintf(s, sizeof(s), "test: %u records, %u bytes, %u bad%s", c->test_records, c->test_bytes, c->test_bad,
+                 c->stream_bad ? ", stream lost" : "");
+        label_fit(12, 42, bad ? t->danger : t->ok, s, 456);
+    } else {
+        label(12, 42, muted(t), "a Dreamcast program is using the PSP");
+    }
+    round_rect(4, 62, 472, 190, 6, t->panel);
+    for (r = 0; r < COMP_ROWS; r++)
+        if (c->rows[r][0]) label_fit(10, 68 + r * 15, t->text, c->rows[r], 462);
+    draw_footer(2, 476, keys, 1, NULL, t);
+    ui_end();
+}
+
 void ui_page_keys(const UiKeys *v, const UiTheme *t)
 {
     static const UiKey keys[] = { K1(G_CAP, "SELECT", "menu"), K1(G_DPAD, 0, "key"), K1(G_X, 0, "press"),

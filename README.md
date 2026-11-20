@@ -37,6 +37,11 @@ Not done yet:
 - Latency measurements and broad game testing.
 - Configurable button mapping.
 
+In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
+use the PSP as a second screen. The proposal and its phase 1 are in
+[docs/psp2dc-companion.md](docs/psp2dc-companion.md); phase 1 is built and
+not yet tried on a Dreamcast.
+
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
 
@@ -236,9 +241,11 @@ the PSP.
 | `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
 | `firmware/` | joypad-os patches for the `usb2dc_superpico` target |
+| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`) and its test program |
 | `scripts/` | Build scripts |
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
+| `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phase 1 |
 
 ## Development without hardware
 

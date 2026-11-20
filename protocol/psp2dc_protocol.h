@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-#define PSP2DC_PROTOCOL_VERSION 6
+#define PSP2DC_PROTOCOL_VERSION 7
 
 /* the PSPExp link under it */
 #define PSP2DC_USB_VID      0x054Cu
@@ -54,12 +54,15 @@
 #define PSP2DC_MSG_CARD_EJECT 0x05  /* take the card out: another one is to be put in */
 #define PSP2DC_MSG_CARD_SEND  0x06  /* the adapter's card is wanted: send its blocks */
 #define PSP2DC_MSG_KEYBOARD   0x07  /* the keyboard: its mode and the keys held (Psp2dcKeyboard) */
+#define PSP2DC_MSG_COMP_EVENT 0x08  /* the companion: bytes for the Dreamcast program (whole records) */
 /* adapter -> PSP */
 #define PSP2DC_MSG_STATUS     0x10   /* about once a second */
 #define PSP2DC_MSG_CARD_STATE 0x12   /* the answer to HELLO and CARD_EJECT: the card the adapter holds */
 #define PSP2DC_MSG_CARD_SAVE  0x13   /* a quarter block of the card to keep (a CARD_PART payload) */
 #define PSP2DC_MSG_LCD    0x11   /* the VMU's screen, each time the Dreamcast draws one */
 #define PSP2DC_MSG_GAME_ID 0x14  /* a game's ID, from openMenu as it starts a disc (Psp2dcGameId) */
+#define PSP2DC_MSG_COMP_DATA 0x15 /* the companion: the next bytes of the Dreamcast program's stream */
+#define PSP2DC_MSG_COMP_RESET 0x16 /* the companion: a session begins; the stream starts afresh */
 
 /* HELLO payload */
 typedef struct {
@@ -263,9 +266,13 @@ typedef struct {
     uint8_t  kbd_mode;        /* PSP2DC_KBD_*, as the Dreamcast is shown it */
     uint8_t  kbd_leds;        /* the LEDs the Dreamcast last set (FT6 Set Condition) */
     uint16_t kbd_reads;       /* times the Dreamcast read the keyboard (wraps) */
+    uint16_t comp_cmds;       /* the companion: commands from the Dreamcast (wraps) */
+    uint16_t comp_agains;     /* ... of them answered "again", no room yet (wraps) */
+    uint32_t comp_bytes;      /* ... and the bytes they brought for the PSP */
 } __attribute__((packed)) Psp2dcStatus;
 #define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
 #define PSP2DC_STATUS_V5_LEN  36  /* ... and before the keyboard */
+#define PSP2DC_STATUS_V6_LEN  40  /* ... and before the companion */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot
@@ -275,5 +282,73 @@ typedef struct {
 #define PSP2DC_LCD_BYTES 192
 #define PSP2DC_LCD_WIDTH  48
 #define PSP2DC_LCD_HEIGHT 32
+
+/*
+ * The companion (docs/psp2dc-companion.md, Appendix B): a Dreamcast program
+ * built for it (KallistiOS, dreamcast/libpsp2dc) talks to the PSP through the
+ * adapter. Protocol 7; older PSPs and adapters ignore the messages.
+ *
+ * Dreamcast <-> adapter: Maple command PSP2DC_COMP_CMD to the memory card
+ * unit, word 0 the memory card's function code (as openMenu's Game ID is
+ * sent), then Psp2dcCompRequest and its data, padded to a word. The adapter
+ * answers at once from its own buffers: a data transfer (8) with the function
+ * word, Psp2dcCompReply and the bytes the PSP has sent since the last reply
+ * (so every command is also a poll); or "again" (0xFC) when a SEND's data has
+ * no room yet, which KallistiOS resends at the next vblank.
+ *
+ * Adapter <-> PSP: COMP_DATA and COMP_EVENT carry the two byte streams, as
+ * they are. A stream is a run of records (Psp2dcCompRecord, then its data).
+ * The Dreamcast sends whole records in a command; the PSP sends each record
+ * whole in one COMP_EVENT, so a record from the PSP is at most
+ * PSP2DC_COMP_EVENT_MAX bytes with its header. Either side starts over when
+ * the session changes (the PSP's link opened again, or bytes were lost on
+ * the way to it): what was on its way is dropped. The Dreamcast program sees
+ * the session in every reply; the PSP is sent COMP_RESET before a session's
+ * first bytes.
+ */
+#define PSP2DC_COMP_CMD        0x50
+#define PSP2DC_COMP_OP_HELLO   0     /* is a companion there? the reply's data: Psp2dcCompHello */
+#define PSP2DC_COMP_OP_SEND    1     /* data: records for the PSP */
+#define PSP2DC_COMP_OP_POLL    2     /* nothing to send */
+#define PSP2DC_COMP_OK         0
+#define PSP2DC_COMP_NO_PSP     1     /* no PSP on the adapter: a SEND's data was dropped */
+#define PSP2DC_COMP_BAD        2     /* the request made no sense */
+#define PSP2DC_COMP_DATA_MAX   1000  /* data bytes in a request or a reply */
+#define PSP2DC_COMP_EVENT_MAX  56    /* a record from the PSP, header and all */
+typedef struct {
+    uint8_t op;           /* PSP2DC_COMP_OP_* */
+    uint8_t seq;          /* echoed in the reply. A SEND with the seq of the last one taken is not
+                           * taken twice (its reply was lost, it is sent again); 1 to 255, HELLO
+                           * starts the count over */
+    uint16_t len;         /* data bytes that follow */
+} __attribute__((packed)) Psp2dcCompRequest;
+typedef struct {
+    uint8_t status;       /* PSP2DC_COMP_OK... */
+    uint8_t session;      /* changes each time the PSP's link opens */
+    uint8_t seq;
+    uint8_t reserved;
+    uint16_t room;        /* bytes free in the adapter's buffer towards the PSP */
+    uint16_t len;         /* data bytes that follow: from the PSP (HELLO: Psp2dcCompHello) */
+} __attribute__((packed)) Psp2dcCompReply;
+typedef struct {
+    char magic[6];        /* "PSP2DC" */
+    uint8_t version;      /* PSP2DC_PROTOCOL_VERSION */
+    uint8_t reserved;
+} __attribute__((packed)) Psp2dcCompHello;
+
+/* a record of either stream */
+typedef struct {
+    uint8_t type;         /* PSP2DC_REC_* */
+    uint16_t len;         /* data bytes that follow */
+} __attribute__((packed)) Psp2dcCompRecord;
+/* Dreamcast -> PSP */
+#define PSP2DC_REC_CLEAR   0x01   /* the page emptied */
+#define PSP2DC_REC_PRINT   0x02   /* a row (1 byte), then its text */
+#define PSP2DC_REC_TEST    0x7E   /* a running number (4 bytes, from 0 after a CLEAR), then bytes: byte i is
+                                   * (number + i) & 0xFF; the PSP checks and counts them */
+#define PSP2DC_REC_ECHO    0x7F   /* any bytes (at most PSP2DC_COMP_EVENT_MAX - 3): sent back as they are */
+/* PSP -> Dreamcast */
+#define PSP2DC_REC_BUTTONS 0x01   /* the PSP's buttons (4 bytes, PSP_CTRL_* bits), when they change */
+/*      PSP2DC_REC_ECHO    0x7F      an ECHO's bytes */
 
 #endif /* PSP2DC_PROTOCOL_H */

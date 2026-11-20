@@ -44,6 +44,7 @@
 #include "ui.h"
 #include "vmu_sa.h"
 #include "vmu_game.h"
+#include "companion.h"
 #include "cards.h"
 #include "card_sync.h"
 #include "cardfs.h"
@@ -331,7 +332,7 @@ static int send_msg(unsigned char type, const void *payload, int len)
 /* The adapter's messages, out of the byte stream. */
 static int reader_thread(SceSize args, void *argp)
 {
-    static unsigned char stream[1024];
+    static unsigned char stream[4096];   /* (a transfer: a screen and the companion's bytes, 1280 at most) */
     int have = 0;
     while (g_running) {
         int n, pos = 0;
@@ -345,8 +346,8 @@ static int reader_thread(SceSize args, void *argp)
             if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; g_rx_bad++; continue; }
             total = PSP2DC_HEADER_LEN + p[3];
             if (have - pos < total) break;
-            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V5_LEN ||
-                                              p[3] == PSP2DC_STATUS_OLD_LEN)) {
+            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V6_LEN ||
+                                              p[3] == PSP2DC_STATUS_V5_LEN || p[3] == PSP2DC_STATUS_OLD_LEN)) {
                 Psp2dcStatus st;
                 memset(&st, 0, sizeof(st));
                 memcpy(&st, p + PSP2DC_HEADER_LEN, p[3]);
@@ -375,6 +376,10 @@ static int reader_thread(SceSize args, void *argp)
             } else if (p[2] == PSP2DC_MSG_GAME_ID && p[3] == sizeof(Psp2dcGameId)) {
                 memcpy(&g_gid, p + PSP2DC_HEADER_LEN, sizeof(g_gid));   /* (acted on by the main loop) */
                 g_gid_seq++;
+            } else if (p[2] == PSP2DC_MSG_COMP_RESET) {
+                comp_reset();
+            } else if (p[2] == PSP2DC_MSG_COMP_DATA) {
+                comp_feed(p + PSP2DC_HEADER_LEN, p[3]);
             } else if (p[2] == PSP2DC_MSG_LCD && p[3] == PSP2DC_LCD_BYTES) {
                 memcpy(g_lcd, p + PSP2DC_HEADER_LEN, PSP2DC_LCD_BYTES);
                 g_lcd_count++;
@@ -446,6 +451,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     if (g_status.maple_unanswered)
         printf("         last unanswered: cmd %02X to %02X, %u words, func %08X  \n", g_status.last_cmd,
                g_status.last_dest, g_status.last_words, (unsigned)g_status.last_func);
+    if (g_comp.sessions || g_status.comp_cmds)
+        printf("companion %u commands, %u again, %u bytes; here %u bytes, %u bad    \n", g_status.comp_cmds,
+               g_status.comp_agains, (unsigned)g_status.comp_bytes, g_comp.bytes, g_comp.test_bad + g_comp.stream_bad);
     if (g_kbd_mode || g_status.kbd_mode)
         printf("keyboard mode %u here, %u on the adapter; read %u times; LEDs set %02X      \n", g_kbd_mode,
                g_status.kbd_mode, g_status.kbd_reads, g_status.kbd_leds);
@@ -534,6 +542,33 @@ static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s
  * start select l r, or none), each held until the next line; "shot" in a
  * line also takes a screenshot (ms0:/PSP2DC/shots) as it starts, without
  * the notice. Absent, nothing. */
+/* The companion is in use: its bytes came in the last three seconds. */
+static int comp_on(void) { return g_comp.last_us && now_us() - g_comp.last_us < 3000000; }
+/* ms0:/PSP2DC/dev_companion.txt, for seeing the companion's page without a
+ * Dreamcast: its lines as PRINT records, row by row, once at the start and
+ * kept as if still arriving. Absent, nothing. */
+static int g_dev_comp;
+static void dev_companion_load(void)
+{
+    char buf[1024], *line, *save;
+    unsigned char r[4 + COMP_COLS];
+    SceUID fd = sceIoOpen("ms0:/PSP2DC/dev_companion.txt", PSP_O_RDONLY, 0);
+    int n, row = 0;
+    if (fd < 0) return;
+    n = sceIoRead(fd, buf, sizeof(buf) - 1);
+    sceIoClose(fd);
+    if (n <= 0) return;
+    buf[n] = 0;
+    comp_reset();
+    for (line = strtok_r(buf, "\n", &save); line && row < COMP_ROWS; line = strtok_r(NULL, "\n", &save), row++) {
+        int len = (int)strlen(line) < COMP_COLS ? (int)strlen(line) : COMP_COLS;
+        r[0] = PSP2DC_REC_PRINT; r[1] = (unsigned char)(len + 1); r[2] = 0; r[3] = (unsigned char)row;
+        memcpy(r + 4, line, len);
+        comp_feed(r, 4 + len);
+    }
+    g_dev_comp = 1;
+}
+
 /* ms0:/PSP2DC/dev_gameid.txt, for trying Card per game without openMenu:
  * lines "<ms after the start> <ID> [name]", each taken as openMenu's Game ID
  * at that time. Absent, nothing. */
@@ -1786,6 +1821,7 @@ int main(int argc, char *argv[])
     g_card_lock = sceKernelCreateSema("card", 0, 1, 1, NULL);
     dev_input_load();
     dev_gameid_load();
+    dev_companion_load();
     card_load();
     game_audio_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
@@ -1912,6 +1948,7 @@ int main(int argc, char *argv[])
         last_frame_us = now_us();
 
         if (demo_on() && demo_frame(g_lcd)) g_lcd_count++;
+        if (g_dev_comp) g_comp.last_us = now_us() | 1;
         {   /* openMenu's Game ID (from the adapter, or dev_gameid.txt in testing) */
             static unsigned gid_seen;
             if (g_gid_seq != gid_seen) { gid_seen = g_gid_seq; game_id_got(g_gid.id, g_gid.name); }
@@ -2011,6 +2048,18 @@ int main(int argc, char *argv[])
                 if (!kb_sent_us || memcmp(&kb, &last_kb, sizeof(kb)) || now_us() - kb_sent_us > 500000)
                     if (send_msg(PSP2DC_MSG_KEYBOARD, &kb, sizeof(kb)) >= 0) { last_kb = kb; kb_sent_us = now_us() | 1; }
             }
+            if (comp_on()) {   /* the companion: the buttons when they change, an ECHO's bytes back */
+                static unsigned comp_buttons = ~0u;
+                unsigned char ev[PSP2DC_COMP_EVENT_MAX];
+                int n = comp_echo_take(ev);
+                if (n) send_msg(PSP2DC_MSG_COMP_EVENT, ev, n);
+                if (pad.Buttons != comp_buttons) {
+                    ev[0] = PSP2DC_REC_BUTTONS; ev[1] = 4; ev[2] = 0;
+                    ev[3] = (unsigned char)pad.Buttons; ev[4] = (unsigned char)(pad.Buttons >> 8);
+                    ev[5] = (unsigned char)(pad.Buttons >> 16); ev[6] = (unsigned char)(pad.Buttons >> 24);
+                    if (send_msg(PSP2DC_MSG_COMP_EVENT, ev, 7) >= 0) comp_buttons = pad.Buttons;
+                }
+            }
             in.seq = seq++;
             if (send_msg(PSP2DC_MSG_INPUT, &in, sizeof(in)) < 0) errors++;
             else sent++;
@@ -2106,6 +2155,15 @@ int main(int argc, char *argv[])
                         : "not read: the game is not asking for a keyboard";
                 ui_page_keys(&k, &ui_themes[g_theme]);
             }
+        } else if (comp_on() && !g_menu) {
+            /* a Dreamcast program is using the companion: its page, and what arrives a second */
+            static unsigned at, bytes0, recs0, rate_b, rate_r;
+            if (!at || now_us() - at >= 1000000) {
+                rate_b = g_comp.bytes - bytes0; rate_r = g_comp.records - recs0;
+                bytes0 = g_comp.bytes; recs0 = g_comp.records;
+                at = now_us() | 1;
+            }
+            if (frame % 4 == 0) ui_page_companion(&g_comp, rate_b, rate_r, &ui_themes[g_theme]);
         } else if (frame % 3 == 0 || g_lcd_count != lcd_shown) {   /* (the controller's state moves) */
             UiHome h;
             int up = !g_no_usb && pspexpUsbConnected();

@@ -111,6 +111,12 @@ typedef struct {
 } UiKeys;
 void ui_page_keys(const UiKeys *v, const UiTheme *t);
 
+/* The companion's page (companion.h): the rows a Dreamcast program printed,
+ * and what arrives: bytes and records in the last second, the test data
+ * checked. */
+#include "companion.h"
+void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, const UiTheme *t);
+
 /* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
  * Cards, 3 System), and at their right the link and the status line. In the
  * menu the bar is lit, L and R beside the tabs; playing it is dim, with
