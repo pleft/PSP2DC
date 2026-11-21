@@ -38,7 +38,8 @@ Not done yet:
 - Configurable button mapping.
 
 In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
-use the PSP as a second screen. The proposal and its first two phases are in
+use the PSP as a second screen. The proposal and what is built of it (phases 1
+and 2, and the first part of phase 3) are in
 [docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
 widgets (labels, numbers, bars, lists) on the PSP, draw into regions of its
 screen, and send bitmaps and sprites. This is built and tested against a
@@ -153,6 +154,19 @@ firmware; back it up with `picotool` first if you want to keep it.
 Always flash the newest file in `build/`, not one from joypad-os's
 `releases/` folder. Its names carry the commit, so an older build there can
 look like the new one.
+
+### The companion's Dreamcast programs
+
+Needs Docker; the script uses the `kazade/dreamcast-sdk` image, which carries
+KallistiOS and its compiler.
+
+```sh
+scripts/build-dreamcast.sh
+```
+
+The results are two disc images for GDEMU: `build/psp2dc_test.cdi`, which
+measures what the path carries, and `build/psp2dc_demo.cdi`, a small game
+with its dashboard on the PSP.
 
 ## Using it
 
