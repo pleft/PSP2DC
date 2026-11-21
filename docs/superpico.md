@@ -6,6 +6,8 @@ Watara Supervision handheld built around an ordinary Pico. The adapter to
 build is the Waveshare RP2040-Zero described in the [README](../README.md);
 this page keeps the prototype's wiring, which still works.
 
+![The prototype: a SuperPico on a breadboard, wired to a Dreamcast controller cable](images/superpico-prototype.jpg)
+
 PSP2DC uses only the Pico: the firmware runs on its RP2040, the PSP plugs
 into its micro-USB port, and the Dreamcast cable is soldered straight to its
 pins. Leave the cartridge out of the Supervision while it is the adapter.
