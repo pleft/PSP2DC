@@ -25,7 +25,7 @@ pins. Leave the cartridge out of the Supervision while it is the adapter.
   at build time (`MAPLE_PIN1=21`, `MAPLE_PIN5=22`).
 - **PSP cable:** a micro-USB OTG adapter and the usual USB-A to Mini-USB
   cable.
-- **Firmware:** `scripts/build-firmware.sh`.
+- **Firmware:** `scripts/build-firmware.sh superpico`.
 - **+5 V to VBUS:** the console's 5 V powers the Pico and, through VBUS, the
   USB port that the PSP plugs into.
 - **Flashing:** hold BOOTSEL while plugging the Pico into a computer, then

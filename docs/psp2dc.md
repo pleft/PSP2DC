@@ -183,7 +183,7 @@ A Waveshare RP2040-Zero as a smaller adapter. Found before the board was at hand
 - **joypad-os supports it:** target `usb2dc_rp2040zero`, documented as USB4Maple-compatible ("existing USB4Maple hardware can run Joypad OS firmware as a drop-in replacement"), Maple on GP14/GP15, the WS2812 on GP16 (`docs/adapters/dreamcast.md`, `src/CMakeLists.txt` there). USB4Maple hardware can therefore run this firmware too.
 - **The board, from Waveshare's schematic (`RP2040_Zero.pdf`, files.waveshare.com):** the USB-C connector's VBUS pins are the net VSYS, which is also header pin 23, the "5V" edge pin, with no diode between them; VSYS feeds the 3.3 V regulator (RT9013-33 in the schematic; the product page names an ME6217C33). CC1 and CC2 have 5.1 kΩ pull-downs. The WS2812B's data is GPIO16. Header P1: GPIO0–GPIO15, GPIO26–GPIO29, 3V3, GND, VSYS (23 edge pins); GPIO17–GPIO25 and a second GND are pads underneath. Seen from above with the USB-C at the top, as in joypad-os's wiring drawing: left edge 5V, GND, 3V3, GP29, GP28, GP27, GP26, GP15, GP14; bottom GP13–GP9; right GP0–GP8.
 - **So:** the Dreamcast's 5 V on the 5V pin powers the board and the USB-C VBUS the PSP is plugged into, as the Pico's VBUS pad does on the SuperPico. The two must never be powered together: unplug the Dreamcast before connecting the board to a computer. The PSP connects through a USB-C OTG adapter and the usual A-to-Mini-B cable.
-- **Firmware:** target `usb2dc_psp2dc_rp2040zero` (patch 0009): the SuperPico target's PSP2DC build (PSP host driver, memory card in RAM, no Bluetooth) with Maple on GP14/GP15, the WS2812 on GP16 and the debug UART0 TX on GP0. It builds, 219 KB of static RAM as on the SuperPico; `scripts/build-firmware.sh rp2040zero`. Works on hardware (18 November 2026, build `psp2dc_rp2040zero_20261117_2326`, with patch 0011).
+- **Firmware:** target `usb2dc_psp2dc_rp2040zero` (patch 0009): the SuperPico target's PSP2DC build (PSP host driver, memory card in RAM, no Bluetooth) with Maple on GP14/GP15, the WS2812 on GP16 and the debug UART0 TX on GP0. It builds, 219 KB of static RAM as on the SuperPico; `scripts/build-firmware.sh` (the default board since 21 November 2026). Works on hardware (18 November 2026, build `psp2dc_rp2040zero_20261117_2326`, with patch 0011).
 - Wiring drawing: `docs/wiring-rp2040zero.svg`, in the README.
 
 ## 4. Firmware Foundation
@@ -221,7 +221,7 @@ Target `usb2dc_superpico` (CMake target `joypad_dc_superpico`) on branch `superp
 
 A source audit found no remaining code path that drives GP0–GP16 or GP28. This has not been confirmed on hardware.
 
-Build with `scripts/build-firmware.sh`, which copies the fresh output to `build/` under a name carrying the build time. Never take the file from joypad-os's `releases/` folder: its names carry the commit, and after a commit an older file there was twice mistaken for the new build. By hand (the Homebrew `arm-none-eabi-gcc` lacks newlib, so the Arm GNU toolchain is used):
+Build with `scripts/build-firmware.sh` (the RP2040-Zero; `superpico` as its argument for the SuperPico), which copies the fresh output to `build/` under a name carrying the build time. Never take the file from joypad-os's `releases/` folder: its names carry the commit, and after a commit an older file there was twice mistaken for the new build. By hand (the Homebrew `arm-none-eabi-gcc` lacks newlib, so the Arm GNU toolchain is used):
 
 ```sh
 cd firmware/joypad-os

@@ -114,7 +114,7 @@ the [Arm GNU toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain-
 `arm-none-eabi-gcc` lacks newlib.
 
 ```sh
-scripts/build-firmware.sh rp2040zero   # build/psp2dc_rp2040zero_<time>.uf2
+scripts/build-firmware.sh   # build/psp2dc_rp2040zero_<time>.uf2
 ```
 
 To flash, unplug the Dreamcast, hold the board's BOOT button while plugging
