@@ -2,6 +2,7 @@
 # build outputs
 /build/
 /dist/
+/site/out/
 psp/*/*.o
 psp/*/*.d
 psp/*/*.elf

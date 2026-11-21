@@ -262,6 +262,7 @@ the PSP.
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
 | `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phases 1 to 3 as far as built |
+| `site/` | The web page for psp2dc.pspexp.dev: `python3 site/build.py` builds it into `site/out/` |
 
 ## Development without hardware
 

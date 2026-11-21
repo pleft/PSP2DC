@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSP2DC: your PSP as a Dreamcast controller and VMU</title>
+<meta name="description" content="PSP2DC turns a PSP-1000 into a Dreamcast controller and VMU: the PSP's buttons play a real Dreamcast, the VMU's screen is shown full size, and the memory cards are files on the Memory Stick.">
+<link rel="stylesheet" href="{{style.css}}">
+<link rel="icon" href="{{icon.svg}}" type="image/svg+xml">
+</head>
+<body>
+<header class="bar"><div class="wrap"><a class="brand" href="#top"><img src="{{icon.svg}}" alt="" width="28" height="28"><span>PSP<b>2DC</b></span></a><nav><a class="more" href="#does">What it does</a><a class="more" href="#how">How it works</a><a href="#start">Get started</a><a class="more" href="#companion">Companion</a><a href="{{REPO}}">GitHub</a></nav></div></header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="kicker">Open source · PSP-1000 · Dreamcast</p>
+      <h1>Your PSP is the Dreamcast's controller <b>and VMU</b>.</h1>
+      <p class="lead">Play a real Dreamcast with the PSP's buttons. The VMU's screen is shown full size on
+      the PSP, and the memory cards are files on its Memory Stick. Nothing changes on the console:
+      original Dreamcast, original games.</p>
+      <p class="cta"><a class="button" href="#start">Get started</a>
+      <a class="button ghost" href="{{REPO}}">Source on GitHub</a></p>
+    </div>
+    <figure class="psp"><img src="images/psp-vmu.png" alt="PSP2DC on the PSP: a large VMU showing the date and time, beside it the VMU's buttons and the memory card in use with its two saves" width="480" height="272"></figure>
+  </div>
+</section>
+
+<section class="wrap" id="does">
+  <h2>What it does</h2>
+  <div class="cards">
+    <div class="card"><h3>A Dreamcast controller</h3><p>✕ ○ □ △ are A B X Y, with START, the d-pad, the
+      nub as the stick and L and R as the triggers.</p></div>
+    <div class="card"><h3>The VMU's screen, full size</h3><p>What a game draws on the VMU's small screen
+      appears large on the PSP, live, while you play.</p></div>
+    <div class="card"><h3>Memory cards on the Memory Stick</h3><p>Each card is a file. Saves survive switching
+      the console off, and you can change cards while connected.</p></div>
+    <div class="card"><h3>A card per game</h3><p>With GDEMU and openMenu, each game gets its own memory card,
+      put in automatically when the game starts.</p></div>
+    <div class="card"><h3>A Dreamcast keyboard</h3><p>An on-screen keyboard on the PSP, for Typing of the
+      Dead and the like.</p></div>
+    <div class="card"><h3>A VMU on its own</h3><p>With no Dreamcast connected: the clock, a file manager and
+      the VMU's own mini-games, buzzer included.</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="below">
+    <div>
+      <h2>Your saves, looked after</h2>
+      <p>The Saves and Cards tabs manage everything on the PSP: make, rename, duplicate, defragment, check
+      and repair cards; copy, move, delete and import saves; export them as <code>.DCI</code> or
+      <code>.VMS</code> with <code>.VMI</code>.</p>
+      <p>A card is the usual 128 KB VMU image, so cards you already have can be copied in from a
+      computer. A backup is made before anything removes data.</p>
+      <p><a href="{{REPO}}#memory-cards">Memory cards, in detail</a></p>
+    </div>
+    <div class="strip">
+      <figure><img src="images/psp-saves.png" alt="The Saves tab on the PSP: the two saves on the card, each with its icon, file name, date and size in blocks" loading="lazy" width="480" height="272"><figcaption>The saves on a card</figcaption></figure>
+      <figure><img src="images/psp-cards.png" alt="The Cards tab on the PSP: New card, then three memory cards with their number of saves and free blocks, one marked in use" loading="lazy" width="480" height="272"><figcaption>Your memory cards</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="wrap split" id="how">
+  <div>
+    <h2>How it works</h2>
+    <div class="chain">
+      <div class="node"><b>PSP-1000</b><span>the app</span></div>
+      <div class="hop">USB</div>
+      <div class="node"><b>Adapter</b><span>RP2040 board</span></div>
+      <div class="hop">Maple bus</div>
+      <div class="node"><b>Dreamcast</b><span>controller port</span></div>
+    </div>
+    <div class="table"><table>
+      <tbody>
+        <tr><td><b>Buttons and stick</b></td><td class="dir">→</td><td>the Dreamcast's controller</td></tr>
+        <tr><td><b>VMU screen</b></td><td class="dir">←</td><td>what the game draws on it</td></tr>
+        <tr><td><b>Memory card</b></td><td class="dir">↔</td><td>saves, read and written</td></tr>
+      </tbody>
+    </table></div>
+    <p>The adapter runs a fork of <a href="https://github.com/joypad-ai/joypad-os">joypad-os</a> and speaks
+    the Maple bus, the language of the Dreamcast's controller ports. To the console it is a controller
+    with a memory card in it.</p>
+  </div>
+  <div>
+    <h2>What you need</h2>
+    <ul class="needs">
+      <li>A <b>PSP-1000</b> with custom firmware (tested on 6.60 PRO-C).</li>
+      <li>A <b>Dreamcast</b>.</li>
+      <li>The <b>adapter</b>: a <a href="https://github.com/zwenergy/Superpico">Watara SuperPico</a> or a
+        <a href="https://www.waveshare.com/rp2040-zero.htm">Waveshare RP2040-Zero</a>.</li>
+      <li>A <b>Dreamcast controller cable</b>, its five wires soldered to the adapter.</li>
+      <li>A <b>USB OTG adapter</b> and a <b>Mini-USB cable</b>, from the adapter to the PSP.</li>
+    </ul>
+    <p><a href="{{REPO}}#what-you-need">The parts and the wiring, pin by pin</a></p>
+  </div>
+</section>
+
+<section class="wrap" id="start">
+  <h2>Get started</h2>
+  <ol class="steps">
+    <li><b>The adapter.</b> Solder the controller cable to the board.
+      <a href="{{REPO}}#what-you-need">Wiring</a></li>
+    <li><b>Its firmware.</b> Build it, hold BOOTSEL while plugging the board into a computer, and copy the
+      <code>.uf2</code> file onto the drive that appears. <a href="{{REPO}}#adapter-firmware">Building the firmware</a></li>
+    <li><b>The PSP.</b> Build the application and copy its folder to <code>PSP/GAME/</code> on the Memory
+      Stick. <a href="{{REPO}}#psp-application">Building the PSP application</a></li>
+    <li><b>Play.</b> Plug the adapter into a controller port and the PSP into the adapter, then start PSP2DC
+      from the PSP's Game menu. <a href="{{REPO}}#using-it">Using it</a></li>
+  </ol>
+  <p class="note">Both parts are built from source for now.</p>
+</section>
+
+<section class="wrap" id="companion">
+  <div class="feature">
+    <div>
+      <p class="tag">In progress</p>
+      <h2>The companion: a second screen for homebrew</h2>
+      <p>A Dreamcast program built with KallistiOS can use the PSP as its second screen: a map, an
+      inventory or a dashboard on the PSP while the game is on the TV. The program places labels,
+      numbers, bars and lists, draws into regions of the screen, and sends pictures and sprites.</p>
+      <p>This is built and tested against a simulated adapter and PSP. It has not been tried on a real
+      Dreamcast yet.</p>
+      <p><a href="{{REPO}}/blob/main/docs/psp2dc-companion.md">The companion's design and status</a></p>
+    </div>
+    <figure><img src="images/companion-dashboard.png" alt="A demo game's dashboard on the PSP's screen: the map explored so far on the left, and on the right health, score, steps and a list of keys" loading="lazy" width="480" height="272"><figcaption>A demo game's dashboard, as the PSP draws it</figcaption></figure>
+  </div>
+</section>
+
+<section class="wrap split">
+  <div>
+    <h2>Works today</h2>
+    <ul class="needs">
+      <li>Controlling a real Dreamcast from the PSP.</li>
+      <li>The VMU's live screen on the PSP.</li>
+      <li>Memory cards on the Memory Stick, and changing them while connected.</li>
+      <li>A card per game with GDEMU and openMenu.</li>
+      <li>The keyboard, in openMenu and Typing of the Dead.</li>
+      <li>The standalone VMU, with mini-games such as Chao Adventure 2.</li>
+    </ul>
+  </div>
+  <div>
+    <h2>Not done yet</h2>
+    <ul class="needs">
+      <li>Latency measurements and broad game testing.</li>
+      <li>Configurable button mapping.</li>
+      <li>The companion on a real Dreamcast.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="wrap faq">
+  <h2>Questions</h2>
+  <details><summary>Does it change my Dreamcast?</summary><p>No. The adapter plugs into a controller port
+    like any controller, and the console and its games stay as they are.</p></details>
+  <details><summary>Can it harm my PSP?</summary><p>PSP2DC is a homebrew program on the Memory Stick: it
+    changes nothing in the PSP's firmware. It does need custom firmware to run, because its USB driver
+    is a kernel module.</p></details>
+  <details><summary>Which PSP models work?</summary><p>It is tested on the PSP-1000 with 6.60 PRO-C.
+    Other models have not been tried.</p></details>
+  <details><summary>Can I use the saves I already have?</summary><p>Yes. A 128 KB VMU image copied to
+    <code>PSP2DC/cards/</code> on the Memory Stick is a card, and single saves can be imported and
+    exported as <code>.DCI</code> or <code>.VMS</code> with <code>.VMI</code>.</p></details>
+  <details><summary>What happens to the memory card when the PSP is unplugged?</summary><p>The card lives
+    on the PSP, so without it the Dreamcast sees no memory card. On reconnecting, PSP2DC compares the
+    adapter's copy with its own; if both changed, the adapter's copy becomes a new card and nothing is
+    written over.</p></details>
+  <details><summary>How is it related to PSPExp?</summary><p>It is a sister project by the same author.
+    PSP2DC uses the PSP USB driver made for <a href="https://pspexp.dev">PSPExp</a>, which turns the PSP
+    into the screen, sound and controller of a small Linux board.</p></details>
+</section>
+</main>
+
+<footer><div class="wrap">
+<p>PSP2DC is open source under the <a href="{{REPO}}/blob/main/LICENSE">MIT licence</a>; the projects it
+builds on are <a href="{{REPO}}#credits-and-licences">credited with their own licences</a>.
+PSP2DC is not made by or affiliated with Sony or Sega; "PSP" and "Dreamcast" name the consoles it works with.</p>
+<p><a href="{{REPO}}">GitHub</a> · <a href="{{REPO}}/blob/main/docs/psp2dc.md">Design notes</a> · <a href="https://pspexp.dev">PSPExp</a></p>
+</div></footer>
+</body>
+</html>
