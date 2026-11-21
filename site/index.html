@@ -69,7 +69,7 @@
     <div class="chain">
       <div class="node"><b>PSP-1000</b><span>the app</span></div>
       <div class="hop">USB</div>
-      <div class="node"><b>Adapter</b><span>RP2040 board</span></div>
+      <div class="node"><b>Adapter</b><span>RP2040-Zero</span></div>
       <div class="hop">Maple bus</div>
       <div class="node"><b>Dreamcast</b><span>controller port</span></div>
     </div>
@@ -89,10 +89,10 @@
     <ul class="needs">
       <li>A <b>PSP-1000</b> with custom firmware (tested on 6.60 PRO-C).</li>
       <li>A <b>Dreamcast</b>.</li>
-      <li>The <b>adapter</b>: an RP2040 board, such as a
-        <a href="https://www.waveshare.com/rp2040-zero.htm">Waveshare RP2040-Zero</a> or a Raspberry Pi Pico.</li>
+      <li>The <b>adapter</b>: a <a href="https://www.waveshare.com/rp2040-zero.htm">Waveshare RP2040-Zero</a>,
+        a small RP2040 board.</li>
       <li>A <b>Dreamcast controller cable</b>, its five wires soldered to the adapter.</li>
-      <li>A <b>USB OTG adapter</b> and a <b>Mini-USB cable</b>, from the adapter to the PSP.</li>
+      <li>A <b>USB-C OTG adapter</b> and a <b>Mini-USB cable</b>, from the adapter to the PSP.</li>
     </ul>
     <p><a href="{{REPO}}#what-you-need">The parts and the wiring, pin by pin</a></p>
   </div>
@@ -103,7 +103,7 @@
   <ol class="steps">
     <li><b>The adapter.</b> Solder the controller cable to the board.
       <a href="{{REPO}}#what-you-need">Wiring</a></li>
-    <li><b>Its firmware.</b> Build it, hold BOOTSEL while plugging the board into a computer, and copy the
+    <li><b>Its firmware.</b> Build it, hold the board's BOOT button while plugging it into a computer, and copy the
       <code>.uf2</code> file onto the drive that appears. <a href="{{REPO}}#adapter-firmware">Building the firmware</a></li>
     <li><b>The PSP.</b> Build the application and copy its folder to <code>PSP/GAME/</code> on the Memory
       Stick. <a href="{{REPO}}#psp-application">Building the PSP application</a></li>

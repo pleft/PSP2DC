@@ -6,14 +6,14 @@ on the PSP. The memory cards are files on the PSP's Memory Stick. With no
 Dreamcast connected, the PSP works as a standalone VMU: clock, file manager,
 and the VMU's own mini-games, buzzer included.
 
-The PSP connects over USB to a small adapter: an RP2040 board, such as a
-Waveshare RP2040-Zero or a Raspberry Pi Pico, with a Dreamcast controller
-cable soldered to it. The adapter runs a fork of
+The PSP connects over USB to a small adapter: a
+[Waveshare RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm), an RP2040
+board, with a Dreamcast controller cable soldered to it. The adapter runs a fork of
 [joypad-os](https://github.com/joypad-ai/joypad-os) and talks to the
 Dreamcast over the Maple bus.
 
 ```text
-PSP-1000 (PSP2DC app)  --USB-->  RP2040 (joypad-os)  --Maple-->  Dreamcast
+PSP-1000 (PSP2DC app)  --USB-->  RP2040-Zero (joypad-os)  --Maple-->  Dreamcast
   buttons, nub  ------------------------------------------------->  controller
   VMU screen    <-------------------------------------------------  LCD writes
   memory cards  <------------------------------------------------>  card blocks
@@ -30,7 +30,7 @@ Working on hardware:
 - Memory cards kept on the Memory Stick; saves survive switching the console off.
 - Changing cards while connected.
 - The standalone VMU, including mini-games such as Chao Adventure 2.
-- Two adapters: a Waveshare RP2040-Zero and a Raspberry Pi Pico.
+- The RP2040-Zero adapter with the Dreamcast cable soldered on.
 
 Not done yet:
 
@@ -53,26 +53,16 @@ The full design notes, test records and history are in
 | Part | Notes |
 |---|---|
 | PSP-1000 with custom firmware | Tested on 6.60 PRO-C. The USB driver is a kernel module. |
-| An RP2040 board | The adapter. Two are built and tested: a Waveshare RP2040-Zero and a Raspberry Pi Pico (below). |
+| Waveshare RP2040-Zero | The adapter: a small RP2040 board with a USB-C port. |
 | Dreamcast controller cable | Its five wires soldered to the board (below). |
-| USB OTG adapter + Mini-USB cable | The board (USB host) to the PSP (USB device). |
-| 3.3 V USB-serial adapter | Optional: the firmware's debug log. |
+| USB-C OTG adapter + Mini-USB cable | The board (USB host) to the PSP (USB device). |
+| 3.3 V USB-serial adapter | Optional: the firmware's debug log on GP0. |
 
-### The adapter is an RP2040 board
+### The adapter: an RP2040-Zero
 
-The firmware runs on the RP2040, the PSP plugs into the board's USB port, and
-the Dreamcast cable is soldered straight to the board's pins. The console's
-5 V powers the board and, through it, the USB port that the PSP plugs into.
-
-The wire colours below are those of Sega's own controller cable
-([mc.pp.se](http://mc.pp.se/dc/controller.html)). Extension and third-party
-cables can use other colours.
-
-### Waveshare RP2040-Zero
-
-The [RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm) is a small
-RP2040 board with a USB-C port. It is wired the same way as USB4Maple, which
-joypad-os already supports.
+The firmware runs on the board's RP2040, the PSP plugs into its USB-C port,
+and the Dreamcast cable is soldered straight to its pins. It is wired the
+same way as USB4Maple, which joypad-os already supports.
 
 ![Wiring: the RP2040-Zero and the Dreamcast plug](docs/wiring-rp2040zero.svg)
 
@@ -84,6 +74,10 @@ joypad-os already supports.
 | Ground, sense | black, green | GND (the one edge pin, or the GND pad underneath) |
 | *(optional)* debug log | | GP0, to a USB-serial adapter's RX, 115200 8N1 |
 
+The colours are those of Sega's own controller cable
+([mc.pp.se](http://mc.pp.se/dc/controller.html)). Extension and third-party
+cables can use other colours.
+
 - **5 V:** in Waveshare's schematic the 5V pin and the USB-C port's VBUS are
   one net, with no diode. The Dreamcast's 5 V therefore powers the board and
   the PSP's USB port. It also means you must never plug the USB-C into a
@@ -91,41 +85,10 @@ joypad-os already supports.
   flash it.
 - **PSP cable:** a USB-C OTG adapter (USB-C plug to USB-A socket) and the
   usual USB-A to Mini-USB cable.
-- **Firmware:** `scripts/build-firmware.sh rp2040zero`.
 
-### Raspberry Pi Pico
-
-The Pico tested is the one on a
-[SuperPico](https://github.com/zwenergy/Superpico), a flash cartridge for the
-Watara Supervision handheld built around an ordinary Raspberry Pi Pico.
-PSP2DC uses only the Pico, and its firmware touches nothing else on the
-cartridge, so a Pico on its own should work with the same wiring and
-firmware. That has not been tried.
-
-![Wiring: the Pico's 40 pins and the Dreamcast plug](docs/wiring.svg)
-
-| Dreamcast wire | Colour | Pico pin |
-|---|---|---|
-| Data A (plug pin 1) | red | GP21, pin 27 |
-| Data B (plug pin 5) | white | GP22, pin 29 |
-| +5 V | blue | VBUS, pin 40 |
-| Ground | black | GND, e.g. pin 28 |
-| Sense (ground) | green | GND, e.g. pin 38 |
-| *(optional)* debug log | | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
-
-- **Data A and B:** the Maple code needs two consecutive GPIOs. They are set
-  at build time (`MAPLE_PIN1=21`, `MAPLE_PIN5=22`).
-- **PSP cable:** a micro-USB OTG adapter and the usual USB-A to Mini-USB
-  cable.
-- **Firmware:** `scripts/build-firmware.sh`.
-
-> **On a SuperPico:** leave the cartridge out of the Supervision while it is
-> the adapter. Its three 74LVC245 buffers between the cartridge slot and the
-> Pico are always on, and they always drive GP0–GP16 and GP28 (red in the
-> drawing). Firmware must never set those pins as outputs. Only GP17–GP22,
-> GP26, GP27 and the LED (GP25) are free. See section 3.2 of the design
-> notes.
-
+PSP2DC was prototyped on another RP2040 board, the Raspberry Pi Pico of a
+Watara SuperPico cartridge. That adapter still works, and its wiring is in
+[docs/superpico.md](docs/superpico.md).
 
 ## Building
 
@@ -151,14 +114,11 @@ the [Arm GNU toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain-
 `arm-none-eabi-gcc` lacks newlib.
 
 ```sh
-scripts/build-firmware.sh rp2040zero   # RP2040-Zero: build/psp2dc_rp2040zero_<time>.uf2
-scripts/build-firmware.sh              # Pico: build/psp2dc_superpico_<time>.uf2
+scripts/build-firmware.sh rp2040zero   # build/psp2dc_rp2040zero_<time>.uf2
 ```
 
-To flash, hold BOOTSEL while plugging the board into a computer, then copy the
-`.uf2` file onto the drive that appears. On a SuperPico, flashing replaces
-the cartridge's own firmware; back it up with `picotool` first if you want to
-keep it.
+To flash, unplug the Dreamcast, hold the board's BOOT button while plugging
+it into a computer, then copy the `.uf2` file onto the drive that appears.
 
 Always flash the newest file in `build/`, not one from joypad-os's
 `releases/` folder. Its names carry the commit, so an older build there can
@@ -265,11 +225,12 @@ the PSP.
 | `psp/app/` | The application: UI, card handling, standalone VMU, VMU CPU core |
 | `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
-| `firmware/` | joypad-os patches: the PSP2DC adapter for the RP2040-Zero and the Pico |
+| `firmware/` | joypad-os patches: the adapter's firmware |
 | `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`), its test program, a demo, and an image converter |
 | `scripts/` | Build scripts |
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
+| `docs/superpico.md` | The prototype adapter: a Pico on a Watara SuperPico cartridge |
 | `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phases 1 to 3 as far as built |
 | `site/` | The web page for psp2dc.pspexp.dev: `python3 site/build.py` builds it into `site/out/` |
 
@@ -310,7 +271,7 @@ wherever you keep them.
   Its descriptors and driver start follow PSPLink's usbhostfs (BSD,
   `psp/usb/LICENSE.PSPLINK`).
 - [Superpico](https://github.com/zwenergy/Superpico): the cartridge whose
-  Raspberry Pi Pico was the first adapter.
+  Raspberry Pi Pico was the prototype adapter.
 
 PSP2DC is released under the MIT licence: see [LICENSE](LICENSE). Files taken
 from other projects keep their own licences, as listed above: the firmware
