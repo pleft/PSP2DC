@@ -87,7 +87,7 @@ cables can use other colours.
 - **PSP cable:** a USB-C OTG adapter (USB-C plug to USB-A socket) and the
   usual USB-A to Mini-USB cable.
 - **Diagnostics:** the firmware prints no debug log. The adapter's counters
-  are on the PSP, in System → Details.
+  are on the PSP, in Settings → Details.
 
 PSP2DC was prototyped on another RP2040 board, the Raspberry Pi Pico of a
 Watara SuperPico cartridge. That adapter still works, and its wiring is in
@@ -142,35 +142,40 @@ with its dashboard on the PSP.
 
 ## Using it
 
-Start PSP2DC from the PSP's Game menu. It starts on the VMU tab, playing.
+Start PSP2DC from the PSP's Game menu. It starts playing, with the VMU on
+screen.
 
 **SELECT switches between playing and the menu**, the same with or without a
 Dreamcast:
 
-- **Playing:** the VMU tab is shown and the buttons belong to the game. When
+- **Playing:** the VMU is shown and the buttons belong to the game. When
   connected, they are the Dreamcast pad: ✕ A, ○ B, □ X, △ Y, START, the d-pad,
   the nub as the stick, and L / R as the triggers. When standalone, they are
   the VMU's: the d-pad, ✕ A, ○ B, △ MODE and □ SLEEP. Hold △ for 2 s to leave
   a running VMU game.
-- **Menu:** the header lights up and the buttons work PSP2DC. Nothing reaches
-  the Dreamcast while the menu is open.
+- **Menu:** the header lights up and the buttons work PSP2DC. The VMU stays
+  on the left, and beside it a list: VMU (back to playing), Saves, Cards,
+  Keyboard and Settings, each with a line on what is there. Saves, Cards and
+  Settings open in the same place. Nothing reaches the Dreamcast while the
+  menu is open.
 
 | Key (menu) | Action |
 |---|---|
-| L / R | Previous / next tab: VMU, Saves, Cards, System |
 | ▲ / ▼ | Choose |
-| ✕ | OK |
-| ○ | Back |
-| ◀ / ▶ | Change the theme (System tab) |
+| ✕ | Open, OK |
+| ○ | Back (from the list: back to playing) |
+| L / R | A page up / down in a long list |
+| ◀ / ▶ | Change the theme (Settings) |
 | △ | Screenshot to `ms0:/PSP2DC/shots/` |
 | SELECT | Back to playing |
 
 Anything that can't be done right now is greyed out. For example, while
 connected the Dreamcast has the card, so only Info and *Use this card* remain.
-Results show for a moment in the header.
+A long name in the chosen row scrolls. Results show for a moment in the
+middle of the screen. Settings → Keys lists every key.
 
-To change the memory card, open the Cards tab, choose the card and pick *Use
-this card*. *New card* is the tab's first row.
+To change the memory card, open Cards in the menu, choose the card and pick
+*Use this card*. *New card* is the list's first row.
 
 ### A card per game (openMenu)
 
@@ -181,13 +186,13 @@ the game's product number (for example `t-8101n`), creating it the first time.
 When openMenu also sends the game's name, the PSP keeps it beside the card
 (`t-8101n.txt`) and shows it on the Cards page.
 In openMenu, set **VMU Game ID** to send. On the PSP, it is the **Card per
-game** setting in System (on by default). Works on a Dreamcast with GDEMU
+game** setting in Settings (on by default). Works on a Dreamcast with GDEMU
 and openMenu.
 
 ### The keyboard
 
 The PSP can also be a Dreamcast keyboard, for Typing of the Dead and the
-like. Turn **Keyboard** on in System: the adapter is then a keyboard alone,
+like. Turn **Keyboard** on in the menu: the adapter is then a keyboard alone,
 as Sega's, with no pad and no VMU. Playing is then typing, and SELECT
 switches between the keyboard and the menu.
 
@@ -205,7 +210,7 @@ The layout is a US keyboard. Works in openMenu and Typing of the Dead.
 
 Each card is a 128 KB image (the usual VMU dump) in `ms0:/PSP2DC/cards/`. Any
 `NAME.bin` there is a card, so cards can be added from a computer. From the
-Cards and Saves tabs (standalone; while connected most of this is greyed
+Cards and Saves pages (standalone; while connected most of this is greyed
 out) you can:
 
 - Make, rename, duplicate, delete, defragment, and check and repair a card.
@@ -241,7 +246,7 @@ the PSP.
 
 In PPSSPP the USB driver cannot work, so PSP2DC runs standalone there, as
 with no Dreamcast. Everything but the Dreamcast link can be tried, and Demo
-(System → Details) plays recorded VMU screens back as if connected.
+(Settings → Details) plays recorded VMU screens back as if connected.
 
 - `scripts/dev/run-ppsspp.sh` installs `dist/PSP2DC` into PPSSPP and starts it.
 - A file `ms0:/PSP2DC/dev_input.txt` holds a timed list of buttons for the

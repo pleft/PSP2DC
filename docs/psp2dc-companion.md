@@ -869,7 +869,7 @@ These are an emulator's figures: one command a vblank is KallistiOS's own pace, 
 What is needed: the adapter with phase 1's firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
 
 1. **`psp2dc_test.cdi`.** The television shows whether the companion is found, then commands and bytes a second and errors for each record size, and the round trip. The PSP shows what arrives and whether the test records came whole.
-2. **On the PSP, System, Details, while the test runs:** the `maple` lines (replies begun 1 ms late, the longest wait, packets that failed their check) and the companion's line. This is where a late reply or a damaged long frame shows.
+2. **On the PSP, Settings, Details, while the test runs:** the `maple` lines (replies begun 1 ms late, the longest wait, packets that failed their check) and the companion's line. This is where a late reply or a damaged long frame shows.
 3. **Y on the controller** (the VMU's screen drawn every frame) and X (pause), then the same readings: the companion beside ordinary traffic.
 4. **`psp2dc_demo.cdi`.** The maze on the television, the dashboard on the PSP; walk, take a key, stand in the lava; the PSP's L and R move the mark in the list. Unplug the PSP and plug it back, and change its card: the dashboard must come back whole each time.
 

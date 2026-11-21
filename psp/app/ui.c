@@ -68,6 +68,9 @@ void ui_begin(unsigned bg)
 }
 
 static int g_menu;
+static const unsigned char *g_vmu_lcd;     /* the VMU's screen and its lit icons (ui_vmu): the menu's pages show it */
+static unsigned g_vmu_icons;
+void ui_vmu(const unsigned char *lcd, unsigned icons) { g_vmu_lcd = lcd; g_vmu_icons = icons; }
 static unsigned g_frame_colour;            /* the theme's accent, from the header */
 static const UiTheme *g_page_theme;        /* (from the header: the toast's colours) */
 static const char *g_toast;
@@ -365,6 +368,56 @@ static void label_fit(int x, int y, unsigned c, const char *s, int w)
     for (i = 0; i < 3; i++) ui_fill(x + 1 + 2 * i, y + 6, 1, 1, c);
 }
 
+/* A label kept within w pixels that, when longer, scrolls: still for a
+ * second, then along at 40 pixels a second to its end, still for a second
+ * and a half, then back to its start. For what is chosen, where a name cut
+ * short would hide what it is (a save's description, a card's game). Drawn
+ * from the debug font's glyphs, clipped to the w pixels. */
+extern unsigned char msx[];
+/* when each scrolling text began: by its place on the screen, so a text
+ * newly chosen (or changed in place) scrolls from its start */
+static struct { int at; unsigned hash, t0, used; } g_scrolls[8];
+static unsigned scroll_start(int x, int y, const char *s, unsigned now)
+{
+    unsigned h = 2166136261u;
+    int k, at = y * 512 + x, old = 0;
+    while (*s) h = (h ^ (unsigned char)*s++) * 16777619u;
+    for (k = 0; k < 8; k++) {
+        if (g_scrolls[k].used && g_scrolls[k].at == at) {
+            if (g_scrolls[k].hash != h) { g_scrolls[k].hash = h; g_scrolls[k].t0 = now; }
+            g_scrolls[k].used = now | 1;
+            return g_scrolls[k].t0;
+        }
+        if (g_scrolls[k].used < g_scrolls[old].used) old = k;
+    }
+    g_scrolls[old].at = at; g_scrolls[old].hash = h; g_scrolls[old].t0 = now; g_scrolls[old].used = now | 1;
+    return now;
+}
+static void label_scroll(int x, int y, unsigned c, const char *s, int w)
+{
+    int n = (int)strlen(s), over = 7 * n - w, off, i, gx, gy;
+    unsigned t, period, now = (unsigned)sceKernelGetSystemTimeLow() / 1000;
+    if (over <= 0) { label(x, y, c, s); return; }
+    period = 1000 + (unsigned)over * 25 + 1500;
+    t = (now - scroll_start(x, y, s, now)) % period;
+    off = t < 1000 ? 0 : (int)(t - 1000) / 25;
+    if (off > over) off = over;
+    for (i = 0; i < n; i++) {
+        int cx = x + 7 * i - off;
+        const unsigned char *g = msx + (unsigned char)s[i] * 8;
+        if (cx + 8 <= x || cx >= x + w) continue;
+        for (gy = 0; gy < 8; gy++)
+            for (gx = 0; gx < 8; gx++)
+                if ((g[gy] & (0x80 >> gx)) && cx + gx >= x && cx + gx < x + w && y + gy >= 0 && y + gy < 272)
+                    g_back[(y + gy) * LINE + cx + gx] = c;
+    }
+}
+/* the chosen row's text scrolls; the others are cut with an ellipsis */
+static void label_row(int x, int y, unsigned c, const char *s, int w, int chosen)
+{
+    if (chosen) label_scroll(x, y, c, s, w); else label_fit(x, y, c, s, w);
+}
+
 /* ---- the PSP's buttons, as small symbols ---------------------------------
  * 11x11, drawn from the top left; the face buttons in the PlayStation's
  * colours (ABGR), the d-pad as a cross with the arms named lit. */
@@ -550,40 +603,21 @@ static void draw_footer(int x0, int w, const UiKey *k, int n, const char *right,
 }
 
 /* The header, the same on every page. In the menu: the bar lit in the
- * accent, L VMU Saves Cards System R, the page shown cut out of it. Playing:
- * the bar dim, SELECT menu, the tabs faint but the VMU's (the page shown). */
-static const char *const tab_names[UI_TABS] = { "VMU", "Saves", "Cards", "System" };
-static int draw_tabs(int x0, int y0, int cur, const UiTheme *t)
+ * accent, PSP2DC and where in the menu (title); playing: the bar dim, SELECT
+ * menu. The battery at the right either way. */
+void ui_header(const char *title, const UiTheme *t)
 {
-    const int pad = 9;
-    int x = x0 + 4, k, tw;
-    unsigned on = on_colour(t->accent);
-    if (g_menu) x += cap_in(x, y0 + 5, "L", on, on) + 3;
-    else {
-        x += cap(x, y0 + 5, "SELECT", t) + 4;
-        label(x, y0 + 5, t->text, "menu");
-        x += 4 * 7 + 8;
-    }
-    for (k = 0; k < UI_TABS; k++, x += tw) {
-        tw = 7 * (int)strlen(tab_names[k]) + 2 * pad;
-        if (g_menu && k == cur) round_rect(x + 1, y0 + 2, tw - 2, 13, 3, t->panel);
-        label(x + pad, y0 + 5, g_menu ? (k == cur ? strong(t) : on) : (k == cur ? t->text : faint(t)), tab_names[k]);
-    }
-    if (g_menu) x += 2 + cap_in(x + 2, y0 + 5, "R", on, on);
-    return x;
-}
-
-void ui_header(int page, const UiTheme *t)
-{
-    /* the tabs centred (the menu: L ... R; playing: SELECT menu and the
-     * tabs), the battery at the right; the status is at the footer's right */
-    int tabs = 7 * 19 + 2 * 9 * UI_TABS;   /* the four names and their padding */
-    int w = g_menu ? 12 + 3 + tabs + 2 + 12 : 47 + 4 + 4 * 7 + 8 + tabs;
     unsigned fg = g_menu ? on_colour(t->accent) : t->text;
     g_frame_colour = t->accent;
     g_page_theme = t;
     round_rect(2, 1, 476, 17, 4, g_menu ? t->accent : t->panel);
-    draw_tabs(240 - w / 2 - 4, 1, page, t);
+    if (g_menu) {
+        label_bold(10, 6, fg, "PSP2DC");
+        if (title) label_fit(10 + 6 * 7 + 12, 6, fg, title, 300);
+    } else {
+        int x = 10 + cap(10, 6, "SELECT", t) + 4;
+        label(x, 6, t->text, "menu");
+    }
     if (g_batt >= 0) {                     /* an outline filled to the level, then the percent */
         char s[8];
         int bx, fill = g_batt > 100 ? 100 : g_batt;
@@ -796,7 +830,7 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     int x0 = 252, n = 0, free_blocks = 0;
 
     ui_begin(t->bg);
-    ui_header(0, t);
+    ui_header(NULL, t);
     draw_vmu(h->lcd, t, h->icons);
 
     /* the link: what it is, and what that means */
@@ -859,10 +893,9 @@ void ui_page_home(const UiHome *h, const UiTheme *t)
     if (h->notice) label_fit(x0 + 8, CARD_Y + 96, t->text, h->notice, 204);
     else label_fit(x0 + 8, CARD_Y + 96, muted(t), h->card_note, 204);
 
-    {   /* playing: SELECT opens the menu; in it: back to playing, L R the tab */
+    {   /* playing: SELECT opens the menu */
         static const UiKey play[] = { K1(G_CAP, "SELECT", "menu") };
-        static const UiKey menu[] = { K1(G_CAP, "SELECT", "play"), K2(G_CAP, "L", G_CAP, "R", "tab") };
-        if (g_menu) draw_footer(2, 476, menu, 2, NULL, t); else draw_footer(2, 476, play, 1, NULL, t);
+        draw_footer(2, 476, play, 1, NULL, t);
     }
     ui_end();
 }
@@ -873,11 +906,22 @@ const char *const ui_kb_rows[3] = { "abcdefghijklm", "nopqrstuvwxyz", "012345678
  * A title, lines, then the choices: the chosen one filled with the accent
  * (the danger colour when it deletes), groups apart, greyed what cannot be
  * done now; or the name being typed and the keyboard. */
+#define COL_X 252                          /* the column beside the VMU: the menu's pages */
+#define COL_W 220
+#define COL_Y 23
+#define COL_H 227                          /* (to 250: the keys' line from 255) */
+#define COL_CHARS 27                       /* the characters a line of a box there holds */
 static void draw_box(const UiBox *b, const UiTheme *t)
 {
-    int lines = 0, h, y0, x0 = 70, w = 340, k, shown = b->nitems, top = 0, tw, seps = 0;
+    int lines = 0, h, y0, x0 = 70, w = 340, k, shown = b->nitems, top = 0, tw, seps = 0, col = 1;
     if (!b->title) return;
+    /* in the column, in place of the page's list; over the screen what
+     * needs the width: a picture, the keyboard, long lines or choices */
+    if (b->picture || b->edit) col = 0;
+    for (k = 0; k < 8 && b->lines[k]; k++) if ((int)strlen(b->lines[k]) > COL_CHARS) col = 0;
+    for (k = 0; k < b->nitems && col; k++) if (b->items[k] && (int)strlen(b->items[k]) > COL_CHARS) col = 0;
     if (b->picture) { x0 = 10; w = 460; }  /* (wide: the picture beside the text) */
+    if (col) { x0 = COL_X; w = COL_W; }
     tw = b->picture ? w - 28 - 154 : w - 28;
     for (k = 0; k < 8 && b->lines[k]; k++) lines++;
     if (shown > 9) {                       /* a long list: nine at a time, round the chosen one */
@@ -892,8 +936,13 @@ static void draw_box(const UiBox *b, const UiTheme *t)
     if (b->picture && h < 32 + 116 + 10) h = 32 + 116 + 10;
     y0 = 20 + (234 - h) / 2;               /* centred between the header and the keys */
     if (y0 < 20) y0 = 20;
-    round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, t->accent);
-    round_rect(x0, y0, w, h, 6, t->panel);
+    if (col) {                             /* the column, whole */
+        y0 = COL_Y;
+        round_rect(x0, y0, w, COL_H, 6, t->panel);
+    } else {
+        round_rect(x0 - 2, y0 - 2, w + 4, h + 4, 8, t->accent);
+        round_rect(x0, y0, w, h, 6, t->panel);
+    }
     {
         char title[64], at[16] = "";
         int max = (w - 24) / 7;
@@ -903,8 +952,13 @@ static void draw_box(const UiBox *b, const UiTheme *t)
             max -= (int)strlen(at) + 2;
         }
         snprintf(title, sizeof(title), "%s", b->title);
-        if ((int)strlen(title) > max) title[max] = 0;
-        label_bold(x0 + 12, y0 + 9, strong(t), title);
+        if (col) {                         /* (a long title scrolls) */
+            label_scroll(x0 + 12, y0 + 9, strong(t), title, 7 * max - 1);
+            label_scroll(x0 + 13, y0 + 9, strong(t), title, 7 * max - 1);
+        } else {
+            if ((int)strlen(title) > max) title[max] = 0;
+            label_bold(x0 + 12, y0 + 9, strong(t), title);
+        }
     }
     ui_fill(x0 + 10, y0 + 22, w - 20, 1, faint(t));
     y0 += 30;
@@ -942,9 +996,9 @@ static void draw_box(const UiBox *b, const UiTheme *t)
         unsigned fill = danger ? t->danger : t->accent;
         if (k > top && BIT(b->sep_items, k)) { ui_fill(x0 + 14, y0 + 2, w - 28, 1, faint(t)); y0 += 7; }
         if (k == b->item) round_rect(x0 + 6, y0, w - 12, 15, 3, fill);
-        label_fit(x0 + 14, y0 + 4,
+        label_row(x0 + 14, y0 + 4,
                   k == b->item ? on_colour(fill) : off ? faint(t) : danger ? t->danger : t->text,
-                  b->items[k], w - 28);
+                  b->items[k], w - 28, k == b->item);
     }
 }
 
@@ -953,14 +1007,15 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
 {
     /* the menu's keys: SELECT back to playing first, then the page's */
     static const UiKey view[] = { K1(G_UD, 0, "scroll") };
-    static const UiKey saves[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "actions") };
-    static const UiKey cards[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
+    static const UiKey home[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
+    static const UiKey saves[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "actions"), K1(G_O, 0, "back") };
+    static const UiKey cards[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open"), K1(G_O, 0, "back") };
     static const UiKey menu[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey ok[] = { K1(G_X, 0, "OK") };
     static const UiKey edit[] = { K1(G_DPAD, 0, "key"), K1(G_X, 0, "type"), K1(G_SQ, 0, "delete"),
                                   K1(G_CAP, "START", "done"), K1(G_O, 0, "cancel") };
-    static const UiKey sys[] = { K1(G_UD, 0, "choose"), K1(G_LR, 0, "change") };
-    static const UiKey sys_open[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open") };
+    static const UiKey sys[] = { K1(G_UD, 0, "choose"), K1(G_LR, 0, "change"), K1(G_O, 0, "back") };
+    static const UiKey sys_open[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "open"), K1(G_O, 0, "back") };
     static const UiKey det[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
     static const UiKey back[] = { K1(G_O, 0, "back") };
     static const UiKey list[] = { K1(G_UD, 0, "choose"), K2(G_CAP, "L", G_CAP, "R", "page"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
@@ -970,12 +1025,13 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
     int n = 1, i;
     switch (keys) {
     case UI_KEYS_VIEW:   k = view;   n = 1; break;
-    case UI_KEYS_SAVES:  k = saves;  n = 2; break;
-    case UI_KEYS_CARDS:  k = cards;  n = 2; break;
+    case UI_KEYS_HOME:   k = home;   n = 2; break;
+    case UI_KEYS_SAVES:  k = saves;  n = 3; break;
+    case UI_KEYS_CARDS:  k = cards;  n = 3; break;
     case UI_KEYS_MENU:   k = menu;   n = 3; break;
     case UI_KEYS_EDIT:   k = edit;   n = 5; break;
-    case UI_KEYS_SYSTEM: k = sys;    n = 2; break;
-    case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 2; break;
+    case UI_KEYS_SYSTEM: k = sys;    n = 3; break;
+    case UI_KEYS_SYSTEM_OPEN: k = sys_open; n = 3; break;
     case UI_KEYS_DETAILS: k = det;   n = 3; break;
     case UI_KEYS_BACK:   k = back;   n = 1; break;
     case UI_KEYS_LIST:   k = list;   n = 4; break;
@@ -987,60 +1043,128 @@ static void draw_keys(int keys, const UiTheme *t, const char *right)
 
 void ui_keys(int keys, const UiTheme *t) { draw_keys(keys, t, NULL); }
 
-/* a page's title line under the header: a name in bold, then what it holds */
-static void page_title(const char *name, unsigned c, const char *rest, const UiTheme *t)
+/* ---- the menu ----------------------------------------------------------------
+ * Its pages keep the VMU on the left, as when playing, and show themselves in
+ * the column beside it: first the menu's list (VMU, Saves, Cards, Keyboard,
+ * Settings), each with a line on what is behind it; then a page's list, and
+ * a box in its place. */
+static void menu_page_begin(const char *title, const UiTheme *t)
 {
-    label_bold(8, 24, c, name);
-    if (rest) label_fit(8 + 7 * (int)strlen(name) + 10, 24, t->text, rest, 460 - 7 * (int)strlen(name) - 10);
+    ui_begin(t->bg);
+    ui_header(title, t);
+    if (g_vmu_lcd) draw_vmu(g_vmu_lcd, t, g_vmu_icons);
+}
+
+/* the column's title line: a name in bold (in c), and at its right what it holds */
+static void col_title(const char *name, unsigned c, const char *right, const UiTheme *t)
+{
+    int rw = right ? 7 * (int)strlen(right) : 0;
+    if (right) label(COL_X + COL_W - 8 - rw, COL_Y + 6, muted(t), right);
+    label_fit(COL_X + 8, COL_Y + 6, c, name, COL_W - 16 - rw - (rw ? 8 : 0));
+    label_fit(COL_X + 9, COL_Y + 6, c, name, COL_W - 16 - rw - (rw ? 8 : 0));
+}
+
+/* where a list stands, when it is longer than the column: a thin bar at its right */
+static void col_scrollbar(int first, int shown, int n, int y0, int h, const UiTheme *t)
+{
+    int bh, by;
+    if (n <= shown) return;
+    bh = h * shown / n; if (bh < 10) bh = 10;
+    by = y0 + (h - bh) * first / (n - shown);
+    ui_fill(COL_X + COL_W - 4, y0, 2, h, faint(t));
+    ui_fill(COL_X + COL_W - 4, by, 2, bh, t->text);
+}
+
+/* the menu's icons, 14x14 in one colour (bg: what is under them) */
+static void menu_icon(int kind, int x, int y, unsigned c, unsigned bg)
+{
+    int k;
+    switch (kind) {
+    case UI_HOME_VMU:                      /* a VMU: its screen and two buttons */
+        round_rect(x + 2, y, 10, 14, 3, c); ui_fill(x + 4, y + 2, 6, 5, bg);
+        ui_fill(x + 4, y + 9, 2, 2, bg); ui_fill(x + 8, y + 10, 2, 2, bg);
+        break;
+    case UI_HOME_SAVES:                    /* a page, its corner turned */
+        ui_fill(x + 2, y, 8, 14, c); ui_fill(x + 10, y + 4, 2, 10, c);
+        for (k = 0; k < 4; k++) ui_fill(x + 10, y + k, k + 1, 1, c);
+        ui_fill(x + 4, y + 5, 6, 1, bg); ui_fill(x + 4, y + 8, 6, 1, bg); ui_fill(x + 4, y + 11, 4, 1, bg);
+        break;
+    case UI_HOME_CARDS:                    /* a memory card */
+        round_rect(x, y + 2, 14, 11, 2, c); ui_fill(x + 2, y + 4, 4, 4, bg); ui_fill(x + 8, y + 10, 4, 1, bg);
+        break;
+    case UI_HOME_KEYBOARD:                 /* keys */
+        round_rect(x, y + 3, 14, 9, 2, c);
+        for (k = 0; k < 4; k++) { ui_fill(x + 2 + k * 3, y + 5, 2, 2, bg); ui_fill(x + 2 + k * 3, y + 8, 2, 2, bg); }
+        break;
+    default:                               /* a cog */
+        disc(x + 7, y + 7, 5, c); disc(x + 7, y + 7, 2, bg);
+        ui_fill(x + 6, y, 3, 2, c); ui_fill(x + 6, y + 12, 3, 2, c); ui_fill(x, y + 6, 2, 3, c); ui_fill(x + 12, y + 6, 2, 3, c);
+        ui_fill(x + 2, y + 2, 2, 2, c); ui_fill(x + 10, y + 2, 2, 2, c); ui_fill(x + 2, y + 10, 2, 2, c); ui_fill(x + 10, y + 10, 2, 2, c);
+        break;
+    }
+}
+
+void ui_page_menu(const UiMenu *m, const UiTheme *t)
+{
+    static const char *const names[UI_HOME_ITEMS] = { "VMU", "Saves", "Cards", "Keyboard", "Settings" };
+    int k;
+    menu_page_begin("menu", t);
+    round_rect(COL_X, COL_Y, COL_W, COL_H, 6, t->panel);
+    for (k = 0; k < UI_HOME_ITEMS; k++) {
+        int y = COL_Y + 6 + k * 44, on = k == m->sel;
+        unsigned bg = on ? t->accent : t->panel, fg = on ? on_colour(t->accent) : strong(t);
+        unsigned sub = on ? mix(t->accent, on_colour(t->accent), 11) : muted(t);
+        if (on) round_rect(COL_X + 6, y, COL_W - 12, 38, 5, t->accent);
+        menu_icon(k, COL_X + 16, y + 12, fg, bg);
+        label_bold(COL_X + 40, y + 8, fg, names[k]);
+        label_row(COL_X + 40, y + 22, sub, m->sub[k] ? m->sub[k] : "", COL_W - 50, on);
+    }
+    draw_keys(UI_KEYS_HOME, t, NULL);
+    ui_end();
 }
 
 /* ---- the saves page ------------------------------------------------------
- * The card's name and room, then three saves a screen, each with its icon
- * twice its size (64x64), its description, file name, date, size and kind.
- * Standalone the chosen one is framed, and a box over the page offers what
- * can be done with it. */
+ * The card's name and room, then four saves a column, each with its icon
+ * (32x32), its description, file name and short description, size and date.
+ * The chosen one is framed (standalone), its long lines scroll, and a box in
+ * the column offers what can be done with it. */
 int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
                   const char *card_name)
 {
     static SaveFile files[200];
     int n = 0, free_blocks = 0, i, row;
     char s[64];
-    ui_begin(t->bg);
-    ui_header(1, t);
+    menu_page_begin("Saves", t);
+    round_rect(COL_X, COL_Y, COL_W, COL_H, 6, t->panel);
     if (!have) {
-        page_title("No memory card", strong(t), NULL, t);
+        col_title("No memory card", strong(t), NULL, t);
         draw_keys(v->keys == UI_KEYS_VIEW ? UI_KEYS_VIEW : UI_KEYS_OK, t, NULL);
         ui_end();
         return 0;
     }
     n = card_files(card, files, 200, &free_blocks);
-    snprintf(s, sizeof(s), "%d save%s, %d of 200 blocks free", n, n == 1 ? "" : "s", free_blocks);
-    page_title(card_name ? card_name : "card", t->ok, s, t);
-    if (!n) {
-        label(8, 52, muted(t), "No saves");
-    }
-    for (i = v->first, row = 0; i < n && row < 3; i++, row++) {
+    snprintf(s, sizeof(s), "%d free", free_blocks);
+    col_title(card_name ? card_name : "card", t->ok, s, t);
+    if (!n) label(COL_X + 8, COL_Y + 28, muted(t), "No saves");
+    for (i = v->first, row = 0; i < n && row < UI_SAVES_ROWS; i++, row++) {
         const SaveFile *f = &files[i];
-        int y = 38 + row * 72;
-        if (i == v->sel) round_rect(2, y - 2, 476, 72, 6, t->accent);
-        round_rect(4, y, 472, 68, 5, t->panel);
-        ui_fill(8, y + 2, 64, 64, t->paper);
+        int y = COL_Y + 20 + row * 52, on = i == v->sel, x = COL_X + 50, w = COL_W - 50 - 10;
+        if (on) round_rect(COL_X + 4, y - 2, COL_W - 8, 50, 5, t->accent);
+        round_rect(COL_X + 6, y, COL_W - 12, 46, 4, raised(t));
+        ui_fill(COL_X + 11, y + 7, 32, 32, t->paper);
         if (f->icons) {
             int step = (f->speed > 0 ? f->speed : 8) * 1000 / 30;   /* n/30 s (Sega VMU manual, VMT-18) */
-            draw_icon(card, f, (now_ms / step) % f->icons, 8, y + 2, 2);
+            draw_icon(card, f, (now_ms / step) % f->icons, COL_X + 11, y + 7, 1);
         }
-        label_fit(84, y + 8, strong(t), f->long_desc[0] ? f->long_desc : f->file, 384);
-        snprintf(s, sizeof(s), "%-12s  %s", f->file, f->short_desc);
-        label_fit(84, y + 27, t->text, s, 384);
-        snprintf(s, sizeof(s), "%02d/%02d/%02d%02d %02d:%02d    %d block%s    %s",
-                 bcd(f->date[3]), bcd(f->date[2]), bcd(f->date[0]), bcd(f->date[1]),
-                 bcd(f->date[4]), bcd(f->date[5]), f->size, f->size == 1 ? "" : "s",
-                 f->type == 0xCC ? "game" : "save");
-        label_fit(84, y + 46, muted(t), s, 384);
+        label_row(x, y + 5, strong(t), f->long_desc[0] ? f->long_desc : f->file, w, on);
+        snprintf(s, sizeof(s), "%s  %s", f->file, f->short_desc);
+        label_row(x, y + 19, t->text, s, w, on);
+        snprintf(s, sizeof(s), "%d block%s, %02d/%02d/%02d%02d, %s", f->size, f->size == 1 ? "" : "s",
+                 bcd(f->date[3]), bcd(f->date[2]), bcd(f->date[0]), bcd(f->date[1]), f->type == 0xCC ? "game" : "save");
+        label_row(x, y + 33, muted(t), s, w, on);
     }
+    col_scrollbar(v->first, UI_SAVES_ROWS, n, COL_Y + 18, COL_H - 22, t);
     draw_box(&v->box, t);
-    if (n > 3) snprintf(s, sizeof(s), "%d-%d of %d", v->first + 1, v->first + (n - v->first < 3 ? n - v->first : 3), n);
-    if (n > 3) label(472 - 7 * (int)strlen(s), 24, muted(t), s);   /* (where in the list, on the title line) */
     draw_keys(v->keys, t, NULL);
     ui_end();
     return n;
@@ -1048,59 +1172,62 @@ int ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const U
 
 /* ---- the cards page ------------------------------------------------------
  * "New card" first (an outline, plainly a thing to make), then each card:
- * its name, "in use" on the one in use, its saves and free blocks, a bar of
- * how full it is, its game. */
+ * its name (or its game's), "in use" on the one in use, its saves and free
+ * blocks, and a bar of how full it is. */
 void ui_page_cards(const UiCards *v, const UiTheme *t)
 {
-    int row, y, rows = v->n + 1, k;
-    char s[64];
-    ui_begin(t->bg);
-    ui_header(2, t);
+    int row, y, rows = v->n + 1, k, shown = 0;
+    char s[80];
+    menu_page_begin("Cards", t);
+    round_rect(COL_X, COL_Y, COL_W, COL_H, 6, t->panel);
     snprintf(s, sizeof(s), "%d", v->n);
-    page_title("Memory cards", strong(t), s, t);
-    for (row = v->first, y = 38; row < rows && y + 30 <= 250; row++, y += 34) {
-        if (row == v->sel) round_rect(2, y - 2, 476, 34, 6, t->accent);
+    col_title("Memory cards", strong(t), s, t);
+    for (row = v->first, y = COL_Y + 20; row < rows; row++, shown++) {
+        int on = row == v->sel, h = row == 0 ? 30 : 36;
+        if (y + h > COL_Y + COL_H - 2) break;
+        if (on) round_rect(COL_X + 4, y - 2, COL_W - 8, h + 4, 5, t->accent);
         if (row == 0) {                    /* New card: an outline when not chosen */
-            if (row == v->sel) round_rect(4, y, 472, 30, 5, t->panel);
-            else for (k = 4; k < 476; k += 8) { ui_fill(k, y, 4, 1, muted(t)); ui_fill(k, y + 29, 4, 1, muted(t)); }
-            if (row != v->sel) { for (k = y; k < y + 30; k += 6) { ui_fill(4, k, 1, 3, muted(t)); ui_fill(475, k, 1, 3, muted(t)); } }
+            if (on) round_rect(COL_X + 6, y, COL_W - 12, h, 4, t->panel);
+            else {
+                for (k = COL_X + 6; k < COL_X + COL_W - 6; k += 8) { ui_fill(k, y, 4, 1, muted(t)); ui_fill(k, y + h - 1, 4, 1, muted(t)); }
+                for (k = y; k < y + h; k += 6) { ui_fill(COL_X + 6, k, 1, 3, muted(t)); ui_fill(COL_X + COL_W - 7, k, 1, 3, muted(t)); }
+            }
             {
                 unsigned pc = v->new_off ? faint(t) : t->accent;
-                ui_fill(16, y + 13, 14, 4, pc); ui_fill(21, y + 8, 4, 14, pc);
-                label_bold(42, y + 6, v->new_off ? faint(t) : strong(t), "New card");
-                label(42, y + 18, v->new_off ? faint(t) : muted(t), "empty, put in use");
+                ui_fill(COL_X + 14, y + 13, 12, 4, pc); ui_fill(COL_X + 18, y + 9, 4, 12, pc);
+                label_bold(COL_X + 34, y + 6, v->new_off ? faint(t) : strong(t), "New card");
+                label(COL_X + 34, y + 18, v->new_off ? faint(t) : muted(t), "empty, put in use");
             }
+            y += h + 4;
         } else {
-            int i = row - 1, used = 200 - v->free[i];
-            /* a card for a game: the game's name, its file's name under it */
-            const char *head = v->title[i] ? v->title[i] : v->name[i];
-            round_rect(4, y, 472, 30, 5, t->panel);
-            label_fit(14, y + 6, strong(t), head, 220);
-            if (v->in_use[i]) {
-                int x = 14 + 7 * ((int)strlen(head) < 31 ? (int)strlen(head) : 31) + 10;
-                round_rect(x, y + 4, 7 * 6 + 8, 12, 3, t->ok);
-                label(x + 4, y + 6, on_colour(t->ok), "in use");
+            int i = row - 1, used = 200 - v->free[i], badge = v->in_use[i] ? 7 * 6 + 8 : 0, tw = COL_W - 28;
+            const char *head = v->title[i] ? v->title[i] : v->name[i];   /* a card for a game: the game's name */
+            round_rect(COL_X + 6, y, COL_W - 12, h, 4, raised(t));
+            label_row(COL_X + 14, y + 5, strong(t), head, tw - (badge ? badge + 6 : 0), on);
+            label_row(COL_X + 15, y + 5, strong(t), head, tw - (badge ? badge + 6 : 0) - 1, on);
+            if (badge) {
+                int bx = COL_X + COL_W - 14 - badge;
+                round_rect(bx, y + 3, badge, 12, 3, t->ok);
+                label(bx + 4, y + 5, on_colour(t->ok), "in use");
             }
-            snprintf(s, sizeof(s), "%s%s%d save%s, %d blocks free", v->title[i] ? v->name[i] : "", v->title[i] ? ", " : "",
-                     v->saves[i], v->saves[i] == 1 ? "" : "s", v->free[i]);
-            label_fit(14, y + 18, t->text, s, 280);
-            if (v->game[i]) { snprintf(s, sizeof(s), "game %s", v->game[i]); label_fit(300, y + 6, muted(t), s, 168); }
+            snprintf(s, sizeof(s), "%s%s%d save%s, %d free%s%s", v->title[i] ? v->name[i] : "", v->title[i] ? ", " : "",
+                     v->saves[i], v->saves[i] == 1 ? "" : "s", v->free[i], v->game[i] ? ", game " : "", v->game[i] ? v->game[i] : "");
+            label_row(COL_X + 14, y + 18, t->text, s, tw, on);
             if (used < 0) used = 0;
-            ui_fill(300, y + 20, 160, 4, raised(t));
-            ui_fill(300, y + 20, used * 160 / 200, 4, t->text);
+            ui_fill(COL_X + 14, y + 30, tw, 3, faint(t));
+            ui_fill(COL_X + 14, y + 30, used * tw / 200, 3, t->text);
+            y += h + 4;
         }
     }
+    col_scrollbar(v->first, shown, rows, COL_Y + 18, COL_H - 22, t);
     draw_box(&v->box, t);
-    if (rows > 6) snprintf(s, sizeof(s), "%d-%d of %d", v->first + 1, v->first + 6 < rows ? v->first + 6 : rows, rows);
-    if (rows > 6) label(472 - 7 * (int)strlen(s), 24, muted(t), s);
     draw_keys(v->keys, t, NULL);
     ui_end();
 }
 
-/* ---- the system page -------------------------------------------------------
- * Left, the connection and the settings (the theme, and the tools); right,
- * every key: what the PSP's buttons are on the Dreamcast, on the VMU
- * standalone, in the menus, and with SELECT held. */
+/* ---- the settings page ------------------------------------------------------
+ * The settings (the theme first: ◀ name ▶; Details and Keys open full
+ * screen), and under them the connection: what it is, the adapter, the card. */
 static void panel_head(int x, int y, const char *s, const UiTheme *t) { label(x, y, muted(t), s); }
 
 void ui_settings(int x0, int y0, int w, const char *head, const char *const *rows, const char *const *values,
@@ -1124,57 +1251,69 @@ void ui_settings(int x0, int y0, int w, const char *head, const char *const *row
 
 void ui_page_system(const UiSystem *sy, const UiTheme *t)
 {
+    int y, k, top = COL_Y + 26 + sy->nrows * 18 + 4 + 6;
+    menu_page_begin("Settings", t);
+    ui_settings(COL_X, COL_Y, COL_W, "SETTINGS", sy->rows, sy->values, sy->nrows, sy->sel, sy->off_rows, sy->arrow_rows, t);
+    round_rect(COL_X, top, COL_W, COL_Y + COL_H - top, 6, t->panel);
+    panel_head(COL_X + 8, top + 6, "CONNECTION", t);
+    disc(COL_X + 14, top + 24, 5, link_colour(sy->link));
+    label_bold(COL_X + 26, top + 20, strong(t), sy->link_text);
+    label_fit(COL_X + 26, top + 32, muted(t), sy->link_hint ? sy->link_hint : "", COL_W - 34);
+    for (k = 0, y = top + 48; k < 4 && sy->lines[k] && y + 8 < COL_Y + COL_H; k++, y += 12)
+        label_fit(COL_X + 8, y, t->text, sy->lines[k], COL_W - 16);
+    draw_keys(sy->keys, t, NULL);
+    ui_end();
+}
+
+/* ---- the keys, every one, full screen (Settings, Keys) ------------------
+ * Left what the PSP's buttons are to the Dreamcast and to the VMU standalone;
+ * right the menu's and the keyboard's. */
+void ui_page_keyhelp(const UiTheme *t)
+{
     static const UiKey dc[] = { K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_SQ, 0, "X"), K1(G_TRI, 0, "Y") };
     static const UiKey dc2[] = { K1(G_DPAD, 0, "d-pad"), K1(G_CAP, "nub", "stick"), K1(G_CAP, "START", "Start") };
     static const UiKey dc3[] = { K2(G_CAP, "L", G_CAP, "R", "triggers") };
     static const UiKey vmu[] = { K1(G_DPAD, 0, ""), K1(G_X, 0, "A"), K1(G_O, 0, "B"), K1(G_TRI, 0, "MODE"), K1(G_SQ, 0, "SLEEP") };
-    static const UiKey sel1[] = { K1(G_CAP, "SELECT", "menu / play"), K2(G_CAP, "L", G_CAP, "R", "tab") };
-    static const UiKey sel2[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back"), K1(G_TRI, 0, "shot") };
+    static const UiKey vmu2[] = { K1(G_TRI, 0, "held 2 s: leave a game") };
+    static const UiKey m1[] = { K1(G_CAP, "SELECT", "menu / play") };
+    static const UiKey m2[] = { K1(G_UD, 0, "choose"), K1(G_X, 0, "OK"), K1(G_O, 0, "back") };
+    static const UiKey m3[] = { K2(G_CAP, "L", G_CAP, "R", "page of a list"), K1(G_TRI, 0, "shot") };
     static const UiKey kb1[] = { K1(G_DPAD, 0, "key"), K1(G_X, 0, "press"), K1(G_CAP, "nub", "arrows") };
     static const UiKey kb2[] = { K1(G_SQ, 0, "bksp"), K1(G_TRI, 0, "space"), K1(G_O, 0, "esc"), K1(G_CAP, "L", "shift") };
     static const UiKey kb3[] = { K1(G_CAP, "START", "enter"), K1(G_CAP, "SELECT", "menu") };
-    const int L = 4, LW = 234, R = 242, RW = 236;
+    const int L = 4, LW = 234, R = 242, RW = 234;
     int y, k, x;
     ui_begin(t->bg);
-    ui_header(3, t);
-
-    /* the connection */
-    round_rect(L, 22, LW, 84, 6, t->panel);
-    panel_head(L + 8, 28, "CONNECTION", t);
-    disc(L + 14, 46, 5, link_colour(sy->link));
-    label_bold(L + 26, 42, strong(t), sy->link_text);
-    label_fit(L + 26, 54, muted(t), sy->link_hint ? sy->link_hint : "", LW - 34);
-    for (k = 0, y = 68; k < 4 && sy->lines[k]; k++, y += 12) label_fit(L + 8, y, t->text, sy->lines[k], LW - 16);
-
-    /* the settings (the theme first: ◀ name ▶) */
-    ui_settings(L, 110, LW, "SETTINGS", sy->rows, sy->values, sy->nrows, sy->sel, sy->off_rows, sy->arrow_rows, t);
-
-    /* every key */
+    ui_header("Settings > Keys", t);
+    round_rect(L, 22, LW, 228, 6, t->panel);
     round_rect(R, 22, RW, 228, 6, t->panel);
-    y = 28;
-    panel_head(R + 8, y, "PLAYING: THE DREAMCAST PAD", t);  y += 14;
-    for (k = 0, x = R + 10; k < 4; k++) x = key_item(&dc[k], x, y, t->text, t) + 12;
-    y += 15;
-    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&dc2[k], x, y, t->text, t) + 10;
-    y += 15;
-    key_item(&dc3[0], R + 10, y, t->text, t);
-    y += 20;
-    panel_head(R + 8, y, "STANDALONE: THE VMU", t);  y += 14;
-    for (k = 0, x = R + 10; k < 5; k++) x = key_item(&vmu[k], x, y, t->text, t) + (k ? 9 : 4);
-    y += 20;
-    panel_head(R + 8, y, "THE MENU", t);  y += 14;
-    for (k = 0, x = R + 10; k < 2; k++) x = key_item(&sel1[k], x, y, t->text, t) + 12;
-    y += 15;
-    for (k = 0, x = R + 10; k < 4; k++) x = key_item(&sel2[k], x, y, t->text, t) + 10;
-    y += 20;
-    panel_head(R + 8, y, "THE KEYBOARD (SETTING ON)", t);  y += 14;
+    y = 30;
+    panel_head(L + 8, y, "PLAYING: THE DREAMCAST PAD", t);  y += 16;
+    for (k = 0, x = L + 10; k < 4; k++) x = key_item(&dc[k], x, y, t->text, t) + 12;
+    y += 17;
+    for (k = 0, x = L + 10; k < 3; k++) x = key_item(&dc2[k], x, y, t->text, t) + 10;
+    y += 17;
+    key_item(&dc3[0], L + 10, y, t->text, t);
+    y += 28;
+    panel_head(L + 8, y, "STANDALONE: THE VMU", t);  y += 16;
+    for (k = 0, x = L + 10; k < 5; k++) x = key_item(&vmu[k], x, y, t->text, t) + (k ? 9 : 4);
+    y += 17;
+    key_item(&vmu2[0], L + 10, y, t->text, t);
+    y = 30;
+    panel_head(R + 8, y, "THE MENU", t);  y += 16;
+    key_item(&m1[0], R + 10, y, t->text, t);
+    y += 17;
+    for (k = 0, x = R + 10; k < 3; k++) x = key_item(&m2[k], x, y, t->text, t) + 12;
+    y += 17;
+    for (k = 0, x = R + 10; k < 2; k++) x = key_item(&m3[k], x, y, t->text, t) + 12;
+    y += 28;
+    panel_head(R + 8, y, "THE KEYBOARD (WHEN ON)", t);  y += 16;
     for (k = 0, x = R + 10; k < 3; k++) x = key_item(&kb1[k], x, y, t->text, t) + 10;
-    y += 15;
+    y += 17;
     for (k = 0, x = R + 10; k < 4; k++) x = key_item(&kb2[k], x, y, t->text, t) + 10;
-    y += 15;
+    y += 17;
     for (k = 0, x = R + 10; k < 2; k++) x = key_item(&kb3[k], x, y, t->text, t) + 10;
-
-    draw_keys(sy->keys, t, NULL);
+    draw_keys(UI_KEYS_BACK, t, NULL);
     ui_end();
 }
 
@@ -1188,7 +1327,7 @@ void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, cons
     char s[80];
     int r;
     ui_begin(t->bg);
-    ui_header(0, t);
+    ui_header(NULL, t);
     round_rect(4, 22, 472, 36, 6, t->panel);
     label_bold(12, 27, strong(t), "COMPANION");
     snprintf(s, sizeof(s), "%u B/s  %u records/s", bytes_s, records_s);
@@ -1237,7 +1376,7 @@ void ui_page_keys(const UiKeys *v, const UiTheme *t)
     int shift = (v->kb->cond[0] & 0x22) != 0, r, i;
 
     ui_begin(t->bg);
-    ui_header(0, t);
+    ui_header(NULL, t);
     round_rect(4, 22, 88, 52, 6, t->panel);
     ui_lcd_fit(v->lcd, 12, 24, 72, 48, t);
     round_rect(96, 22, 380, 52, 6, t->panel);

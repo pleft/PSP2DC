@@ -424,7 +424,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     memset(&st, 0, sizeof(st));
     if (!g_no_usb) pspexpUsbGetStats(&st);
     ui_begin(0xFF000000);
-    ui_header(3, &ui_themes[g_theme]);
+    ui_header("Settings > Details", &ui_themes[g_theme]);
     ui_text_margin(6);                     /* (the menu's frame covered the first letters) */
     pspDebugScreenSetTextColor(0xFFFFFFFF);
     link = g_no_usb ? "no USB (emulator?)            "
@@ -704,6 +704,10 @@ static void input_take(SceCtrlData *pad, unsigned *broke)
 
 
 static int g_menu;                         /* SELECT: the menu (1) or playing (0) */
+/* In the menu, g_page PAGE_VMU is the menu's list (g_home_sel chosen);
+ * the other pages are opened from it and go back to it with O. */
+static int g_home_sel = UI_HOME_SAVES;
+static void menu_back(void);
 enum { BOX_NONE, BOX_SAVE_ACTIONS, BOX_CARD_LIST, BOX_SAVE_DELETE, BOX_RESULT, BOX_INFO, BOX_IMPORT,
        BOX_CARD_ACTIONS, BOX_RENAME, BOX_RESTORE, BOX_RESTORE_ASK, BOX_REPAIR, BOX_CARD_DELETE,
        BOX_IMPORT_REPLACE };
@@ -1015,10 +1019,11 @@ static void saves_input(unsigned pressed)
     g_box_back = 0;
     switch (g_box) {
     case BOX_NONE:
+        if (pressed & PSP_CTRL_CIRCLE) { menu_back(); break; }
         if ((pressed & PSP_CTRL_DOWN) && g_sv_sel < n - 1) g_sv_sel++;
         if ((pressed & PSP_CTRL_UP) && g_sv_sel > 0) g_sv_sel--;
         if (g_sv_sel < g_saves_first) g_saves_first = g_sv_sel;
-        if (g_sv_sel > g_saves_first + 2) g_saves_first = g_sv_sel - 2;
+        if (g_sv_sel > g_saves_first + UI_SAVES_ROWS - 1) g_saves_first = g_sv_sel - (UI_SAVES_ROWS - 1);
         if ((pressed & PSP_CTRL_CROSS) && n) {
             g_sv_file = f[g_sv_sel];
             snprintf(g_box_title, sizeof(g_box_title), "%s", save_title());
@@ -1080,7 +1085,12 @@ static void saves_input(unsigned pressed)
         if (pressed & PSP_CTRL_CIRCLE) g_box = BOX_NONE;
         else if (pressed & PSP_CTRL_CROSS) import_one(&g_imports[g_box_item]);
         break;
-    default:                               /* a result, the info */
+    case BOX_INFO:                         /* back to the save's actions, one step as everywhere */
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) {
+            box_lines(save_title(), NULL, NULL, NULL); g_box = BOX_SAVE_ACTIONS; g_box_item = SA_INFO;
+        }
+        break;
+    default:                               /* a result */
         if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_box = BOX_NONE;
         break;
     }
@@ -1168,7 +1178,7 @@ static void box_view(UiBox *b)
 static void saves_view(UiSaves *v, int standalone)
 {
     memset(v, 0, sizeof(*v));
-    if (g_saves_first > g_saves_count - 3) g_saves_first = g_saves_count - 3;
+    if (g_saves_first > g_saves_count - UI_SAVES_ROWS) g_saves_first = g_saves_count - UI_SAVES_ROWS;
     if (g_saves_first < 0) g_saves_first = 0;
     v->first = g_saves_first;
     v->sel = g_sv_sel;
@@ -1311,10 +1321,11 @@ static void cards_input(unsigned pressed, int *settings_due)
     g_box_back = 1;
     switch (g_box) {
     case BOX_NONE:
+        if (pressed & PSP_CTRL_CIRCLE) { menu_back(); break; }
         if ((pressed & PSP_CTRL_DOWN) && g_cd_sel < rows - 1) g_cd_sel++;
         if ((pressed & PSP_CTRL_UP) && g_cd_sel > 0) g_cd_sel--;
         if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;
-        if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
+        if (g_cd_sel > g_cd_first + UI_CARDS_ROWS - 1) g_cd_first = g_cd_sel - (UI_CARDS_ROWS - 1);
         if (!(pressed & PSP_CTRL_CROSS)) break;
         if (g_cd_sel == 0) {               /* New card: made, and in use */
             if (cards_new(made) == 0) {
@@ -1538,7 +1549,7 @@ static void cards_view(UiCards *v, int standalone)
         v->title[i] = g_cd_title[i][0] ? g_cd_title[i] : NULL;
     }
     if (g_cd_sel < g_cd_first) g_cd_first = g_cd_sel;   /* (the chosen row in sight, wherever it moved) */
-    if (g_cd_sel > g_cd_first + 5) g_cd_first = g_cd_sel - 5;
+    if (g_cd_sel > g_cd_first + UI_CARDS_ROWS - 1) g_cd_first = g_cd_sel - (UI_CARDS_ROWS - 1);
     v->first = g_cd_first;
     v->sel = g_cd_sel;
     v->new_off = 0;
@@ -1669,16 +1680,75 @@ static int link_state(const char **text, const char **hint)
 }
 
 /* ---- the System page: the settings, and the details ---- */
-enum { SYS_THEME, SYS_PERGAME, SYS_KEYBOARD, SYS_DETAILS, SYSS };
+enum { SYS_THEME, SYS_PERGAME, SYS_DETAILS, SYS_KEYS, SYSS };
 enum { DET_RECORD, DET_DEMO, DETS };      /* Details' tools, for testing: not for playing */
-static int g_sys_sel, g_sys_details, g_det_sel;
+static int g_sys_sel, g_sys_details, g_sys_keys, g_det_sel;
 
-static void page_turn(int d)
+/* O on a page's list: back to the menu's list, on that page's item */
+static void menu_back(void)
 {
-    g_page = (g_page + d + PAGES) % PAGES;
-    g_box = 0;                             /* (a box belongs to the page it was opened on) */
+    g_home_sel = g_page == PAGE_SAVES ? UI_HOME_SAVES : g_page == PAGE_CARDS ? UI_HOME_CARDS : UI_HOME_SETTINGS;
+    g_page = PAGE_VMU;
+    g_box = BOX_NONE;
+    g_sys_details = g_sys_keys = 0;
+}
+
+/* back to playing, as SELECT (the keyboard is typed on if it is on) */
+static void menu_leave(void)
+{
+    g_menu = 0;
+    g_page = PAGE_VMU;
+    g_box = BOX_NONE;
+    g_sys_details = g_sys_keys = 0;
+    g_typing = g_kbd_mode != PSP2DC_KBD_OFF;
+}
+
+/* the Dreamcast keyboard on or off: on, the adapter is a keyboard alone */
+static void keyboard_toggle(int *settings_due)
+{
+    g_kbd_mode = g_kbd_mode ? PSP2DC_KBD_OFF : PSP2DC_KBD_ONLY;
+    if (!g_kbd_mode) g_typing = 0;
+    *settings_due = 1;
+}
+
+/* the menu's list: up, down; X goes there (VMU: back to playing; Keyboard:
+ * on or off); O back to playing */
+static void home_input(unsigned pressed, int *settings_due)
+{
+    if (pressed & PSP_CTRL_DOWN) g_home_sel = (g_home_sel + 1) % UI_HOME_ITEMS;
+    if (pressed & PSP_CTRL_UP) g_home_sel = (g_home_sel + UI_HOME_ITEMS - 1) % UI_HOME_ITEMS;
+    if (pressed & PSP_CTRL_CIRCLE) { menu_leave(); return; }
+    if (!(pressed & PSP_CTRL_CROSS)) return;
+    g_box = BOX_NONE;
     g_cd_due = 1;
-    g_sys_details = 0;
+    switch (g_home_sel) {
+    case UI_HOME_VMU:      menu_leave(); break;
+    case UI_HOME_SAVES:    g_page = PAGE_SAVES; break;
+    case UI_HOME_CARDS:    g_page = PAGE_CARDS; break;
+    case UI_HOME_KEYBOARD: keyboard_toggle(settings_due); break;
+    case UI_HOME_SETTINGS: g_page = PAGE_SYSTEM; break;
+    }
+}
+
+/* what the menu's list says under each item */
+static void home_view(UiMenu *m)
+{
+    static char saves[48], cards[48];
+    static CardFile f[200];
+    memset(m, 0, sizeof(*m));
+    m->sel = g_home_sel;
+    m->sub[UI_HOME_VMU] = "back to playing";
+    if (g_card_have) {
+        int n = cardfs_list(g_card, f, 200);
+        snprintf(saves, sizeof(saves), "%d save%s on %s", n, n == 1 ? "" : "s", card_title() ? card_title() : g_card_name);
+    } else snprintf(saves, sizeof(saves), "no memory card yet");
+    m->sub[UI_HOME_SAVES] = saves;
+    if (g_cd_due) cards_summary();
+    if (g_card_have) snprintf(cards, sizeof(cards), "%d card%s, %s in use", g_cd_n, g_cd_n == 1 ? "" : "s", g_card_name);
+    else snprintf(cards, sizeof(cards), "%d card%s", g_cd_n, g_cd_n == 1 ? "" : "s");
+    m->sub[UI_HOME_CARDS] = cards;
+    m->sub[UI_HOME_KEYBOARD] = !g_kbd_mode ? "off" : g_alone ? "on, when connected" : "on: SELECT to type";
+    m->sub[UI_HOME_SETTINGS] = "theme, keys, details";
 }
 
 static int det_off(int row)                /* a row of Details that cannot be used now */
@@ -1723,19 +1793,21 @@ static void system_do(int d, int *settings_due)
         g_per_game = !g_per_game;
         *settings_due = 1;
         break;
-    case SYS_KEYBOARD:                     /* the Dreamcast keyboard, instead of the pad and VMU */
-        g_kbd_mode = g_kbd_mode ? PSP2DC_KBD_OFF : PSP2DC_KBD_ONLY;
-        if (!g_kbd_mode) g_typing = 0;
-        *settings_due = 1;
-        break;
     case SYS_DETAILS:
         if (d >= 0) g_sys_details = 1;     /* (X, or right: in) */
+        break;
+    case SYS_KEYS:
+        if (d >= 0) g_sys_keys = 1;
         break;
     }
 }
 
 static void system_input(unsigned pressed, int *settings_due)
 {
+    if (g_sys_keys) {                      /* every key: X or O back */
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) g_sys_keys = 0;
+        return;
+    }
     if (g_sys_details) {
         if (pressed & PSP_CTRL_DOWN) g_det_sel = (g_det_sel + 1) % DETS;
         if (pressed & PSP_CTRL_UP) g_det_sel = (g_det_sel + DETS - 1) % DETS;
@@ -1743,6 +1815,7 @@ static void system_input(unsigned pressed, int *settings_due)
         if (pressed & PSP_CTRL_CIRCLE) g_sys_details = 0;
         return;
     }
+    if (pressed & PSP_CTRL_CIRCLE) { menu_back(); return; }
     if (pressed & PSP_CTRL_DOWN) g_sys_sel = (g_sys_sel + 1) % SYSS;
     if (pressed & PSP_CTRL_UP) g_sys_sel = (g_sys_sel + SYSS - 1) % SYSS;
     if (pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) system_do(pressed & PSP_CTRL_RIGHT ? 1 : -1, settings_due);
@@ -1750,10 +1823,11 @@ static void system_input(unsigned pressed, int *settings_due)
 }
 
 /* the menu's buttons, to the page shown (up, down, X OK, O back; left/right
- * on the System page's settings; the keyboard's) */
+ * on the settings; the rename keyboard's) */
 static void page_keys(unsigned k, int *settings_due)
 {
-    if (g_page == PAGE_SAVES) saves_input(k);
+    if (g_page == PAGE_VMU) home_input(k, settings_due);
+    else if (g_page == PAGE_SAVES) saves_input(k);
     else if (g_page == PAGE_CARDS) cards_input(k, settings_due);
     else if (g_page == PAGE_SYSTEM) system_input(k, settings_due);
 }
@@ -1774,10 +1848,8 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
     if (v->link == UI_LINK_UP) { snprintf(l2, sizeof(l2), "%u inputs sent, %u errors", sent, errors); v->lines[k++] = l2; }
     v->rows[SYS_THEME] = "Theme";         v->values[SYS_THEME] = ui_themes[g_theme].name;
     v->rows[SYS_PERGAME] = "Card per game"; v->values[SYS_PERGAME] = g_per_game ? "on" : "off";
-    {
-        v->rows[SYS_KEYBOARD] = "Keyboard"; v->values[SYS_KEYBOARD] = g_kbd_mode ? "on" : "off";
-    }
     v->rows[SYS_DETAILS] = "Details";      v->values[SYS_DETAILS] = "for a report";
+    v->rows[SYS_KEYS] = "Keys";            v->values[SYS_KEYS] = "every one";
     v->nrows = SYSS;
     v->sel = g_sys_sel;
     v->arrow_rows = 1u << SYS_THEME;
@@ -1794,7 +1866,8 @@ int main(int argc, char *argv[])
     unsigned char seq = 0;
     int connected = 0, shot_due = 0, autoshot = 0, i, settings_due = 0, version_told = 0, saves_due = 0;
     int standalone = 0, was_standalone = 0;
-    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, last_frame_us = 0, kb_sent_us = 0;
+    unsigned vmu_held = 0, vmu_last = 0, vmu_icons = 0, shown_icons = 0, last_frame_us = 0, kb_sent_us = 0;
+    int menu_due;
     unsigned kb_reads_seen = 0, kb_reads_us = 0, kb_status_seen = 0, kb_shown = 0;
     static unsigned char sa_lcd[PSP2DC_LCD_BYTES];
     unsigned start_us = now_us();
@@ -1886,10 +1959,8 @@ int main(int argc, char *argv[])
             if (pressed && g_toast_at && now_us() - g_toast_at > 150000) g_toast_at = 0;   /* any button hides a result */
             if (pressed & PSP_CTRL_SELECT) {
                 g_menu = !g_menu;
-                if (!g_menu) {
-                    g_page = PAGE_VMU; g_box = BOX_NONE; g_sys_details = 0;
-                    g_typing = g_kbd_mode != PSP2DC_KBD_OFF;   /* (the keyboard is all there is) */
-                }
+                if (!g_menu) menu_leave();   /* (the keyboard, when on, is all there is) */
+                else g_page = PAGE_VMU;    /* (the menu opens on its list) */
                 combo = held_before & pad.Buttons & ~PSP_CTRL_SELECT;   /* held across the switch: not pressed until let go
                                                                      * (one pressed with SELECT in the same turn counts) */
                 settings_due = saves_due = 1;
@@ -1898,14 +1969,12 @@ int main(int argc, char *argv[])
             pressed &= ~(combo | PSP_CTRL_SELECT);
             if (g_menu) {
                 if (pressed & PSP_CTRL_TRIANGLE) shot_due = 1;
-                if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && g_box == BOX_NONE) {
-                    page_turn(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);
-                    settings_due = 1;
-                } else if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER))
+                if (pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER))
                     box_page(pressed & PSP_CTRL_RTRIGGER ? 1 : -1);   /* (a long list: a page at a time) */
                 pressed &= ~(PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
                 if (pressed) page_keys(pressed, &settings_due);
                 if (pressed) saves_due = 1;   /* shown at once */
+                if (!g_menu) combo = pad.Buttons;   /* left from the list: what is held is not the game's until let go */
                 pad.Buttons = 0;
                 pad.Lx = pad.Ly = 128;
             } else pad.Buttons &= ~(combo | PSP_CTRL_SELECT);
@@ -2113,30 +2182,59 @@ int main(int argc, char *argv[])
                      g_card_have ? g_card_note : "no memory card yet", notice_now());
             ui_toast(g_toast_at && now_us() - g_toast_at < 2000000 ? g_toast : NULL);
         }
-        if (g_page == PAGE_SYSTEM && g_sys_details) {
+        {   /* the VMU's screen and icons, for the menu's pages: the VMU's own
+             * when on its own; connected, ATTENTION while the card is being
+             * written, as the manual has it (VMU-7: "Attention ... lights for
+             * Read/Write while flash memory is being accessed"), here for a
+             * second after a block came */
+            int up = !g_no_usb && pspexpUsbConnected();
+            shown_icons = standalone ? vmu_icons
+                        : (up && g_card_last_us && now_us() - g_card_last_us < 1000000) ? SA_ICON_ATTENTION : 0;
+            ui_vmu(g_lcd, shown_icons);
+        }
+        /* the menu's pages beside the VMU: every other frame (a long name
+         * scrolls, the icons animate), and at once when the VMU changes */
+        menu_due = frame % 2 == 0 || g_lcd_count != lcd_shown || saves_due;
+        if (g_menu && g_page == PAGE_VMU) {
+            if (menu_due) {
+                UiMenu m;
+                home_view(&m);
+                lcd_shown = g_lcd_count;
+                saves_due = 0;
+                ui_page_menu(&m, &ui_themes[g_theme]);
+            }
+        } else if (g_page == PAGE_SYSTEM && g_sys_keys) {
+            if (frame % 10 == 0 || saves_due) {
+                saves_due = 0;
+                ui_page_keyhelp(&ui_themes[g_theme]);
+            }
+        } else if (g_page == PAGE_SYSTEM && g_sys_details) {
             if (frame % 6 == 0 || g_lcd_count != lcd_shown || saves_due) {
                 lcd_shown = g_lcd_count;
                 saves_due = 0;
                 show(g_usb_rc, &in, sent, errors, standalone);
             }
         } else if (g_page == PAGE_SYSTEM) {
-            if (frame % 10 == 0 || saves_due) {
+            if (menu_due) {
                 UiSystem v;
                 system_view(&v, standalone, sent, errors);
+                lcd_shown = g_lcd_count;
                 saves_due = 0;
                 ui_page_system(&v, &ui_themes[g_theme]);
             }
         } else if (g_page == PAGE_CARDS) {
-            if (frame % 10 == 0 || saves_due) {
+            if (menu_due) {
                 UiCards v;
                 cards_view(&v, standalone);
+                lcd_shown = g_lcd_count;
                 saves_due = 0;
                 ui_page_cards(&v, &ui_themes[g_theme]);
             }
         } else if (g_page == PAGE_SAVES) {
-            if (frame % 4 == 0 || saves_due) {   /* (the icons animate) */
+            if (menu_due) {
                 UiSaves v;
                 saves_view(&v, standalone);
+                lcd_shown = g_lcd_count;
                 saves_due = 0;
                 g_saves_count = ui_page_saves(g_card, g_card_have, &v, &ui_themes[g_theme],
                                               now_us() / 1000, card_title() ? card_title() : g_card_name);
@@ -2195,12 +2293,8 @@ int main(int argc, char *argv[])
             h.card_note = g_card_note;
             h.card_name = card_title() ? card_title() : g_card_name;
             h.notice = g_notice_at && now_us() - g_notice_at < 2000000 ? g_notice : NULL;
-            /* the icons: the VMU's own when on its own; connected, ATTENTION
-             * while the card is being written, as the manual has it (VMU-7:
-             * "Attention ... lights for Read/Write while flash memory is
-             * being accessed"), here for a second after a block came */
-            h.icons = standalone ? vmu_icons
-                    : (up && g_card_last_us && now_us() - g_card_last_us < 1000000) ? SA_ICON_ATTENTION : 0;
+            h.icons = shown_icons;             /* (above) */
+            (void)up;
             h.standalone = standalone ? sa_mode_name() : NULL;
             h.now_ms = now_us() / 1000;
             ui_page_home(&h, &ui_themes[g_theme]);

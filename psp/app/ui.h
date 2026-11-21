@@ -60,6 +60,9 @@ void ui_battery(int percent, int charging);
 /* the debug font's text (pspDebugScreen) moved px pixels right, clear of
  * the menu's frame (Details) */
 void ui_text_margin(int px);
+/* the VMU's screen and its lit icons (1 file, 2 game, 4 clock, 8 attention),
+ * set once a frame: the menu's pages show the VMU beside them */
+void ui_vmu(const unsigned char *lcd, unsigned icons);
 typedef struct {
     const unsigned char *lcd;          /* the VMU's screen */
     int link;                          /* UI_LINK_* */
@@ -120,19 +123,29 @@ void ui_page_companion(const Comp *c, unsigned bytes_s, unsigned records_s, cons
  * on the whole screen, in the theme's colours. */
 void ui_page_screen(const Comp *c, const UiTheme *t, unsigned now_us);
 
-/* The tabs along the top: the pages, the one shown lit (0 VMU, 1 Saves, 2
- * Cards, 3 System), and at their right the link and the status line. In the
- * menu the bar is lit, L and R beside the tabs; playing it is dim, with
- * SELECT to open the menu. */
-#define UI_TABS 4
-void ui_header(int page, const UiTheme *t);
+/* The bar along the top. In the menu it is lit: PSP2DC and where in the menu
+ * (title, or NULL); playing it is dim, with SELECT to open the menu. The
+ * battery at its right. */
+void ui_header(const char *title, const UiTheme *t);
+
+/* The menu, SELECT from playing: the VMU on the left as when playing, and
+ * beside it a list of where to go, each with a line on what is there. */
+enum { UI_HOME_VMU, UI_HOME_SAVES, UI_HOME_CARDS, UI_HOME_KEYBOARD, UI_HOME_SETTINGS, UI_HOME_ITEMS };
+typedef struct {
+    int sel;                           /* the item chosen */
+    const char *sub[UI_HOME_ITEMS];    /* under each, what is there ("2 saves on card1") */
+} UiMenu;
+void ui_page_menu(const UiMenu *m, const UiTheme *t);
+/* every key, full screen (Settings, Keys) */
+void ui_page_keyhelp(const UiTheme *t);
 /* the line of keys at the bottom (UI_KEYS_*), for a page drawn elsewhere */
 void ui_keys(int keys, const UiTheme *t);
 /* the line of keys at the bottom of a page: only the keys that do something now */
-enum { UI_KEYS_VIEW, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
+enum { UI_KEYS_VIEW, UI_KEYS_HOME, UI_KEYS_SAVES, UI_KEYS_CARDS, UI_KEYS_MENU, UI_KEYS_OK, UI_KEYS_EDIT,
        UI_KEYS_SYSTEM, UI_KEYS_SYSTEM_OPEN, UI_KEYS_DETAILS, UI_KEYS_BACK, UI_KEYS_LIST };
 
-/* The Saves page: where it is, what is chosen, the box over it */
+/* The Saves page, beside the VMU: where it is, what is chosen, the box in its place */
+#define UI_SAVES_ROWS 4                /* saves shown at once */
 typedef struct {
     int first;                         /* the first save shown */
     int sel;                           /* the chosen save, or -1 (connected: view only) */
@@ -143,7 +156,8 @@ typedef struct {
 int  ui_page_saves(const unsigned char *card, int have, const UiSaves *v, const UiTheme *t, unsigned now_ms,
                    const char *card_name);
 
-/* The Cards page: "New card" first, then each card */
+/* The Cards page, beside the VMU: "New card" first, then each card */
+#define UI_CARDS_ROWS 5                /* rows shown at once ("New card" one of them) */
 #define UI_CARDS_MAX 32
 typedef struct {
     int n;                             /* cards */
@@ -158,7 +172,7 @@ typedef struct {
 } UiCards;
 void ui_page_cards(const UiCards *v, const UiTheme *t);
 
-/* The System page: the connection, the settings, and every key */
+/* The Settings page, beside the VMU: the settings, then the connection */
 #define UI_SYS_ROWS 6
 typedef struct {
     int link;
