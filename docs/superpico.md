@@ -13,8 +13,9 @@ The prototype at work, with an early version of the application on the PSP:
 <img src="images/superpico-setup.jpg" width="420" alt="A Dreamcast with the prototype in controller port A: the cable goes to the SuperPico on its breadboard, and a USB cable from there to a PSP showing PSP2DC's first text screen, connected to the adapter">
 
 PSP2DC uses only the Pico: the firmware runs on its RP2040, the PSP plugs
-into its micro-USB port, and the Dreamcast cable is soldered straight to its
-pins. Leave the cartridge out of the Supervision while it is the adapter.
+into its micro-USB port, and the Dreamcast cable's five wires go to its pins,
+in the prototype through jumper wires on a breadboard. Leave the cartridge
+out of the Supervision while it is the adapter.
 
 ![Wiring: the Pico's 40 pins and the Dreamcast plug](wiring.svg)
 
