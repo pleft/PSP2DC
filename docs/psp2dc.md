@@ -1,9 +1,11 @@
 
 # PSP Dreamcast Controller & VMU
 
-**Status:** Working on hardware: the PSP plays a real Dreamcast through the adapter, shows the VMU's screen and keeps the memory cards on its Memory Stick; standalone it is a VMU with its games. See section 10.  
-**Date:** November 2026 (revised 17 November 2026)  
-**Target hardware:** Sony PSP-1000, Raspberry Pi Pico (RP2040), Sega Dreamcast
+**Status:** Working on hardware: the PSP plays a real Dreamcast through the adapter, shows the VMU's screen and keeps the memory cards on its Memory Stick; it can be a Dreamcast keyboard; standalone it is a VMU with its games. See section 10.  
+**Date:** November 2026 (revised 21 November 2026)  
+**Target hardware:** Sony PSP-1000, Waveshare RP2040-Zero (RP2040), Sega Dreamcast. The prototype ran on the Raspberry Pi Pico of a Watara SuperPico.
+
+**About this document.** These are the design notes and the development record, in the order things were decided, built and tested. A dated entry says what was known on that day; where a later entry changed it, the earlier one says so. How to build and use PSP2DC is in the [README](../README.md), the state of things today in section 10, and the companion (a second screen for Dreamcast homebrew) in [psp2dc-companion.md](psp2dc-companion.md).
 
 ## 1. Project Overview
 
@@ -25,7 +27,7 @@ The PSP will function as:
 
 ```text
 +----------------------------------+
-|          Sony PSP-1000            |
+|          Sony PSP-1000           |
 |                                  |
 |  Custom PSP Homebrew Application |
 |                                  |
@@ -39,9 +41,9 @@ The PSP will function as:
                  | Bidirectional USB
                  |
 +----------------------------------+
-|       Watara SuperPico            |
-|       Raspberry Pi Pico           |
-|       RP2040 Microcontroller      |
+|       The adapter                |
+|       Waveshare RP2040-Zero      |
+|       RP2040 microcontroller     |
 |                                  |
 |  - USB host communication        |
 |  - Controller translation        |
@@ -53,7 +55,7 @@ The PSP will function as:
                  | Maple Bus
                  |
 +----------------------------------+
-|          Sega Dreamcast           |
+|          Sega Dreamcast          |
 |                                  |
 |  Original hardware and games     |
 +----------------------------------+
@@ -76,7 +78,9 @@ Controller communication must remain responsive even if VMU display updates are 
 
 ## 3. Hardware Platform
 
-### 3.1 Watara SuperPico
+The adapter is a Waveshare RP2040-Zero (3.5). The project was brought up on a prototype, the Raspberry Pi Pico of a Watara SuperPico cartridge: 3.1 to 3.4 record that board, and its wiring is kept in [superpico.md](superpico.md).
+
+### 3.1 The Prototype: Watara SuperPico
 
 The selected prototype platform is an existing Watara SuperPico flash cartridge originally designed for the Watara Supervision handheld.
 
@@ -126,9 +130,9 @@ Other edge pins: 5 V on pin 40, ground on pins 21 and 22.
 
 **Usable pins.** Only the eight direct data-bus pins are free: GP17, GP18, GP19, GP20, GP21, GP22, GP26, GP27. The onboard LED (GP25) is also available.
 
-**Maple pins: GP21 (line A, Dreamcast pin 1) and GP22 (line B, Dreamcast pin 5).** The Maple PIO code requires two consecutive GPIOs. Both are reachable on the cartridge edge (pins 31 and 32), so the Dreamcast cable can be soldered to the edge fingers without touching the Pico.
+**Maple pins: GP21 (line A, Dreamcast pin 1) and GP22 (line B, Dreamcast pin 5).** The Maple PIO code requires two consecutive GPIOs. Both are reachable on the cartridge edge (pins 31 and 32), so the Dreamcast cable can be soldered to the edge fingers without touching the Pico. (As built, the wires went to the Pico's own pins: section 8, Phase 3.)
 
-**Debug UART: GP20 (UART1 TX, edge pin 30), 115200 8N1, transmit only.** The USB port is occupied by the PSP, so serial debug needs a GPIO. GP20 is the only direct pin with a hardware UART TX function, which is why Maple moved from the originally proposed GP20/GP21 to GP21/GP22.
+**Debug UART: GP20 (UART1 TX, edge pin 30), 115200 8N1, transmit only.** The USB port is occupied by the PSP, so serial debug needs a GPIO. GP20 is the only direct pin with a hardware UART TX function, which is why Maple moved from the originally proposed GP20/GP21 to GP21/GP22. (The firmware prints nothing there since 17 November 2026: 5.0e6.)
 
 The SuperPico must remain disconnected from the Watara Supervision when used as a Dreamcast adapter.
 
@@ -157,7 +161,9 @@ Not yet verified:
 - Whether the PSP needs 5 V on the USB VBUS pin to detect a host. Plan to supply it.
 - The PSPExp driver at full speed: it carries full-speed descriptors, but every host used so far was high-speed.
 
-**Pico side.** The cartridge-edge 5 V reaches the Pico, apparently on VSYS (to be confirmed with a multimeter). If so, the Pico's onboard diode prevents it reaching the USB connector, and 5 V must be fed to the Pico's VBUS pin instead to power the host port.
+Since settled (15 November 2026, section 8): data flows both ways at full speed with no errors. 5 V is supplied on VBUS; whether the PSP needs it was never isolated.
+
+**Pico side.** The cartridge-edge 5 V reaches the Pico, apparently on VSYS (to be confirmed with a multimeter). If so, the Pico's onboard diode prevents it reaching the USB connector, and 5 V must be fed to the Pico's VBUS pin instead to power the host port. (As built: the console's 5 V goes to the Pico's VBUS pad.)
 
 ### 3.4 Maple Connectivity
 
@@ -176,9 +182,9 @@ Planned wiring on the SuperPico:
 | Pin 3 (+5 V) | Pico VBUS (see 3.3) |
 | Pins 2, 4 (GND) | GND, edge pins 21/22 |
 
-### 3.5 A Second Board: the Waveshare RP2040-Zero (16 November 2026)
+### 3.5 The Adapter: the Waveshare RP2040-Zero (16 November 2026)
 
-A Waveshare RP2040-Zero as a smaller adapter. Found before the board was at hand:
+A Waveshare RP2040-Zero as a smaller adapter, at first a second board beside the SuperPico. Since 21 November 2026 it is the adapter the README describes, and the SuperPico is the prototype. Found before the board was at hand:
 
 - **joypad-os supports it:** target `usb2dc_rp2040zero`, documented as USB4Maple-compatible ("existing USB4Maple hardware can run Joypad OS firmware as a drop-in replacement"), Maple on GP14/GP15, the WS2812 on GP16 (`docs/adapters/dreamcast.md`, `src/CMakeLists.txt` there). USB4Maple hardware can therefore run this firmware too.
 - **The board, from Waveshare's schematic (`RP2040_Zero.pdf`, files.waveshare.com):** the USB-C connector's VBUS pins are the net VSYS, which is also header pin 23, the "5V" edge pin, with no diode between them; VSYS feeds the 3.3 V regulator (RT9013-33 in the schematic; the product page names an ME6217C33). CC1 and CC2 have 5.1 kΩ pull-downs. The WS2812B's data is GPIO16. Header P1: GPIO0–GPIO15, GPIO26–GPIO29, 3V3, GND, VSYS (23 edge pins); GPIO17–GPIO25 and a second GND are pads underneath. Seen from above with the USB-C at the top, as in joypad-os's wiring drawing: left edge 5V, GND, 3V3, GP29, GP28, GP27, GP26, GP15, GP14; bottom GP13–GP9; right GP0–GP8.
@@ -210,16 +216,16 @@ joypad-os and MaplePad share the same Maple PIO program (by Charlie Cole), which
 
 ### 4.3 Required Firmware Work
 
-**SuperPico board target — done, builds, not yet flashed**
+**SuperPico board target — works on hardware (15 November 2026)**
 
 Target `usb2dc_superpico` (CMake target `joypad_dc_superpico`) on branch `superpico` of `firmware/joypad-os`:
 
 - `MAPLE_PIN1=21`, `MAPLE_PIN5=22`.
 - stdio on UART1, TX GP20, no RX; USB stdio off. **Turned off 17 November 2026** (patch 0011, see 5.0e6): printf held up the Maple replies. Re-enable `pico_enable_stdio_uart` only for a debugging session.
 - NeoPixel disabled, BOOTSEL as the button, onboard LED GP25.
-- No SD card, no PIO-USB, no VMU (as in upstream's release configuration).
+- No SD card, no PIO-USB. The memory card (`CONFIG_VMU`) was off at first, as in upstream's release configuration, and is on since the VMU screen (below).
 
-A source audit found no remaining code path that drives GP0–GP16 or GP28. This has not been confirmed on hardware.
+A source audit found no remaining code path that drives GP0–GP16 or GP28. On hardware the firmware ran with no sign of buffer contention (section 8, Phase 1).
 
 Build with `scripts/build-firmware.sh` (the RP2040-Zero; `superpico` as its argument for the SuperPico), which copies the fresh output to `build/` under a name carrying the build time. Never take the file from joypad-os's `releases/` folder: its names carry the commit, and after a commit an older file there was twice mistaken for the new build. By hand (the Homebrew `arm-none-eabi-gcc` lacks newlib, so the Arm GNU toolchain is used):
 
@@ -227,14 +233,14 @@ Build with `scripts/build-firmware.sh` (the RP2040-Zero; `superpico` as its argu
 cd firmware/joypad-os
 make init        # once: submodules, pico-sdk 2.2.0, TinyUSB 0.19.0
 T=~/Dev/arm-gnu-toolchain-13.3.rel1-darwin-arm64-arm-none-eabi
-PICO_TOOLCHAIN_PATH=$T PATH=$T/bin:$PATH make usb2dc_superpico
+PICO_TOOLCHAIN_PATH=$T PATH=$T/bin:$PATH make usb2dc_psp2dc_rp2040zero   # or usb2dc_superpico
 ```
 
-Output: `firmware/joypad-os/releases/joypad_os_<commit>_usb2dc_superpico.uf2` (a copy is kept in `build/`).
+Output: `firmware/joypad-os/src/build/joypad_dc_psp2dc_rp2040zero.uf2` (or `joypad_dc_superpico.uf2`), which the script copies to `build/`.
 
-**PSP controller input — written, builds, not yet tested on hardware**
+**PSP controller input — works on hardware (15 November 2026)**
 
-`src/usb/usbh/psp2dc/psp2dc_host.c` is a TinyUSB host class driver for the PSP (054c:01ca), compiled only into the SuperPico target (`CONFIG_PSP2DC`). It opens PSPExp's link with the sync packet, reads the PSP's messages from bulk IN, feeds controller state to the router, and sends a status message to the PSP once a second.
+`src/usb/usbh/psp2dc/psp2dc_host.c` is a TinyUSB host class driver for the PSP (054c:01ca), compiled only into the two PSP2DC targets (`CONFIG_PSP2DC`). It opens PSPExp's link with the sync packet, reads the PSP's messages from bulk IN, feeds controller state to the router, and sends a status message to the PSP once a second.
 
 The RP2040 host controller runs one non-interrupt transfer at a time, so the driver is half duplex: it reads a message, sends whatever is waiting, then reads again. The PSP sends its controller state every frame, which gives the adapter a chance to send at least 60 times a second. If the PSP goes quiet for 300 ms, all buttons are released.
 
@@ -261,18 +267,18 @@ Limiting the USB host on this target to one device and no hub freed about 30 KB 
 
 ## 5. PSP Homebrew Application
 
-A dedicated PSP application is being developed using PSPSDK. A first version exists (`psp/boot`, `psp/app`): it sends the controller state every frame and shows a text status page with the link state, counters and the Dreamcast state being sent. Build it with `scripts/build-psp.sh` (needs `../pspdev`; PSPExp's USB driver is copied into `psp/usb`, unchanged, since 16 November 2026, and built there); the result is `dist/PSP2DC/`, to be copied to `ms0:/PSP/GAME/PSP2DC/`.
+The PSP application (`psp/boot`, `psp/app`) is written with PSPSDK. Its first version sent the controller state every frame and showed a text status page with the link state, counters and the Dreamcast state being sent; what it has become is in 5.0 to 5.0f. Build it with `scripts/build-psp.sh` (needs `../pspdev`; PSPExp's USB driver is copied into `psp/usb`, unchanged, since 16 November 2026, and built there); the result is `dist/PSP2DC/`, to be copied to `ms0:/PSP/GAME/PSP2DC/`.
 
 In full: It consists of a user-mode application (display, UI, configuration) and a kernel-mode PRX containing the USB driver, so the PSP must run custom firmware. The USB driver comes from PSPExp (copied into `psp/usb`); the boot module is shaped like PSPExp's.
 
-The application will:
+The application:
 
-1. Read PSP buttons and analog input.
-2. Translate inputs into Dreamcast controller states.
-3. Communicate with the RP2040 over USB.
-4. Receive VMU framebuffer updates.
-5. Render VMU graphics on the PSP display.
-6. Provide controller configuration and save-management interfaces.
+1. Reads the PSP's buttons and analog input.
+2. Translates them into Dreamcast controller states.
+3. Communicates with the RP2040 over USB.
+4. Receives the VMU's screen.
+5. Draws it on the PSP's display.
+6. Manages the memory cards and their saves. Controller configuration is not done.
 
 ### 5.0 Tools and Working Without Hardware
 
@@ -284,7 +290,7 @@ SELECT is a shift key: while it is held nothing is sent to the Dreamcast. (The t
 | SELECT + Triangle | Screenshot of the PSP's screen to `ms0:/PSP2DC/shots/shot-NNN.bmp` |
 | SELECT + Circle | Demo mode on or off (only while not connected) |
 
-Demo mode plays every recording in `capture/` in turn at its recorded pace, or a made-up screen when there are none. It starts by itself when the USB driver is not usable, which is the case in PPSSPP: the driver module loads but its library calls return `0x8002013A`.
+Demo mode plays every recording in `capture/` in turn at its recorded pace, or a made-up screen when there are none. It started by itself when the USB driver was not usable, which is the case in PPSSPP: the driver module loads but its library calls return `0x8002013A`. (Since the standalone VMU, 5.0c, the application runs standalone there, and the demo is started from System → Details.)
 
 `scripts/dev/run-ppsspp.sh` installs `dist/PSP2DC` into PPSSPP and starts it; `scripts/dev/run-ppsspp.sh shot file.png` captures the emulator's window. PPSSPP's memory stick root is `~/.config/ppsspp`, so `ms0:/PSP2DC` is `~/.config/ppsspp/PSP2DC`. An empty file `dev_autoshot` there makes the application take screenshots by itself 3, 6 and 10 s after starting. Verified in PPSSPP on 15 November 2026: demo mode with the made-up screen, and screenshots written correctly. Recording needs the adapter and is untested.
 
@@ -559,7 +565,7 @@ The adapter keeps the card in its RAM for as long as the Dreamcast is on, also w
 
 ### 5.1 Controller Mapping
 
-The initial mapping will include:
+The mapping:
 
 | PSP Control | Dreamcast Control |
 |-------------|-------------------|
@@ -572,9 +578,7 @@ The initial mapping will include:
 | Start | Start |
 | L / R | Analog triggers |
 
-The exact face-button mapping will be configurable.
-
-Because the PSP lacks analog triggers, configurable trigger emulation will be required.
+The mapping is fixed. The PSP has no analog triggers, so L and R are sent fully pressed or released. A configurable mapping and trigger emulation are not done.
 
 ### 5.2 VMU Display
 
@@ -582,52 +586,54 @@ The original Dreamcast VMU has a monochrome 48 × 32 pixel LCD.
 
 The PSP has a 480 × 272 color display.
 
-The application can therefore provide:
+The application therefore provides (5.0a):
 
-- Enlarged VMU graphics.
-- Pixel-perfect scaling.
-- Custom display themes.
-- VMU status information.
-- Virtual memory card selection.
-- Controller profile information.
+- The VMU's screen four times enlarged, each dot a whole number of pixels, inside a drawn VMU.
+- Six display themes.
+- The link's state, the controller as the Dreamcast sees it, and the card in use with its saves.
+- The choice of memory card.
 
-The original VMU framebuffer will be preserved so that games behave as expected.
+The VMU's framebuffer is kept as the Dreamcast sends it, so games behave as expected.
 
 ## 6. Planned Features
 
+As planned at the start; what became of each is in brackets (21 November 2026).
+
 ### Essential Features
 
-- PSP recognized as a Dreamcast controller.
-- Digital button support.
-- Analog nub support.
-- Trigger emulation.
-- Live VMU display on PSP.
-- Virtual VMU save storage.
-- Stable, low-latency controller operation.
+- PSP recognized as a Dreamcast controller. (Done.)
+- Digital button support. (Done.)
+- Analog nub support. (Done.)
+- Trigger emulation. (L and R, fully pressed or released.)
+- Live VMU display on PSP. (Done.)
+- Virtual VMU save storage. (Done.)
+- Stable, low-latency controller operation. (Stable since 5.0e6; latency not measured.)
 
 ### Enhanced Features
 
-- Multiple virtual VMU cards.
-- Save management and backup.
-- Configurable button mapping.
-- Per-game controller profiles.
-- Custom VMU display themes.
-- Controller and connection status.
-- Enhanced VMU visualization.
+- Multiple virtual VMU cards. (Done, and a card per game: 5.0e, 5.0e5.)
+- Save management and backup. (Done: 5.0e2, 5.0e3.)
+- Configurable button mapping. (Not done.)
+- Per-game controller profiles. (Not done.)
+- Custom VMU display themes. (Done: six themes.)
+- Controller and connection status. (Done.)
+- Enhanced VMU visualization. (Done: the drawn VMU, 5.0a.)
 
 ### Future Possibilities
 
-- Game-specific second-screen dashboards.
-- Expanded game information.
+- Game-specific second-screen dashboards. (In progress: the companion, [psp2dc-companion.md](psp2dc-companion.md).)
+- Expanded game information. (Game names on per-game cards: 5.0e8.)
 - Game-specific VMU layouts.
 - Advanced controller macros or accessibility features.
-- Additional Dreamcast peripheral emulation.
+- Additional Dreamcast peripheral emulation. (The keyboard: 5.0e7.)
 
 Game-specific features will depend on data actually exposed through Maple/VMU communication.
 
 Arbitrary game state cannot be obtained automatically without additional integration.
 
 ## 7. Additional Hardware Requirements
+
+As planned for the prototype. The adapter built since is the RP2040-Zero (3.5), and the README lists what it needs.
 
 The commercial USB4Maple adapter was initially considered:
 
@@ -650,7 +656,7 @@ Its firmware source is not available (see 4.1), so it offers no advantage over t
 
 Only the SuperPico is available, so all bring-up happens on it. A spare, unsoldered Pico would still help: it has no buffer hazard and lets firmware problems be separated from SuperPico-specific ones.
 
-A dedicated RP2040 PCB could eventually replace the SuperPico for a compact final adapter.
+A dedicated RP2040 PCB could eventually replace the SuperPico for a compact final adapter. The RP2040-Zero has since taken that place (3.5).
 
 ## 8. Development Roadmap
 
@@ -719,34 +725,34 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 - The application's USB restart worked on its first outing: the sync did not come at the start, the USB was restarted after 5 s and the link came up (`restarts 1`). So the deaf driver is not only a matter of many reconnections; why it happens at a fresh start is not yet known.
 - The BIOS's file menu does draw on the VMU (a picture of a VMU), contrary to what was assumed earlier.
 - More games' screens are to be tried.
-- Decide and implement VMU save storage.
+- Decide and implement VMU save storage. **Done:** the card is kept on the PSP (above).
 
 **Go/no-go:** the first major milestone (section 11).
 
 ### Phase 5 — Enhanced Features
 
-**Status: Future**
+**Status: Partly done**
 
-- Controller configuration UI.
-- VMU bank management.
-- Game-specific controller profiles.
-- Custom VMU themes.
-- Second-screen enhancements.
-- Performance optimization.
+- Controller configuration UI. Not done.
+- VMU bank management. **Done:** several cards, a card per game (5.0e, 5.0e5).
+- Game-specific controller profiles. Not done.
+- Custom VMU themes. **Done** (5.0a).
+- Second-screen enhancements. In progress: the companion ([psp2dc-companion.md](psp2dc-companion.md)).
+- Performance optimization. Late Maple replies found and fixed (5.0e6).
 
 ## 9. Technical Risks
 
-1. **PSP against an RP2040 host:** the PSPExp driver is proven on this PSP against high-speed hosts, but not against a full-speed microcontroller host. VBUS detection is open. Addressed first, in Phase 1.
+1. **PSP against an RP2040 host:** the PSPExp driver is proven on this PSP against high-speed hosts, but not against a full-speed microcontroller host. VBUS detection is open. Addressed first, in Phase 1. Settled: the link works at full speed (Phases 1 and 3).
 
-2. **Buffer contention on the SuperPico:** any firmware that drives GP0–GP16 or GP28 fights a permanently enabled buffer. Every inherited pin assignment must be audited before the first flash.
+2. **Buffer contention on the SuperPico:** any firmware that drives GP0–GP16 or GP28 fights a permanently enabled buffer. Every inherited pin assignment must be audited before the first flash. Audited, and no contention seen on hardware; the RP2040-Zero has no buffers.
 
 3. **joypad-os VMU maturity:** its VMU code is disabled upstream over Maple timing drops during flash writes, and it has no LCD support. MaplePad is the reference for both; storing saves on the PSP sidesteps the flash writes.
 
-4. **Real-time performance:** USB host, VMU frame forwarding and flash or USB storage must not disturb Maple timing on the other core.
+4. **Real-time performance:** USB host, VMU frame forwarding and flash or USB storage must not disturb Maple timing on the other core. One such disturbance was found and fixed: debug text on the UART held up Maple replies (5.0e6).
 
 5. **Maple electrical interface:** direct connection works on this hardware in a first test; signal levels have not been measured and long-run reliability is unknown.
 
-6. **USB host power:** the 5 V path to the USB connector depends on where the cartridge-edge 5 V lands on the Pico.
+6. **USB host power:** the 5 V path to the USB connector depends on where the cartridge-edge 5 V lands on the Pico. Settled: the console's 5 V goes to the Pico's VBUS pad, and to the 5V pin on the RP2040-Zero (3.5).
 
 7. **Licensing:** joypad-os is Apache-2.0 and MaplePad CC BY 4.0; firmware combining them must carry both attributions. The PSP side reuses PSPExp (MIT, same author). FuSa GamePad (GPL-3.0) is used only as an unmodified test tool, not as a code base.
 
@@ -778,10 +784,16 @@ Completed:
 - The Dreamcast no longer loses the controller or its card now and then (5.0e6, patch 0011).
 - The Waveshare RP2040-Zero as the adapter (3.5): works on hardware, with the Dreamcast cable soldered straight to the board (18 November 2026). The SuperPico's breadboard wiring (section 8, Phase 3) is no longer needed.
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
+- The Dreamcast keyboard (5.0e7): works on hardware in openMenu and Typing of the Dead (18 November 2026, RP2040-Zero).
+- Game names on per-game cards (5.0e8): built and checked in PPSSPP, not yet tried on hardware.
+- The companion, phases 1 and 2 and the first part of phase 3: built and tested without hardware, not yet tried on a Dreamcast ([psp2dc-companion.md](psp2dc-companion.md)).
+- The RP2040-Zero is the adapter to build and the SuperPico the prototype (21 November 2026): the README, the firmware script's default board, [superpico.md](superpico.md).
 
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
+- Configurable button mapping and trigger emulation.
+- The companion on a real Dreamcast.
 
 ## 11. First Major Milestone
 
@@ -789,6 +801,6 @@ The first major milestone is:
 
 **A Sony PSP-1000 connected to a real Sega Dreamcast through the SuperPico, controlling a game while displaying that game's live VMU graphics on its own screen.**
 
-This will establish the core functionality of the project.
+It was reached on 15 November 2026 (section 10).
 
 The longer-term vision is to transform the PSP into an enhanced Dreamcast controller and second-screen companion, combining the original Dreamcast experience with the PSP's display, controls, storage, and programmable capabilities.

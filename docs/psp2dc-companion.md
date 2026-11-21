@@ -603,6 +603,8 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A KallistiOS application sends a message to the PSP and receives a response.
 
+**Status:** built and tested without hardware (Appendix B); the test on a Dreamcast is B.8.
+
 ### Phase 2: Structured Display
 
 - Implement display regions.
@@ -613,6 +615,8 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A Dreamcast game displays a live dashboard on the PSP.
 
+**Status:** built and tested without hardware (Appendix C).
+
 ### Phase 3: Graphics and Assets
 
 - Add indexed-color graphics.
@@ -622,6 +626,8 @@ The reference application should also measure Maple throughput, message latency,
 - Measure and optimize throughput.
 
 **Milestone:** A game displays a live graphical minimap with acceptable performance.
+
+**Status:** the first part (bitmaps, palettes, sprites, the image converter) is built and tested without hardware (Appendix D); D.6 lists what is left.
 
 ### Phase 4: Extended Storage
 

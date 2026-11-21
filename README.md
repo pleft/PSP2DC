@@ -2,9 +2,10 @@
 
 PSP2DC turns a Sony PSP-1000 into a Dreamcast controller and VMU. You play a
 real Dreamcast with the PSP's buttons, and the VMU's screen is shown full size
-on the PSP. The memory cards are files on the PSP's Memory Stick. With no
-Dreamcast connected, the PSP works as a standalone VMU: clock, file manager,
-and the VMU's own mini-games, buzzer included.
+on the PSP. The memory cards are files on the PSP's Memory Stick. The PSP can
+also be a Dreamcast keyboard. With no Dreamcast connected, it works as a
+standalone VMU: clock, file manager, and the VMU's own mini-games, buzzer
+included.
 
 The PSP connects over USB to a small adapter: a
 [Waveshare RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm), an RP2040
@@ -29,6 +30,8 @@ Working on hardware:
 - The VMU's live screen on the PSP.
 - Memory cards kept on the Memory Stick; saves survive switching the console off.
 - Changing cards while connected.
+- A card per game, with GDEMU and openMenu.
+- The Dreamcast keyboard, in openMenu and Typing of the Dead.
 - The standalone VMU, including mini-games such as Chao Adventure 2.
 - The RP2040-Zero adapter with the Dreamcast cable soldered on.
 
@@ -56,7 +59,6 @@ The full design notes, test records and history are in
 | Waveshare RP2040-Zero | The adapter: a small RP2040 board with a USB-C port. |
 | Dreamcast controller cable | Its five wires soldered to the board (below). |
 | USB-C OTG adapter + Mini-USB cable | The board (USB host) to the PSP (USB device). |
-| 3.3 V USB-serial adapter | Optional: the firmware's debug log on GP0. |
 
 ### The adapter: an RP2040-Zero
 
@@ -72,7 +74,6 @@ same way as USB4Maple, which joypad-os already supports.
 | Data B (plug pin 5) | white | GP15 |
 | +5 V | blue | 5V |
 | Ground, sense | black, green | GND (the one edge pin, or the GND pad underneath) |
-| *(optional)* debug log | | GP0, to a USB-serial adapter's RX, 115200 8N1 |
 
 The colours are those of Sega's own controller cable
 ([mc.pp.se](http://mc.pp.se/dc/controller.html)). Extension and third-party
@@ -85,6 +86,8 @@ cables can use other colours.
   flash it.
 - **PSP cable:** a USB-C OTG adapter (USB-C plug to USB-A socket) and the
   usual USB-A to Mini-USB cable.
+- **Diagnostics:** the firmware prints no debug log. The adapter's counters
+  are on the PSP, in System → Details.
 
 PSP2DC was prototyped on another RP2040 board, the Raspberry Pi Pico of a
 Watara SuperPico cartridge. That adapter still works, and its wiring is in
@@ -236,8 +239,9 @@ the PSP.
 
 ## Development without hardware
 
-In PPSSPP the USB driver cannot work, so PSP2DC starts in demo mode. Everything
-but the Dreamcast link can be tried there.
+In PPSSPP the USB driver cannot work, so PSP2DC runs standalone there, as
+with no Dreamcast. Everything but the Dreamcast link can be tried, and Demo
+(System → Details) plays recorded VMU screens back as if connected.
 
 - `scripts/dev/run-ppsspp.sh` installs `dist/PSP2DC` into PPSSPP and starts it.
 - A file `ms0:/PSP2DC/dev_input.txt` holds a timed list of buttons for the

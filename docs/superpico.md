@@ -26,7 +26,6 @@ out of the Supervision while it is the adapter.
 | +5 V | blue | VBUS, pin 40 |
 | Ground | black | GND, e.g. pin 28 |
 | Sense (ground) | green | GND, e.g. pin 38 |
-| *(optional)* debug log | | GP20, pin 26, to a USB-serial adapter's RX, 115200 8N1 |
 
 - **Data A and B:** the Maple code needs two consecutive GPIOs. They are set
   at build time (`MAPLE_PIN1=21`, `MAPLE_PIN5=22`).
