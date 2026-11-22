@@ -346,7 +346,8 @@ static int reader_thread(SceSize args, void *argp)
             if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; g_rx_bad++; continue; }
             total = PSP2DC_HEADER_LEN + p[3];
             if (have - pos < total) break;
-            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V6_LEN ||
+            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V7_LEN ||
+                                              p[3] == PSP2DC_STATUS_V6_LEN ||
                                               p[3] == PSP2DC_STATUS_V5_LEN || p[3] == PSP2DC_STATUS_OLD_LEN)) {
                 Psp2dcStatus st;
                 memset(&st, 0, sizeof(st));
@@ -448,6 +449,10 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
     printf("maple    bad %u  unanswered %u  late %u  card off %u      \n", g_status.maple_bad,
            g_status.maple_unanswered, g_status.maple_skipped, g_status.vmu_drops);
     printf("         replies over 1 ms: %u; longest in the last second %u us      \n", g_status.maple_slow, g_status.maple_max_us);
+    if (g_status.maple_errors || g_status.maple_longest)
+        printf("         rx longest %u B  broken %u (last at %u B)      \n         line errors %u  fifo full %u s      \n",
+               g_status.maple_longest, g_status.maple_broken, g_status.maple_broken_at, g_status.maple_errors,
+               g_status.maple_stalls);
     if (g_status.maple_unanswered)
         printf("         last unanswered: cmd %02X to %02X, %u words, func %08X  \n", g_status.last_cmd,
                g_status.last_dest, g_status.last_words, (unsigned)g_status.last_func);

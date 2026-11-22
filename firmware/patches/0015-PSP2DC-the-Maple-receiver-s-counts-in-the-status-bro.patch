@@ -1,0 +1,122 @@
+From 15d6b1cbb923c5ba6bc647826f6df082e051aa3d Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 22 Nov 2026 20:14:25 +0200
+Subject: [PATCH 15/15] PSP2DC: the Maple receiver's counts in the status
+ (broken frames, line errors, longest frame, FIFO full)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       | 48 +++++++++++++++++++
+ src/usb/usbh/psp2dc/psp2dc_host.c             | 10 ++++
+ 2 files changed, 58 insertions(+)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index c318a025..bd0ed364 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -1172,6 +1172,31 @@ static void __not_in_flash_func(maple_note_unanswered)(uint32_t size)
+     maple_last_func = (size >= 9 && h->NumWords >= 1) ? __builtin_bswap32(((const uint32_t *)(h + 1))[0]) : 0;
+ }
+ 
++// The receiver (Core 1 writes): frames broken off before their end, by a
++// line error or a new start, and the bytes the last one had reached; the
++// longest frame received whole since the last call.
++static volatile uint32_t maple_broken, maple_broken_at, maple_longest;
++static uint32_t maple_stalls;
++
++// For the PSP's status page, once a second: broken frames, where the last
++// broke, line errors, the longest whole frame in the last second, and the
++// seconds in which the receiver's FIFO ran full (its state machines stalled,
++// transitions missed).
++void dreamcast_maple_rx_counts(uint32_t out[5])
++{
++    const uint32_t stall = 7u << PIO_FDEBUG_RXSTALL_LSB;   // the receiver's three state machines
++    if (RXPIO->fdebug & stall) {
++        maple_stalls++;
++        RXPIO->fdebug = stall;                             // (sticky: written 1 to clear)
++    }
++    out[0] = maple_broken;
++    out[1] = maple_broken_at;
++    out[2] = rx_errors_count;
++    out[3] = maple_longest;
++    maple_longest = 0;
++    out[4] = maple_stalls;
++}
++
+ void dreamcast_maple_counts(uint32_t out[8])
+ {
+ #ifndef CONFIG_DC_CORE1_TX
+@@ -1197,6 +1222,9 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+     uint8_t XOR = 0;
+     uint32_t StartOfPacket = 0;
+     uint32_t Offset = 0;
++#ifdef CONFIG_PSP2DC
++    bool InFrame = false;  // a start seen, its end not yet
++#endif
+ 
+     core1_state = 1;  // Building tables
+ 
+@@ -1234,10 +1262,24 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+ 
+         if (M.Error) {
+             rx_errors_count++;
++#ifdef CONFIG_PSP2DC
++            if (InFrame) {  // the frame is lost: the receiver is back to waiting for a start
++                maple_broken++;
++                maple_broken_at = Offset - StartOfPacket;
++                InFrame = false;
++            }
++#endif
+         }
+ 
+         if (M.Reset) {
+             rx_resets_count++;
++#ifdef CONFIG_PSP2DC
++            if (InFrame) {  // a new start before the last frame's end
++                maple_broken++;
++                maple_broken_at = Offset - StartOfPacket;
++            }
++            InFrame = true;
++#endif
+             Offset = StartOfPacket;
+             Byte = 0;
+             XOR = 0;
+@@ -1254,8 +1296,14 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+ 
+         if (M.End) {
+             rx_ends_count++;
++#ifdef CONFIG_PSP2DC
++            InFrame = false;
++#endif
+             if (XOR == 0) {  // CRC valid
+                 rx_crc_ok++;
++#ifdef CONFIG_PSP2DC
++                if (Offset - StartOfPacket > maple_longest) maple_longest = Offset - StartOfPacket;
++#endif
+ 
+ #ifdef CONFIG_DC_CORE1_TX
+                 // Process and respond IMMEDIATELY on Core 1 (like GameCube)
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index 3afb736f..c7362955 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -319,6 +319,16 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+             st.maple_slow = (uint16_t)m[6];
+             st.maple_max_us = m[7] > 0xffff ? 0xffff : (uint16_t)m[7];
+         }
++        {
++            extern void dreamcast_maple_rx_counts(uint32_t out[5]);
++            uint32_t r[5];
++            dreamcast_maple_rx_counts(r);
++            st.maple_broken = (uint16_t)r[0];
++            st.maple_broken_at = (uint16_t)r[1];
++            st.maple_errors = (uint16_t)r[2];
++            st.maple_longest = (uint16_t)r[3];
++            st.maple_stalls = (uint16_t)r[4];
++        }
+         dreamcast_keyboard_status(&st.kbd_mode, &st.kbd_leds, &st.kbd_reads);
+         {
+             uint32_t c[4];
+-- 
+2.54.0 (Apple Git-157)
+

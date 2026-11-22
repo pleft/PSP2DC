@@ -1,7 +1,7 @@
 From ca3f3e38bec1b1d3ae3c387f308cc71092b743e0 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 17:56:22 +0200
-Subject: [PATCH 06/10] PSP2DC host: single-packet reads again; a newly found
+Subject: [PATCH 06/15] PSP2DC host: single-packet reads again; a newly found
  PSP replaces a held one
 
 Reads go back to one full-speed packet, the size proven on hardware, and a

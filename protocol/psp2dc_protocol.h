@@ -269,10 +269,17 @@ typedef struct {
     uint16_t comp_cmds;       /* the companion: commands from the Dreamcast (wraps) */
     uint16_t comp_agains;     /* ... of them answered "again", no room yet (wraps) */
     uint32_t comp_bytes;      /* ... and the bytes they brought for the PSP */
+    /* the Maple receiver (added 22 November 2026; the PSP takes a status without it) */
+    uint16_t maple_broken;    /* frames broken off before their end: a line error, or a new start (wraps) */
+    uint16_t maple_broken_at; /* the last of them: the bytes it had reached */
+    uint16_t maple_errors;    /* line errors: transitions the receiver could not follow (wraps) */
+    uint16_t maple_longest;   /* the longest frame received whole in the last second (bytes, CRC included) */
+    uint16_t maple_stalls;    /* seconds in which the receiver's FIFO ran full and transitions were missed */
 } __attribute__((packed)) Psp2dcStatus;
 #define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
 #define PSP2DC_STATUS_V5_LEN  36  /* ... and before the keyboard */
 #define PSP2DC_STATUS_V6_LEN  40  /* ... and before the companion */
+#define PSP2DC_STATUS_V7_LEN  48  /* ... and before the receiver's counts */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot

@@ -31,7 +31,7 @@ static void line(int row, const char *fmt, ...)
     bfont_draw_str(vram_s + (16 + row * 24) * 640 + 20, 640, 1, s);
 }
 
-static const int sizes[] = { 0, 4, 64, 256, 996 };   /* a TEST record's data; 0: polls only */
+static const int sizes[] = { 0, 4, 64, 256, 512, 768, 996 };   /* a TEST record's data; 0: polls only */
 #define PHASES ((int)(sizeof(sizes) / sizeof(sizes[0])))
 #define PHASE_FRAMES 300
 
@@ -139,14 +139,14 @@ int main(int argc, char **argv)
                                   res[i].bytes, res[i].errors);
             else line(5 + i, "%c %4d           -        -       -", i == phase ? '>' : ' ', sizes[i]);
         }
-        line(11, "round trip: %u frames (min %u, max %u; %u of %u)", echo_last, echo_min, echo_max, echoes, echo_sent);
-        line(12, "PSP buttons: %08X", psp_buttons);
-        if (cs) line(13, "controller: %04X  stick %d,%d  L %d R %d", (unsigned)cs->buttons, cs->joyx, cs->joyy,
+        line(13, "round trip: %u frames (min %u, max %u; %u of %u)", echo_last, echo_min, echo_max, echoes, echo_sent);
+        line(14, "PSP buttons: %08X", psp_buttons);
+        if (cs) line(15, "controller: %04X  stick %d,%d  L %d R %d", (unsigned)cs->buttons, cs->joyx, cs->joyy,
                      cs->ltrig, cs->rtrig);
-        else line(13, "controller: none");
-        line(14, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
+        else line(15, "controller: none");
+        line(16, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
              (unsigned)st.bytes_in, (unsigned)st.errors);
-        line(16, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
+        line(18, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
     }
     return 0;
 }

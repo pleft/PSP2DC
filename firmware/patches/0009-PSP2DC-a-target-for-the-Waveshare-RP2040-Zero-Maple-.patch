@@ -1,7 +1,7 @@
 From 26b0d4ab0f488a6532c0eb8d76578e114f7440d6 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Mon, 16 Nov 2026 22:17:49 +0200
-Subject: [PATCH 09/10] PSP2DC: a target for the Waveshare RP2040-Zero (Maple
+Subject: [PATCH 09/15] PSP2DC: a target for the Waveshare RP2040-Zero (Maple
  GP14/GP15, as USB4Maple)
 
 usb2dc_psp2dc_rp2040zero: the SuperPico target's PSP2DC build (PSP host

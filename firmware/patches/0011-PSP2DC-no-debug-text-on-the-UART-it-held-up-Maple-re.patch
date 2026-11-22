@@ -1,8 +1,8 @@
 From f52641d209dccb1d032da6fd4859a9786126a628 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Tue, 17 Nov 2026 23:25:26 +0200
-Subject: [PATCH] PSP2DC: no debug text on the UART (it held up Maple replies);
- the bus's counts sent to the PSP
+Subject: [PATCH 11/15] PSP2DC: no debug text on the UART (it held up Maple
+ replies); the bus's counts sent to the PSP
 
 printf waits for each character at 115200 baud, and on Core 0 that delayed
 the Dreamcast's replies past its timeout: games saw the controller or its
