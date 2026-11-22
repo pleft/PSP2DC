@@ -66,6 +66,8 @@ The firmware runs on the board's RP2040, the PSP plugs into its USB-C port,
 and the Dreamcast cable is soldered straight to its pins. It is wired the
 same way as USB4Maple, which joypad-os already supports.
 
+<img src="docs/images/rp2040zero-adapter.webp" alt="The adapter: an RP2040-Zero with a Dreamcast controller cable soldered to its pins" width="360">
+
 ![Wiring: the RP2040-Zero and the Dreamcast plug](docs/wiring-rp2040zero.svg)
 
 | Dreamcast wire | Colour | RP2040-Zero pin |
