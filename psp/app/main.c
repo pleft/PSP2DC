@@ -77,8 +77,8 @@ static void raw_keep(const Psp2dcMapleRaw *r)
     int n, i;
     SceUID fd;
     if (g_raw_count++ >= RAW_KEEP) return;
-    n = snprintf(s, sizeof(s), "capture %u: kind %u (%s), at %u B, pre %u\nraw  ", g_raw_count, r->kind,
-                 r->kind == 1 ? "line error" : "new start", r->at, r->pre);
+    n = snprintf(s, sizeof(s), "capture %u: kind %u (%s), at %u B, pre %u, gap %u us\nraw  ", g_raw_count,
+                 r->kind, r->kind == 1 ? "line error" : r->kind == 2 ? "new start" : "?", r->at, r->pre, r->gap_us);
     for (i = 0; i < PSP2DC_RAW_LEN; i++)
         n += snprintf(s + n, sizeof(s) - n, "%02X%s", r->raw[i],
                       i + 1 == r->pre ? "|" : (i % 16 == 15 && i + 1 < PSP2DC_RAW_LEN) ? "\n     " : " ");
@@ -372,7 +372,8 @@ static int reader_thread(SceSize args, void *argp)
             if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; g_rx_bad++; continue; }
             total = PSP2DC_HEADER_LEN + p[3];
             if (have - pos < total) break;
-            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V7_LEN ||
+            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V8_LEN ||
+                                              p[3] == PSP2DC_STATUS_V7_LEN ||
                                               p[3] == PSP2DC_STATUS_V6_LEN ||
                                               p[3] == PSP2DC_STATUS_V5_LEN || p[3] == PSP2DC_STATUS_OLD_LEN)) {
                 Psp2dcStatus st;
@@ -483,6 +484,9 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
         printf("         rx longest %u B  broken %u (last at %u B)      \n         line errors %u  fifo full %u s      \n",
                g_status.maple_longest, g_status.maple_broken, g_status.maple_broken_at, g_status.maple_errors,
                g_status.maple_stalls);
+    if (g_status.gap_good_min != 0xFFFF || g_status.gap_broken != 0xFFFF)
+        printf("         gap before: whole %u us, whole long %u us, broken %u us      \n",
+               g_status.gap_good_min, g_status.gap_long_min, g_status.gap_broken);
     if (g_raw_count)
         printf("         lost frames captured %u (the first %u in PSP2DC/maple_raw.txt)      \n", g_raw_count, RAW_KEEP);
     if (g_status.maple_unanswered)

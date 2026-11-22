@@ -1,7 +1,7 @@
 From 0ce72bb89629120924e17c7eea28d18becb60cc4 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 20:27:45 +0200
-Subject: [PATCH 07/16] PSP2DC: the memory card can be changed (CARD_EJECT,
+Subject: [PATCH 07/17] PSP2DC: the memory card can be changed (CARD_EJECT,
  protocol 4)
 
 On CARD_EJECT, once every block has reached the PSP, the adapter takes the

@@ -1,7 +1,7 @@
 From b8220bdcbc78420b03c1719eec6a20b5f7c54559 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 22 Nov 2026 20:37:20 +0200
-Subject: [PATCH 16/16] PSP2DC: a lost Maple frame as the receiver saw it, sent
+Subject: [PATCH 16/17] PSP2DC: a lost Maple frame as the receiver saw it, sent
  to the PSP (MAPLE_RAW)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

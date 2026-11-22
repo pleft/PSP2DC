@@ -254,6 +254,7 @@ typedef struct {
     uint8_t reserved;
     uint8_t raw[PSP2DC_RAW_LEN];
     uint8_t state[PSP2DC_RAW_LEN];
+    uint16_t gap_us;      /* from the end of the frame before it to its start, as the receiver saw them */
 } __attribute__((packed)) Psp2dcMapleRaw;
 
 /* STATUS payload */
@@ -293,11 +294,16 @@ typedef struct {
     uint16_t maple_errors;    /* line errors: transitions the receiver could not follow (wraps) */
     uint16_t maple_longest;   /* the longest frame received whole in the last second (bytes, CRC included) */
     uint16_t maple_stalls;    /* seconds in which the receiver's FIFO ran full and transitions were missed */
+    /* from a frame's end to the next one's start, as the receiver saw them (us; 65535: none) */
+    uint16_t gap_good_min;    /* the shortest before a frame received whole, in the last second */
+    uint16_t gap_long_min;    /* ... before one of 200 bytes or more */
+    uint16_t gap_broken;      /* before the last frame broken off */
 } __attribute__((packed)) Psp2dcStatus;
 #define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
 #define PSP2DC_STATUS_V5_LEN  36  /* ... and before the keyboard */
 #define PSP2DC_STATUS_V6_LEN  40  /* ... and before the companion */
 #define PSP2DC_STATUS_V7_LEN  48  /* ... and before the receiver's counts */
+#define PSP2DC_STATUS_V8_LEN  58  /* ... and before the gaps between frames */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot

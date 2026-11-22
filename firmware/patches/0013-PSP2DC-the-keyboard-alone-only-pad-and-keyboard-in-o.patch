@@ -1,7 +1,7 @@
 From 939e18d4a9052be7f24b31af316639d0c010fbdf Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Wed, 18 Nov 2026 22:08:15 +0200
-Subject: [PATCH 13/16] PSP2DC: the keyboard alone only; pad and keyboard in
+Subject: [PATCH 13/17] PSP2DC: the keyboard alone only; pad and keyboard in
  one device dropped
 
 Typing of the Dead never read the keys of one device with both functions
