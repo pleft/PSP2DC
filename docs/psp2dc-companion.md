@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). Phase 1's path is measured on a Dreamcast (B.9); the screen and the demo are not yet tried there |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9) |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -615,7 +615,7 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A Dreamcast game displays a live dashboard on the PSP.
 
-**Status:** built and tested without hardware (Appendix C).
+**Status:** built and tested without hardware (Appendix C); the demo's dashboard runs on a Dreamcast (B.9).
 
 ### Phase 3: Graphics and Assets
 
@@ -627,7 +627,7 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A game displays a live graphical minimap with acceptable performance.
 
-**Status:** the first part (bitmaps, palettes, sprites, the image converter) is built and tested without hardware (Appendix D); D.6 lists what is left.
+**Status:** the first part (bitmaps, palettes, sprites, the image converter) is built and tested without hardware (Appendix D), and the demo's sprites run on a Dreamcast (B.9); D.6 lists what is left.
 
 ### Phase 4: Extended Storage
 
@@ -866,7 +866,7 @@ These are an emulator's figures: one command a vblank is KallistiOS's own pace, 
 
 ### B.8 The test on a Dreamcast
 
-Done for step 1 (B.9); steps 2 to 4 are still to do. What is needed: the adapter with the current firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
+Done but for step 2's readings and the last sentence of step 4 (B.9). What is needed: the adapter with the current firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
 
 1. **`psp2dc_test.cdi`.** The television shows whether the companion is found, then commands and bytes a second and errors for each record size, and the round trip. The PSP shows what arrives and whether the test records came whole.
 2. **On the PSP, Settings, Details, while the test runs:** the `maple` lines (replies begun 1 ms late, the longest wait, packets that failed their check) and the companion's line. This is where a late reply or a damaged long frame shows.
@@ -892,7 +892,9 @@ The test disc on a Dreamcast (GDEMU), the RP2040-Zero adapter and a PSP-1000:
 | 896 | 60 | 52 915 | 0 |
 | 996 | 60 | 58 795 | 0 |
 
-The round trip of an ECHO was 3 to 8 frames, 4 as a rule, and all 50 came back. These are the emulator's figures (B.7): the bus carries a command a vblank at any length, and B.7's three open questions are answered for the test's traffic. With the VMU's screen drawn every frame as well (Y), every figure was the same, again without an error. Not run yet: the demo disc.
+The round trip of an ECHO was 3 to 8 frames, 4 as a rule, and all 50 came back. These are the emulator's figures (B.7): the bus carries a command a vblank at any length, and B.7's three open questions are answered for the test's traffic. With the VMU's screen drawn every frame as well (Y), every figure was the same, again without an error.
+
+**The demo disc** runs there too: the maze on the television, and on the PSP the explored map drawn from sprites, health, score, steps and the list of keys, each following the game. At the first try the PSP froze and switched itself off as the demo started. `comp_screen.o` had been built before `companion.h` gained a region's palette and the sprites, and the PSP application's Makefile knew no headers, so it was never built again: the drawing read a palette's colours as a second region's size and pixels. The demo's records fed to that build in PPSSPP (`dev_companion.bin`) stopped the emulator at the PALETTE record; built afresh, it draws the dashboard. The Makefile now builds an object again when a header it uses changes. Not tried yet on the Dreamcast: the PSP's L and R in the list, the PSP unplugged and back, and its card changed, while the demo runs.
 
 **What it took.** At first every command of 512 bytes and more was lost, and those of 256 ran without an error. The adapter counted no frame with a bad check and none unanswered: its receiver lost the frame at its start. A frame's first byte is its length in words, so from 128 words its first bit is a 1. The receiver's state machine (joypad-os's, from MaplePad) expected pin 5 to fall before every bit's clock, which holds for every bit but the first: after the start pattern both lines are high, and a first bit of 1 is pin 1 falling at once. No controller or memory card command is 128 words long, so nothing had met this. One more state takes it (firmware patch 0016); `scripts/dev/maple-rx-test.sh` runs the receiver's tables over frames of every length on the computer (0 to 127 words read before the fix, all 256 lengths after), and the new tables differ from the old only where the old gave an error.
 

@@ -793,7 +793,7 @@ Completed:
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 - The Dreamcast keyboard (5.0e7): works on hardware in openMenu and Typing of the Dead (18 November 2026, RP2040-Zero).
 - Game names on per-game cards (5.0e8): built and checked in PPSSPP, not yet tried on hardware.
-- The companion, phases 1 and 2 and the first part of phase 3: built and tested without hardware; its data path measured on a Dreamcast on 22 November 2026, 59 KB a second without an error, after a fix to the adapter's Maple receiver for frames of 128 words and more ([psp2dc-companion.md](psp2dc-companion.md), B.9). The screen and the demo are not yet tried there.
+- The companion, phases 1 and 2 and the first part of phase 3: built and tested without hardware; its data path measured on a Dreamcast on 22 November 2026, 59 KB a second without an error, after a fix to the adapter's Maple receiver for frames of 128 words and more ([psp2dc-companion.md](psp2dc-companion.md), B.9); the demo runs there with its dashboard on the PSP.
 - The RP2040-Zero is the adapter to build and the SuperPico the prototype (21 November 2026): the README, the firmware script's default board, [superpico.md](superpico.md).
 - The menu beside the VMU (21 November 2026, 5.0a): a list in place of the tabs, the pages in a column beside the VMU, long names scrolling. Checked in PPSSPP, not yet on hardware.
 
