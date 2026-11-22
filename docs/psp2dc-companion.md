@@ -638,6 +638,8 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A KallistiOS game stores and retrieves data from the PSP Memory Stick.
 
+**Status:** designed (Appendix E); not built.
+
 ### Phase 5: Developer SDK
 
 - Stabilize the API.
@@ -1054,4 +1056,83 @@ So a map made of tiles is sprites, sent once and then placed; a picture of the w
 ### D.6 Left of phase 3
 
 - Assets kept on the Memory Stick, with a version to ask for (6.5), so that a game's pictures are sent once ever, not once a session.
-- The throughput measured, and what follows from it.
+- ~~The throughput measured~~: done, 59 KB a second (B.9).
+
+---
+
+## Appendix E. Phase 4: Files on the Memory Stick (design, 22 November 2026)
+
+A program keeps files of its own on the PSP's Memory Stick: a save larger than a VMU's, levels, replays. Designed so that the adapter is not touched: its two queues carry the new records as they carry any bytes (B.1). Only the library, the PSP application and the test change.
+
+### E.1 What the path allows (from the code)
+
+- **Dreamcast to PSP:** 59 KB a second, measured (B.9). Writing a file is as fast as that.
+- **PSP to Dreamcast:** a reply already carries up to 1000 bytes from the PSP, one reply a frame: 60 KB a second at most at the Maple end. Before that, the bytes cross USB from the PSP to the adapter, and that direction has carried only small records so far. A whole card (128 KB) goes up in a second or two when nothing else is sent; while the adapter also sends to the PSP, it reads only 64 bytes between two of its sends. How fast a file comes back is therefore the number this phase has to measure (E.6).
+- **No room is dropped, not waited for:** the adapter drops a message from the PSP when its 4 KB queue towards the Dreamcast is full, and the PSP has no way to know. So the library never asks for more than fits: at most a window of bytes is on its way at a time (E.3).
+- **Records from the PSP grow from 56 bytes to 255,** a USB message's whole payload. The adapter already takes messages of any length; the 56 was the PSP's 64-byte send buffer. A file's bytes come back in pieces of up to 240.
+
+### E.2 Decisions
+
+- **A folder per program:** `ms0:/PSP2DC/games/<name>/`, the name given by the program (up to 16 letters, digits, `-` and `_`, in small letters). Plain files, which can be copied off the Memory Stick with a computer.
+- **Names inside it:** up to 63 characters of small letters, digits, `.`, `-`, `_` and `/`, with no part empty or starting with a dot. Nothing outside the folder can be named.
+- **Whole files are written, parts can be read.** A write goes to a temporary name and replaces the file only when all of it arrived with the right size and CRC-32. A file is therefore either its old self or its new self, whatever is unplugged when. A read can start anywhere and take any length.
+- **One operation at a time, never waited on.** A program starts one and asks each frame whether it is done, as with sprites. The program's buffer stays its own and must stay put until then.
+- **A window each way.** Reads: the library asks for pieces of at most 1 KB, with at most 3 KB asked for and not yet arrived (the adapter's queue is 4 KB, and the buttons' records use it too). Writes: the PSP acknowledges what it has written, and the library keeps at most 16 KB unacknowledged, so a slow Memory Stick holds the program back instead of filling the PSP's memory.
+- **The PSP writes to the Memory Stick on a thread of its own,** so neither the USB link nor the screen waits on it.
+- **What can go wrong is a status, not a hang:** the file is not there, a name not allowed, no room, the PSP gone (unplugged, or the session changed during the operation). After the PSP is gone the program simply starts the operation again. Temporary files left by an interrupted write are deleted when the PSP application starts.
+- **A limit per folder:** 16 MB, and of course the Memory Stick's free space.
+
+### E.3 Records
+
+Dreamcast to PSP:
+
+| Record | Data | Does |
+|---|---|---|
+| FOLDER 0x30 | name | the program's folder, made if it is not there |
+| WRITE 0x31 | op, size (4), CRC-32 (4), name | a write begins |
+| WDATA 0x32 | op, offset (4), bytes | the next bytes of it (up to 990) |
+| READ 0x33 | op, offset (4), length (2), name | at most 1 KB of a file |
+| STAT 0x34 | op, name | the file's size; with no name, the folder's use and the free space |
+| DELETE 0x35 | op, name | the file gone |
+| LIST 0x36 | op, first | names and sizes, from the first-th on |
+
+PSP to Dreamcast:
+
+| Record | Data | Does |
+|---|---|---|
+| RDATA 0x30 | op, offset (4), bytes | a read's bytes (up to 240 a record) |
+| ACK 0x31 | op, written (4) | a write's bytes on the Memory Stick so far |
+| DONE 0x32 | op, status, value (4), more | the end: the size, the bytes read, or, for LIST, what follows in it |
+
+`op` counts the program's operations, so a record left from an earlier one is told apart and ignored. CAPS (C.2) says level 4 and adds whether files can be kept.
+
+A transfer from the PSP is never a whole number of 64-byte packets (the protocol's rule since the start); the PSP adds an empty message when one would be.
+
+### E.4 The library
+
+```c
+psp2dc_files("mazedemo");                        /* the folder; once, after psp2dc_init */
+psp2dc_file_write("best.sav", &best, sizeof best);
+...
+switch (psp2dc_file_status(&n)) {                /* each frame, after psp2dc_update */
+case PSP2DC_FILE_BUSY: break;
+case PSP2DC_FILE_DONE: /* n: bytes written, or read */ break;
+default:               /* not there, no room, PSP gone, name refused */ break;
+}
+```
+
+`psp2dc_file_write`, `psp2dc_file_read(name, offset, buf, len)`, `psp2dc_file_size`, `psp2dc_file_delete`, `psp2dc_file_list`, `psp2dc_file_status`. Each start returns at once and fails only when another operation is running or no PSP with files is there.
+
+### E.5 Checked on the computer first
+
+- **The library's test** (B.7) with two more cases: `files` (each operation, names refused, the limit, the folder's free space) and `files-faults` (thousands of writes and reads while replies are lost, the PSP is slow, unplugged and back, and the session changes; after each, every file on the simulated Memory Stick must be wholly old or wholly new, and a read must return the right bytes or a status, never wrong bytes). The PSP's file code is one file shared with the simulator, as the screen's is.
+- **Flycast** with the simulator: the test disc's new part runs on the real KallistiOS.
+- **PPSSPP:** the PSP application fed file records (`dev_companion.bin`) writes them into the emulator's Memory Stick.
+
+### E.6 On a Dreamcast: one round
+
+Only the PSP application and the two discs change; the adapter keeps its firmware. The test disc gains a last part after the sizes of B.9: it writes a 64 KB file, then reads it back with windows of 1, 2 and 3 KB, compares each byte, and shows the speed each way and the PSP's longest main-loop turn, then deletes the file. That gives the read speed, and which window to keep, in one run.
+
+### E.7 After this: pictures kept (the rest of phase 3, 6.5)
+
+Built on files: a sprite made with a name is looked for on the Memory Stick first, by name and CRC, and sent only when it is not there or differs; the PSP keeps what it was sent. So a program's pictures cross the cable once ever.
