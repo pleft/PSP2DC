@@ -892,7 +892,7 @@ The test disc on a Dreamcast (GDEMU), the RP2040-Zero adapter and a PSP-1000:
 | 896 | 60 | 52 915 | 0 |
 | 996 | 60 | 58 795 | 0 |
 
-The round trip of an ECHO was 3 to 8 frames, 4 as a rule, and all 50 came back. These are the emulator's figures (B.7): the bus carries a command a vblank at any length, and B.7's three open questions are answered for the test's traffic. Not run yet: the same with the VMU's screen drawn every frame (Y), and the demo disc.
+The round trip of an ECHO was 3 to 8 frames, 4 as a rule, and all 50 came back. These are the emulator's figures (B.7): the bus carries a command a vblank at any length, and B.7's three open questions are answered for the test's traffic. With the VMU's screen drawn every frame as well (Y), every figure was the same, again without an error. Not run yet: the demo disc.
 
 **What it took.** At first every command of 512 bytes and more was lost, and those of 256 ran without an error. The adapter counted no frame with a bad check and none unanswered: its receiver lost the frame at its start. A frame's first byte is its length in words, so from 128 words its first bit is a 1. The receiver's state machine (joypad-os's, from MaplePad) expected pin 5 to fall before every bit's clock, which holds for every bit but the first: after the start pattern both lines are high, and a first bit of 1 is pin 1 falling at once. No controller or memory card command is 128 words long, so nothing had met this. One more state takes it (firmware patch 0016); `scripts/dev/maple-rx-test.sh` runs the receiver's tables over frames of every length on the computer (0 to 127 words read before the fix, all 256 lengths after), and the new tables differ from the old only where the old gave an error.
 
