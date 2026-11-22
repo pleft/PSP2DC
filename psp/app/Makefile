@@ -6,7 +6,10 @@ TARGET = psp2dc_app
 OBJS = main.o tools.o ui.o keyboard.o companion.o comp_screen.o vmu_sa.o vmu_game.o vmu_core.o cards.o card_sync.o cardfs.o
 
 INCDIR = $(PSPEXP_USB)
-CFLAGS = -O2 -G0 -Wall -std=gnu17
+# -MMD: each object's headers are written beside it (.d) and read back below, so a
+# changed header builds again all that use it (a stale comp_screen.o, built before
+# companion.h grew, read the palette as a region and took the PSP down)
+CFLAGS = -O2 -G0 -Wall -std=gnu17 -MMD -MP
 ASFLAGS = $(CFLAGS)
 LIBDIR = $(PSPEXP_USB)
 LDFLAGS =
@@ -16,3 +19,5 @@ BUILD_PRX = 1
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak
+
+-include $(OBJS:.o=.d)
