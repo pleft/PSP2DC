@@ -46,7 +46,8 @@ and 2, and the first part of phase 3) are in
 [docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
 widgets (labels, numbers, bars, lists) on the PSP, draw into regions of its
 screen, and send bitmaps and sprites. This is built and tested against a
-simulated adapter and PSP, and not yet tried on a Dreamcast.
+simulated adapter and PSP. On a Dreamcast its data path is measured (59 KB a
+second, without an error); the widgets and the demo are not yet tried there.
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).

@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D); not yet tried on a Dreamcast |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). Phase 1's path is measured on a Dreamcast (B.9); the screen and the demo are not yet tried there |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -603,7 +603,7 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A KallistiOS application sends a message to the PSP and receives a response.
 
-**Status:** built and tested without hardware (Appendix B); the test on a Dreamcast is B.8.
+**Status:** built, tested without hardware (Appendix B) and measured on a Dreamcast (B.9).
 
 ### Phase 2: Structured Display
 
@@ -798,7 +798,7 @@ The proof of concept and the measurement step in one: a KallistiOS program finds
 
 ### B.6 As built (20 November 2026)
 
-Built as designed, with what B.1 and B.2 now say. Not yet tried on a Dreamcast.
+Built as designed, with what B.1 and B.2 now say. Measured on a Dreamcast on 22 November 2026 (B.9).
 
 - **Adapter** (joypad-os patch 0014): the command and the two 4 KB queues are in the VMU's file (`vmu.c`), which has the unit's address and the RAM-resident copy routines the Maple path needs; the USB side is in `psp2dc_host.c`. Both targets build.
 - **PSP:** `psp/app/companion.c` reads the stream; the page shows while bytes arrived in the last three seconds. System, Details has a line of the companion's counts on both ends. `ms0:/PSP2DC/dev_companion.txt` shows the page in PPSSPP without a Dreamcast (its lines as printed rows).
@@ -866,7 +866,7 @@ These are an emulator's figures: one command a vblank is KallistiOS's own pace, 
 
 ### B.8 The test on a Dreamcast
 
-What is needed: the adapter with phase 1's firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
+Done for step 1 (B.9); steps 2 to 4 are still to do. What is needed: the adapter with the current firmware, the PSP with the current application, and the two discs of `scripts/build-dreamcast.sh` on the GDEMU card.
 
 1. **`psp2dc_test.cdi`.** The television shows whether the companion is found, then commands and bytes a second and errors for each record size, and the round trip. The PSP shows what arrives and whether the test records came whole.
 2. **On the PSP, Settings, Details, while the test runs:** the `maple` lines (replies begun 1 ms late, the longest wait, packets that failed their check) and the companion's line. This is where a late reply or a damaged long frame shows.
@@ -874,6 +874,31 @@ What is needed: the adapter with phase 1's firmware, the PSP with the current ap
 4. **`psp2dc_demo.cdi`.** The maze on the television, the dashboard on the PSP; walk, take a key, stand in the lava; the PSP's L and R move the mark in the list. Unplug the PSP and plug it back, and change its card: the dashboard must come back whole each time.
 
 The numbers of step 1 go into B.7's table beside the emulator's; errors at the larger sizes only would mean shorter records (`PSP2DC_COMP_DATA_MAX`), which nothing above depends on.
+
+### B.9 On a Dreamcast (22 November 2026)
+
+The test disc on a Dreamcast (GDEMU), the RP2040-Zero adapter and a PSP-1000:
+
+| Record size | Commands/s | Bytes/s | Errors |
+|---|---|---|---|
+| polls only | 60 | 53 | 0 |
+| 64 | 60 | 3998 | 0 |
+| 256 | 60 | 15 283 | 0 |
+| 384 | 60 | 22 809 | 0 |
+| 497 | 60 | 29 454 | 0 |
+| 501 | 60 | 29 689 | 0 |
+| 640 | 60 | 37 862 | 0 |
+| 768 | 60 | 45 389 | 0 |
+| 896 | 60 | 52 915 | 0 |
+| 996 | 60 | 58 795 | 0 |
+
+The round trip of an ECHO was 3 to 8 frames, 4 as a rule, and all 50 came back. These are the emulator's figures (B.7): the bus carries a command a vblank at any length, and B.7's three open questions are answered for the test's traffic. Not run yet: the same with the VMU's screen drawn every frame (Y), and the demo disc.
+
+**What it took.** At first every command of 512 bytes and more was lost, and those of 256 ran without an error. The adapter counted no frame with a bad check and none unanswered: its receiver lost the frame at its start. A frame's first byte is its length in words, so from 128 words its first bit is a 1. The receiver's state machine (joypad-os's, from MaplePad) expected pin 5 to fall before every bit's clock, which holds for every bit but the first: after the start pattern both lines are high, and a first bit of 1 is pin 1 falling at once. No controller or memory card command is 128 words long, so nothing had met this. One more state takes it (firmware patch 0016); `scripts/dev/maple-rx-test.sh` runs the receiver's tables over frames of every length on the computer (0 to 127 words read before the fix, all 256 lengths after), and the new tables differ from the old only where the old gave an error.
+
+**How it was found.** The adapter's status gained the receiver's counts (frames broken off and where, line errors, the longest frame received whole, its FIFO running full), shown in Settings, Details: the long frames broke at 0 bytes, with the FIFO never full. A copy of the receiver's raw bytes around a lost frame, sent to the PSP, showed a clean frame read half a bit out of step from its first bit on. That capture is not kept in the firmware. A later one, which also read the clock at each frame's start and end, slowed the receive loop enough to fill the FIFO and lose frames of every size: the loop on Core 1 has no time to spare, and nothing should be added to it.
+
+**The test disc** now goes through its ten sizes once, five seconds each, whatever becomes of a size (the library gives a companion that stops answering up, and finds it again), and ends with the longest that ran without an error. 497 and 501 bytes are the two sides of 128 words. While a program uses the companion, the PSP writes the adapter's counts a second to `PSP2DC/companion_log.txt`.
 
 ---
 
