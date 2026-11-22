@@ -1,0 +1,125 @@
+From b8220bdcbc78420b03c1719eec6a20b5f7c54559 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 22 Nov 2026 20:37:20 +0200
+Subject: [PATCH 16/16] PSP2DC: a lost Maple frame as the receiver saw it, sent
+ to the PSP (MAPLE_RAW)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../device/dreamcast/dreamcast_device.c       | 55 +++++++++++++++++++
+ src/usb/usbh/psp2dc/psp2dc_host.c             |  5 ++
+ 2 files changed, 60 insertions(+)
+
+diff --git a/src/native/device/dreamcast/dreamcast_device.c b/src/native/device/dreamcast/dreamcast_device.c
+index bd0ed364..63d51907 100644
+--- a/src/native/device/dreamcast/dreamcast_device.c
++++ b/src/native/device/dreamcast/dreamcast_device.c
+@@ -1178,6 +1178,42 @@ static void __not_in_flash_func(maple_note_unanswered)(uint32_t size)
+ static volatile uint32_t maple_broken, maple_broken_at, maple_longest;
+ static uint32_t maple_stalls;
+ 
++// The receiver's last bytes and states, and a copy of them around the first
++// frame lost since the last was sent to the PSP (Psp2dcMapleRaw): raw_stage
++// 0 armed, 1 copying once RAW_POST more bytes have come, 2 ready (Core 1);
++// 3 sent, armed again five seconds later (Core 0).
++#define RAW_N 64
++#define RAW_POST 32
++static uint8_t raw_ring[RAW_N], raw_ring_state[RAW_N];
++static uint8_t raw_copy[RAW_N], raw_copy_state[RAW_N];
++static volatile uint32_t raw_stage;
++static uint8_t raw_kind, raw_at;
++static uint32_t raw_sent_ms;
++
++static void __not_in_flash_func(raw_note_broken)(uint32_t kind, uint32_t at)
++{
++    if (raw_stage != 0) return;
++    raw_kind = (uint8_t)kind;
++    raw_at = at > 255 ? 255 : (uint8_t)at;
++    raw_stage = 1;
++}
++
++// The copy, when there is one: true and out filled (a Psp2dcMapleRaw's bytes).
++bool dreamcast_maple_raw_take(uint8_t *out, uint32_t now_ms)
++{
++    if (raw_stage == 3 && now_ms - raw_sent_ms >= 5000) raw_stage = 0;
++    if (raw_stage != 2) return false;
++    out[0] = raw_kind;
++    out[1] = raw_at;
++    out[2] = RAW_N - RAW_POST;
++    out[3] = 0;
++    memcpy(out + 4, raw_copy, RAW_N);
++    memcpy(out + 4 + RAW_N, raw_copy_state, RAW_N);
++    raw_sent_ms = now_ms;
++    raw_stage = 3;
++    return true;
++}
++
+ // For the PSP's status page, once a second: broken frames, where the last
+ // broke, line errors, the longest whole frame in the last second, and the
+ // seconds in which the receiver's FIFO ran full (its state machines stalled,
+@@ -1224,6 +1260,7 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+     uint32_t Offset = 0;
+ #ifdef CONFIG_PSP2DC
+     bool InFrame = false;  // a start seen, its end not yet
++    uint32_t RawIndex = 0, RawPost = 0;
+ #endif
+ 
+     core1_state = 1;  // Building tables
+@@ -1258,6 +1295,22 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+         rx_bytes_count++;
+ 
+         MapleStateMachine M = MapleMachine[State][Value];
++#ifdef CONFIG_PSP2DC
++        raw_ring[RawIndex & (RAW_N - 1)] = Value;
++        raw_ring_state[RawIndex & (RAW_N - 1)] = (uint8_t)State;
++        RawIndex++;
++        if (raw_stage == 1) {
++            if (RawPost == 0) RawPost = RAW_POST;            // (this byte broke the frame: RAW_POST - 1 more)
++            else if (--RawPost == 1) {
++                for (uint32_t k = 0; k < RAW_N; k++) {       // oldest first
++                    raw_copy[k] = raw_ring[(RawIndex + k) & (RAW_N - 1)];
++                    raw_copy_state[k] = raw_ring_state[(RawIndex + k) & (RAW_N - 1)];
++                }
++                RawPost = 0;
++                raw_stage = 2;
++            }
++        }
++#endif
+         State = M.NewState;
+ 
+         if (M.Error) {
+@@ -1266,6 +1319,7 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+             if (InFrame) {  // the frame is lost: the receiver is back to waiting for a start
+                 maple_broken++;
+                 maple_broken_at = Offset - StartOfPacket;
++                raw_note_broken(1, Offset - StartOfPacket);
+                 InFrame = false;
+             }
+ #endif
+@@ -1277,6 +1331,7 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
+             if (InFrame) {  // a new start before the last frame's end
+                 maple_broken++;
+                 maple_broken_at = Offset - StartOfPacket;
++                raw_note_broken(2, Offset - StartOfPacket);
+             }
+             InFrame = true;
+ #endif
+diff --git a/src/usb/usbh/psp2dc/psp2dc_host.c b/src/usb/usbh/psp2dc/psp2dc_host.c
+index c7362955..2f582e89 100644
+--- a/src/usb/usbh/psp2dc/psp2dc_host.c
++++ b/src/usb/usbh/psp2dc/psp2dc_host.c
+@@ -291,6 +291,11 @@ static uint16_t next_out(psp2dc_dev_t *d, uint32_t now)
+         return put_msg(d->tx, PSP2DC_MSG_LCD, NULL, PSP2DC_LCD_BYTES);
+     }
+     d->lcd_last = false;
++    {   // a Maple frame the adapter lost, as its receiver saw it
++        extern bool dreamcast_maple_raw_take(uint8_t *out, uint32_t now_ms);
++        if (dreamcast_maple_raw_take(d->tx + PSP2DC_HEADER_LEN, now))
++            return put_msg(d->tx, PSP2DC_MSG_MAPLE_RAW, NULL, sizeof(Psp2dcMapleRaw));
++    }
+ #endif
+     if (now - d->status_ms >= PSP2DC_STATUS_MS) {
+         Psp2dcStatus st = { .uptime_ms = now, .version = PSP2DC_PROTOCOL_VERSION };
+-- 
+2.54.0 (Apple Git-157)
+

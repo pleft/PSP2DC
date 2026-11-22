@@ -1,7 +1,7 @@
 From 389a6c3e62e7e36cf52f7f7dbef76e3d4921ac58 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 16:10:44 +0200
-Subject: [PATCH 02/15] usb2dc_superpico: memory card in RAM only, Bluetooth
+Subject: [PATCH 02/16] usb2dc_superpico: memory card in RAM only, Bluetooth
  removed (experimental)
 
 CONFIG_VMU on this target with no storage backend: the Dreamcast sees a

@@ -63,6 +63,7 @@
 #define PSP2DC_MSG_GAME_ID 0x14  /* a game's ID, from openMenu as it starts a disc (Psp2dcGameId) */
 #define PSP2DC_MSG_COMP_DATA 0x15 /* the companion: the next bytes of the Dreamcast program's stream */
 #define PSP2DC_MSG_COMP_RESET 0x16 /* the companion: a session begins; the stream starts afresh */
+#define PSP2DC_MSG_MAPLE_RAW 0x17 /* a Maple frame the adapter lost, as its receiver saw it (Psp2dcMapleRaw) */
 
 /* HELLO payload */
 typedef struct {
@@ -237,6 +238,23 @@ typedef struct {
 } __attribute__((packed)) Psp2dcKeyboard;
 #define PSP2DC_KBD_OFF  0
 #define PSP2DC_KBD_ONLY 2
+
+/* MAPLE_RAW payload: what the adapter's Maple receiver read around a frame
+ * it lost (broken off before its end), for finding out why. raw[] is what
+ * the receiver's PIO pushed, a byte each (4 samples of the two lines, 2 bits
+ * each, oldest first), and state[] the receiver's state machine before each
+ * (maple_state_machine.c). The first `pre` bytes come before the one that
+ * broke the frame (that one included), the rest after it. Sent at most every
+ * five seconds. */
+#define PSP2DC_RAW_LEN 64
+typedef struct {
+    uint8_t kind;         /* 1: a line error, 2: a new start before the frame's end */
+    uint8_t at;           /* the bytes the frame had reached (255: 255 or more) */
+    uint8_t pre;
+    uint8_t reserved;
+    uint8_t raw[PSP2DC_RAW_LEN];
+    uint8_t state[PSP2DC_RAW_LEN];
+} __attribute__((packed)) Psp2dcMapleRaw;
 
 /* STATUS payload */
 typedef struct {

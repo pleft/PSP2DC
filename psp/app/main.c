@@ -65,6 +65,32 @@ static volatile int g_running = 1;
 /* what the adapter last told us (reader thread writes, main thread shows) */
 static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
+static unsigned g_raw_count;           /* Maple frames the adapter lost, as its receiver saw them: */
+#define RAW_FILE "ms0:/PSP2DC/maple_raw.txt"   /* ... the first RAW_KEEP of them kept here */
+#define RAW_KEEP 20
+
+/* One lost frame (Psp2dcMapleRaw) as a block of text: the receiver's bytes and
+ * its states, 16 a line, a | after the byte that broke the frame. */
+static void raw_keep(const Psp2dcMapleRaw *r)
+{
+    char s[1024];
+    int n, i;
+    SceUID fd;
+    if (g_raw_count++ >= RAW_KEEP) return;
+    n = snprintf(s, sizeof(s), "capture %u: kind %u (%s), at %u B, pre %u\nraw  ", g_raw_count, r->kind,
+                 r->kind == 1 ? "line error" : "new start", r->at, r->pre);
+    for (i = 0; i < PSP2DC_RAW_LEN; i++)
+        n += snprintf(s + n, sizeof(s) - n, "%02X%s", r->raw[i],
+                      i + 1 == r->pre ? "|" : (i % 16 == 15 && i + 1 < PSP2DC_RAW_LEN) ? "\n     " : " ");
+    n += snprintf(s + n, sizeof(s) - n, "\nstate ");
+    for (i = 0; i < PSP2DC_RAW_LEN; i++)
+        n += snprintf(s + n, sizeof(s) - n, "%02u%s", r->state[i],
+                      i + 1 == r->pre ? "|" : (i % 16 == 15 && i + 1 < PSP2DC_RAW_LEN) ? "\n      " : " ");
+    n += snprintf(s + n, sizeof(s) - n, "\n\n");
+    if ((fd = sceIoOpen(RAW_FILE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777)) < 0) return;
+    sceIoWrite(fd, s, n);
+    sceIoClose(fd);
+}
 static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
 
 /* The memory card in use: one of the files in ms0:/PSP2DC/cards (cards.c),
@@ -377,6 +403,10 @@ static int reader_thread(SceSize args, void *argp)
             } else if (p[2] == PSP2DC_MSG_GAME_ID && p[3] == sizeof(Psp2dcGameId)) {
                 memcpy(&g_gid, p + PSP2DC_HEADER_LEN, sizeof(g_gid));   /* (acted on by the main loop) */
                 g_gid_seq++;
+            } else if (p[2] == PSP2DC_MSG_MAPLE_RAW && p[3] == sizeof(Psp2dcMapleRaw)) {
+                Psp2dcMapleRaw r;
+                memcpy(&r, p + PSP2DC_HEADER_LEN, sizeof(r));
+                raw_keep(&r);
             } else if (p[2] == PSP2DC_MSG_COMP_RESET) {
                 comp_reset();
             } else if (p[2] == PSP2DC_MSG_COMP_DATA) {
@@ -453,6 +483,8 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
         printf("         rx longest %u B  broken %u (last at %u B)      \n         line errors %u  fifo full %u s      \n",
                g_status.maple_longest, g_status.maple_broken, g_status.maple_broken_at, g_status.maple_errors,
                g_status.maple_stalls);
+    if (g_raw_count)
+        printf("         lost frames captured %u (the first %u in PSP2DC/maple_raw.txt)      \n", g_raw_count, RAW_KEEP);
     if (g_status.maple_unanswered)
         printf("         last unanswered: cmd %02X to %02X, %u words, func %08X  \n", g_status.last_cmd,
                g_status.last_dest, g_status.last_words, (unsigned)g_status.last_func);
