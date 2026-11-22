@@ -65,31 +65,36 @@ static volatile int g_running = 1;
 /* what the adapter last told us (reader thread writes, main thread shows) */
 static volatile unsigned g_status_count, g_adapter_uptime_ms, g_adapter_version;
 static volatile unsigned g_rx_bad;
-static unsigned g_raw_count;           /* Maple frames the adapter lost, as its receiver saw them: */
-#define RAW_FILE "ms0:/PSP2DC/maple_raw.txt"   /* ... the first RAW_KEEP of them kept here */
-#define RAW_KEEP 20
-
-/* One lost frame (Psp2dcMapleRaw) as a block of text: the receiver's bytes and
- * its states, 16 a line, a | after the byte that broke the frame. */
-static void raw_keep(const Psp2dcMapleRaw *r)
+/* The adapter's counts while a Dreamcast program uses the companion, a line a
+ * second: kept here by the reader, written to the Memory Stick by the saver
+ * (so a slow write holds up neither). For the tests of B.8. */
+#define LOG_FILE "ms0:/PSP2DC/companion_log.txt"
+static char g_log[48 * 1024];
+static volatile unsigned g_log_len;
+static unsigned g_log_written, g_log_cmds;
+static void log_status(const Psp2dcStatus *st)
 {
-    char s[1024];
-    int n, i;
+    unsigned n = g_log_len;
+    if (st->comp_cmds == g_log_cmds || n + 200 > sizeof(g_log)) return;   /* (nothing from the program this second) */
+    g_log_cmds = st->comp_cmds;
+    if (!n) n = snprintf(g_log, sizeof(g_log), "up_s cmds again adapter_bytes psp_bytes psp_records psp_bad | maple: bad "
+                         "unanswered late over1ms longest_us | rx: longest_B broken broken_at line_errors fifo_full_s\n");
+    n += snprintf(g_log + n, sizeof(g_log) - n, "%u %u %u %u %u %u %u | %u %u %u %u %u | %u %u %u %u %u\n",
+                  (unsigned)st->uptime_ms / 1000, st->comp_cmds, st->comp_agains, (unsigned)st->comp_bytes,
+                  g_comp.bytes, g_comp.records, g_comp.test_bad + g_comp.stream_bad,
+                  st->maple_bad, st->maple_unanswered, st->maple_skipped, st->maple_slow, st->maple_max_us,
+                  st->maple_longest, st->maple_broken, st->maple_broken_at, st->maple_errors, st->maple_stalls);
+    g_log_len = n;
+}
+static void log_write(void)
+{
+    unsigned n = g_log_len;
     SceUID fd;
-    if (g_raw_count++ >= RAW_KEEP) return;
-    n = snprintf(s, sizeof(s), "capture %u: kind %u (%s), at %u B, pre %u, gap %u us\nraw  ", g_raw_count,
-                 r->kind, r->kind == 1 ? "line error" : r->kind == 2 ? "new start" : "?", r->at, r->pre, r->gap_us);
-    for (i = 0; i < PSP2DC_RAW_LEN; i++)
-        n += snprintf(s + n, sizeof(s) - n, "%02X%s", r->raw[i],
-                      i + 1 == r->pre ? "|" : (i % 16 == 15 && i + 1 < PSP2DC_RAW_LEN) ? "\n     " : " ");
-    n += snprintf(s + n, sizeof(s) - n, "\nstate ");
-    for (i = 0; i < PSP2DC_RAW_LEN; i++)
-        n += snprintf(s + n, sizeof(s) - n, "%02u%s", r->state[i],
-                      i + 1 == r->pre ? "|" : (i % 16 == 15 && i + 1 < PSP2DC_RAW_LEN) ? "\n      " : " ");
-    n += snprintf(s + n, sizeof(s) - n, "\n\n");
-    if ((fd = sceIoOpen(RAW_FILE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777)) < 0) return;
-    sceIoWrite(fd, s, n);
+    if (n == g_log_written) return;
+    if ((fd = sceIoOpen(LOG_FILE, PSP_O_WRONLY | PSP_O_CREAT | (g_log_written ? PSP_O_APPEND : PSP_O_TRUNC), 0777)) < 0) return;
+    sceIoWrite(fd, g_log + g_log_written, n - g_log_written);
     sceIoClose(fd);
+    g_log_written = n;
 }
 static Psp2dcStatus g_status;   /* the last one whole, for its LCD counters */
 
@@ -214,6 +219,7 @@ static int saver_thread(SceSize args, void *argp)
 {
     while (g_running) {
         sceKernelDelayThread(200000);
+        log_write();
         if (g_card_dirty && now_us() - g_card_last_us > CARD_QUIET_US) {
             card_lock();
             if (g_card_dirty) {
@@ -372,14 +378,14 @@ static int reader_thread(SceSize args, void *argp)
             if (p[0] != PSP2DC_MAGIC0 || p[1] != PSP2DC_MAGIC1) { pos++; g_rx_bad++; continue; }
             total = PSP2DC_HEADER_LEN + p[3];
             if (have - pos < total) break;
-            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V8_LEN ||
-                                              p[3] == PSP2DC_STATUS_V7_LEN ||
+            if (p[2] == PSP2DC_MSG_STATUS && (p[3] == sizeof(Psp2dcStatus) || p[3] == PSP2DC_STATUS_V7_LEN ||
                                               p[3] == PSP2DC_STATUS_V6_LEN ||
                                               p[3] == PSP2DC_STATUS_V5_LEN || p[3] == PSP2DC_STATUS_OLD_LEN)) {
                 Psp2dcStatus st;
                 memset(&st, 0, sizeof(st));
                 memcpy(&st, p + PSP2DC_HEADER_LEN, p[3]);
                 g_status = st;
+                log_status(&st);
                 g_adapter_uptime_ms = st.uptime_ms;
                 g_adapter_version = st.version;
                 g_status_count++;
@@ -404,10 +410,6 @@ static int reader_thread(SceSize args, void *argp)
             } else if (p[2] == PSP2DC_MSG_GAME_ID && p[3] == sizeof(Psp2dcGameId)) {
                 memcpy(&g_gid, p + PSP2DC_HEADER_LEN, sizeof(g_gid));   /* (acted on by the main loop) */
                 g_gid_seq++;
-            } else if (p[2] == PSP2DC_MSG_MAPLE_RAW && p[3] == sizeof(Psp2dcMapleRaw)) {
-                Psp2dcMapleRaw r;
-                memcpy(&r, p + PSP2DC_HEADER_LEN, sizeof(r));
-                raw_keep(&r);
             } else if (p[2] == PSP2DC_MSG_COMP_RESET) {
                 comp_reset();
             } else if (p[2] == PSP2DC_MSG_COMP_DATA) {
@@ -484,11 +486,6 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
         printf("         rx longest %u B  broken %u (last at %u B)      \n         line errors %u  fifo full %u s      \n",
                g_status.maple_longest, g_status.maple_broken, g_status.maple_broken_at, g_status.maple_errors,
                g_status.maple_stalls);
-    if (g_status.gap_good_min != 0xFFFF || g_status.gap_broken != 0xFFFF)
-        printf("         gap before: whole %u us, whole long %u us, broken %u us      \n",
-               g_status.gap_good_min, g_status.gap_long_min, g_status.gap_broken);
-    if (g_raw_count)
-        printf("         lost frames captured %u (the first %u in PSP2DC/maple_raw.txt)      \n", g_raw_count, RAW_KEEP);
     if (g_status.maple_unanswered)
         printf("         last unanswered: cmd %02X to %02X, %u words, func %08X  \n", g_status.last_cmd,
                g_status.last_dest, g_status.last_words, (unsigned)g_status.last_func);

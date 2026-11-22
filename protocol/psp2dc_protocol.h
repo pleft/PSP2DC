@@ -63,7 +63,6 @@
 #define PSP2DC_MSG_GAME_ID 0x14  /* a game's ID, from openMenu as it starts a disc (Psp2dcGameId) */
 #define PSP2DC_MSG_COMP_DATA 0x15 /* the companion: the next bytes of the Dreamcast program's stream */
 #define PSP2DC_MSG_COMP_RESET 0x16 /* the companion: a session begins; the stream starts afresh */
-#define PSP2DC_MSG_MAPLE_RAW 0x17 /* a Maple frame the adapter lost, as its receiver saw it (Psp2dcMapleRaw) */
 
 /* HELLO payload */
 typedef struct {
@@ -239,24 +238,6 @@ typedef struct {
 #define PSP2DC_KBD_OFF  0
 #define PSP2DC_KBD_ONLY 2
 
-/* MAPLE_RAW payload: what the adapter's Maple receiver read around a frame
- * it lost (broken off before its end), for finding out why. raw[] is what
- * the receiver's PIO pushed, a byte each (4 samples of the two lines, 2 bits
- * each, oldest first), and state[] the receiver's state machine before each
- * (maple_state_machine.c). The first `pre` bytes come before the one that
- * broke the frame (that one included), the rest after it. Sent at most every
- * five seconds. */
-#define PSP2DC_RAW_LEN 64
-typedef struct {
-    uint8_t kind;         /* 1: a line error, 2: a new start before the frame's end */
-    uint8_t at;           /* the bytes the frame had reached (255: 255 or more) */
-    uint8_t pre;
-    uint8_t reserved;
-    uint8_t raw[PSP2DC_RAW_LEN];
-    uint8_t state[PSP2DC_RAW_LEN];
-    uint16_t gap_us;      /* from the end of the frame before it to its start, as the receiver saw them */
-} __attribute__((packed)) Psp2dcMapleRaw;
-
 /* STATUS payload */
 typedef struct {
     uint32_t uptime_ms;   /* adapter's clock, little endian */
@@ -294,16 +275,11 @@ typedef struct {
     uint16_t maple_errors;    /* line errors: transitions the receiver could not follow (wraps) */
     uint16_t maple_longest;   /* the longest frame received whole in the last second (bytes, CRC included) */
     uint16_t maple_stalls;    /* seconds in which the receiver's FIFO ran full and transitions were missed */
-    /* from a frame's end to the next one's start, as the receiver saw them (us; 65535: none) */
-    uint16_t gap_good_min;    /* the shortest before a frame received whole, in the last second */
-    uint16_t gap_long_min;    /* ... before one of 200 bytes or more */
-    uint16_t gap_broken;      /* before the last frame broken off */
 } __attribute__((packed)) Psp2dcStatus;
 #define PSP2DC_STATUS_OLD_LEN 18  /* an adapter's status before the Maple counts */
 #define PSP2DC_STATUS_V5_LEN  36  /* ... and before the keyboard */
 #define PSP2DC_STATUS_V6_LEN  40  /* ... and before the companion */
 #define PSP2DC_STATUS_V7_LEN  48  /* ... and before the receiver's counts */
-#define PSP2DC_STATUS_V8_LEN  58  /* ... and before the gaps between frames */
 #define PSP2DC_STATUS_CARD 0x01   /* the adapter holds a card and shows it to the Dreamcast */
 
 /* LCD payload: the screen as the Dreamcast sent it. 48x32 dots, 1 bit a dot

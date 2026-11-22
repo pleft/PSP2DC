@@ -31,9 +31,13 @@ static void line(int row, const char *fmt, ...)
     bfont_draw_str(vram_s + (16 + row * 24) * 640 + 20, 640, 1, s);
 }
 
-static const int sizes[] = { 0, 4, 64, 256, 512, 768, 996 };   /* a TEST record's data; 0: polls only */
+/* a TEST record's data; 0: polls only. A command is the record (3 bytes more) after 8 of
+ * its own, in words: 497 makes 127 words, 501 makes 128, the first whose length byte, the
+ * frame's first, begins with a 1. */
+static const int sizes[] = { 0, 64, 256, 384, 497, 501, 640, 768, 896, 996 };
 #define PHASES ((int)(sizeof(sizes) / sizeof(sizes[0])))
 #define PHASE_FRAMES 300
+#define QUEUE_EMPTY 4096   /* psp2dc_room() with nothing waiting */
 
 int main(int argc, char **argv)
 {
@@ -41,9 +45,9 @@ int main(int argc, char **argv)
     struct { int done; unsigned cmds, bytes, errors; } res[PHASES];
     psp2dc_stats_t st, st0;
     psp2dc_event_t ev;
-    unsigned frame = 0, phase_frame = 0, number = 0, psp_buttons = 0, last_cont = 0;
+    unsigned frame = 0, phase_frame = 0, number = 0, last_cont = 0;
     unsigned echo_sent = 0, echo_last = 0, echo_min = 0, echo_max = 0, echoes = 0;
-    int phase = 0, session = -2, paused = 0, draw_vmu = 0, start = 1, p, u, i;
+    int phase = 0, running = 0, finished = 0, told = 0, best = -1, paused = 0, draw_vmu = 0, p, u, i;
     (void)argc; (void)argv;
 
     memset(res, 0, sizeof(res));
@@ -65,9 +69,7 @@ int main(int argc, char **argv)
         if (pressed & CONT_Y) draw_vmu = !draw_vmu;
 
         while (psp2dc_poll(&ev)) {
-            if (ev.type == PSP2DC_REC_BUTTONS && ev.len == 4) {
-                psp_buttons = ev.data[0] | ev.data[1] << 8 | ev.data[2] << 16 | (unsigned)ev.data[3] << 24;
-            } else if (ev.type == PSP2DC_REC_ECHO && ev.len == 4) {
+            if (ev.type == PSP2DC_REC_ECHO && ev.len == 4) {
                 unsigned f = ev.data[0] | ev.data[1] << 8 | ev.data[2] << 16 | (unsigned)ev.data[3] << 24;
                 echo_last = frame - f;
                 if (!echoes || echo_last < echo_min) echo_min = echo_last;
@@ -76,29 +78,31 @@ int main(int argc, char **argv)
             }
         }
 
-        if (psp2dc_psp() && psp2dc_session() != session) {   /* the PSP is new, or started over */
-            session = psp2dc_session();
-            start = 1;
-        }
-        if (psp2dc_psp() && !paused) {
-            if (start || phase_frame >= PHASE_FRAMES) {       /* a size begins: the PSP's counts from nothing */
-                char s[64];
-                if (!start) {
-                    psp2dc_stats(&st);
-                    res[phase].done = 1;
-                    res[phase].cmds = (st.commands - st0.commands) * 60 / PHASE_FRAMES;
-                    res[phase].bytes = (st.bytes_out - st0.bytes_out) * 60 / PHASE_FRAMES;
-                    res[phase].errors = st.errors - st0.errors;
-                    phase = (phase + 1) % PHASES;
-                }
-                if (psp2dc_clear() == 0) {
+        /* A size runs its frames whatever becomes of it: one the adapter cannot take is
+         * counted (the library gives the companion up and finds it again), not waited for.
+         * The next begins once the companion is back and nothing of the last is left. */
+        if (!paused && !finished) {
+            if (!running) {
+                if (psp2dc_psp() && psp2dc_room() == QUEUE_EMPTY && psp2dc_clear() == 0) {
+                    char s[64];
                     snprintf(s, sizeof(s), "PSP2DC companion test: %d-byte records", sizes[phase]);
                     psp2dc_print(0, s);
-                    start = 0;
+                    /* a command no longer than this size's record (or, for the small ones, a row of text) */
+                    psp2dc_send_max(sizes[phase] < 61 ? 64 : sizes[phase] + 3);
+                    running = 1;
                     phase_frame = 0;
                     number = 0;
                     psp2dc_stats(&st0);
                 }
+            } else if (phase_frame >= PHASE_FRAMES) {
+                psp2dc_stats(&st);
+                res[phase].done = 1;
+                res[phase].cmds = (st.commands - st0.commands) * 60 / PHASE_FRAMES;
+                res[phase].bytes = (st.bytes_out - st0.bytes_out) * 60 / PHASE_FRAMES;
+                res[phase].errors = st.errors - st0.errors;
+                running = 0;
+                psp2dc_send_max(64);                  /* (what is left of it, and the next size's first words) */
+                if (++phase == PHASES) { phase = PHASES - 1; finished = 1; }
             } else {
                 phase_frame++;
                 if (sizes[phase] && psp2dc_room() > 3000) {   /* a TEST record a frame, unless they pile up */
@@ -107,16 +111,21 @@ int main(int argc, char **argv)
                     for (i = 4; i < n; i++) test[i] = (number + i - 4) & 0xFF;
                     if (psp2dc_record(PSP2DC_REC_TEST, test, n) == 0) number++;
                 }
-                if (frame % 60 == 0) {                        /* an ECHO a second, and what the PSP's buttons are */
+                if (frame % 60 == 0) {                        /* an ECHO a second */
                     uint8_t e[4] = { frame, frame >> 8, frame >> 16, frame >> 24 };
                     char s[64];
                     if (psp2dc_record(PSP2DC_REC_ECHO, e, 4) == 0) echo_sent++;
                     snprintf(s, sizeof(s), "round trip %u frames (min %u, max %u)", echo_last, echo_min, echo_max);
                     psp2dc_print(2, s);
-                    snprintf(s, sizeof(s), "your buttons: %08X", psp_buttons);
-                    psp2dc_print(3, s);
                 }
             }
+        }
+        /* the largest size that ran without an error, every smaller one too */
+        for (best = -1, i = 0; i < PHASES && res[i].done && !res[i].errors && (!sizes[i] || res[i].bytes); i++) best = i;
+        if (finished && !told && psp2dc_psp()) {
+            char s[64];
+            snprintf(s, sizeof(s), "done: records up to %d bytes without an error", best < 0 ? 0 : sizes[best]);
+            if (psp2dc_print(4, s) == 0) told = 1;
         }
 
         if (draw_vmu) {                                       /* a bar moving down the VMU's screen */
@@ -133,20 +142,18 @@ int main(int argc, char **argv)
         if (!psp2dc_found()) line(2, " ");
         else if (psp2dc_psp()) line(2, "PSP: there, session %d%s", psp2dc_session(), paused ? "   (paused)" : "");
         else line(2, "PSP: not on the adapter");
-        line(4, "  size  commands/s  bytes/s  errors");
+        line(3, "  size  commands/s  bytes/s  errors");
         for (i = 0; i < PHASES; i++) {
-            if (res[i].done) line(5 + i, "%c %4d  %10u  %7u  %6u", i == phase ? '>' : ' ', sizes[i], res[i].cmds,
-                                  res[i].bytes, res[i].errors);
-            else line(5 + i, "%c %4d           -        -       -", i == phase ? '>' : ' ', sizes[i]);
+            char mark = !finished && i == phase ? '>' : ' ';
+            if (res[i].done) line(4 + i, "%c %4d  %10u  %7u  %6u", mark, sizes[i], res[i].cmds, res[i].bytes, res[i].errors);
+            else line(4 + i, "%c %4d           -        -       -", mark, sizes[i]);
         }
-        line(13, "round trip: %u frames (min %u, max %u; %u of %u)", echo_last, echo_min, echo_max, echoes, echo_sent);
-        line(14, "PSP buttons: %08X", psp_buttons);
-        if (cs) line(15, "controller: %04X  stick %d,%d  L %d R %d", (unsigned)cs->buttons, cs->joyx, cs->joyy,
-                     cs->ltrig, cs->rtrig);
-        else line(15, "controller: none");
-        line(16, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
+        line(14, "round trip: %u frames (min %u, max %u; %u of %u)", echo_last, echo_min, echo_max, echoes, echo_sent);
+        line(15, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
              (unsigned)st.bytes_in, (unsigned)st.errors);
-        line(18, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
+        if (finished) line(16, "DONE. Without an error: up to %d bytes", best < 0 ? 0 : sizes[best]);
+        else line(16, "running: size %d of %d%s", phase + 1, PHASES, running ? "" : " (waiting for the companion)");
+        line(17, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
     }
     return 0;
 }

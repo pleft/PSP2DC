@@ -1,0 +1,79 @@
+From 282e05b74d3473aae31ce9b04edbc30ff045f8f9 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Sun, 22 Nov 2026 21:40:16 +0200
+Subject: [PATCH 16/16] Dreamcast: the Maple receiver takes a frame whose first
+ bit is 1 (128 words or more)
+
+The state machine waited for pin 5 to fall before every bit's clock, as it
+does where the clock before left it low. After the start pattern both lines
+are high, and a first bit of 1 is pin 1 falling at once: the frame was lost
+at its start. A frame's first byte is its length in words, so this was every
+frame of 128 words or more; no controller or memory card command is that
+long, PSP2DC's companion's are.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ .../device/dreamcast/maple_state_machine.c    | 19 +++++++++++++++++++
+ .../device/dreamcast/maple_state_machine.h    |  2 +-
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/src/native/device/dreamcast/maple_state_machine.c b/src/native/device/dreamcast/maple_state_machine.c
+index 5c0d2ed7..a8add8a7 100644
+--- a/src/native/device/dreamcast/maple_state_machine.c
++++ b/src/native/device/dreamcast/maple_state_machine.c
+@@ -95,6 +95,8 @@ static void BuildBasicStates(void)
+     int PossibleEnd;
+     int Option = Prev;
+     int StartByte = NumStates;
++    int Start = Prev;       // the start seen: both lines high
++    int FirstClock = -1;    // pin 1 low after the first bit, a 1
+     for (int i = 0; i < 4; i++) {
+         Prev = ExpectStateTwoParents(Option, Prev, 0b01);
+         Option = ExpectStateWithStatus(Prev, 0b11, (STATUS_PUSHBIT0 + i * 2) | STATUS_BITSET);
+@@ -104,6 +106,9 @@ static void BuildBasicStates(void)
+         }
+ 
+         Prev = ExpectStateTwoParents(Option, Prev, 0b10);
++        if (i == 0) {
++            FirstClock = Prev;
++        }
+         Option = ExpectStateWithStatus(Prev, 0b11, (STATUS_PUSHBIT1 + i * 2) | STATUS_BITSET);
+         Prev = ExpectStateWithStatus(Prev, 0b00, (STATUS_PUSHBIT1 + i * 2));
+ 
+@@ -124,6 +129,20 @@ static void BuildBasicStates(void)
+     Prev = ExpectState(Prev, 0b01);
+     States[Prev].Next[0b11] = 0;
+ 
++    // A frame whose first bit is 1 (PSP2DC: a frame of 128 words or more, its
++    // first byte being its length). Every other bit begins with pin 5 low,
++    // where the clock before it left it, so the states above wait for 0b01;
++    // after the start both lines are high, and a 1 is pin 1 falling at once:
++    // 0b11 to 0b10. One more state takes that: the bit set, then on as from
++    // the state the first bit's clock leads to.
++    {
++        int First = NewState(0b10);
++        States[First].Status = STATUS_PUSHBIT0 | STATUS_BITSET;
++        States[First].Next[0b11] = States[FirstClock].Next[0b11];
++        States[First].Next[0b00] = States[FirstClock].Next[0b00];
++        States[Start].Next[0b10] = First;
++    }
++
+     assert(NumStates == MAPLE_NUM_STATES);
+ }
+ 
+diff --git a/src/native/device/dreamcast/maple_state_machine.h b/src/native/device/dreamcast/maple_state_machine.h
+index 5be627fa..920c3729 100644
+--- a/src/native/device/dreamcast/maple_state_machine.h
++++ b/src/native/device/dreamcast/maple_state_machine.h
+@@ -6,7 +6,7 @@
+ 
+ #include <stdint.h>
+ 
+-#define MAPLE_NUM_STATES 40
++#define MAPLE_NUM_STATES 41
+ #define MAPLE_NUM_SETBITS 64
+ 
+ typedef struct {
+-- 
+2.54.0 (Apple Git-157)
+

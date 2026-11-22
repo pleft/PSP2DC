@@ -134,5 +134,9 @@ typedef struct {
     uint32_t commands, bytes_out, bytes_in, errors;
 } psp2dc_stats_t;
 void psp2dc_stats(psp2dc_stats_t *out);
+/* The most data a command carries (records are sent as many whole ones as fit;
+ * one longer than this goes alone). As the library starts: all the protocol
+ * allows, PSP2DC_COMP_DATA_MAX. For tests of what the bus carries. */
+void psp2dc_send_max(int bytes);
 
 #endif

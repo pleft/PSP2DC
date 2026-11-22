@@ -1,7 +1,7 @@
 From c2affa94ed494058a432d6e2ae61e15f17166218 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 17:24:53 +0200
-Subject: [PATCH 05/17] PSP2DC: the memory card kept on the PSP
+Subject: [PATCH 05/16] PSP2DC: the memory card kept on the PSP
 
 The adapter still answers the Dreamcast from RAM and writes no flash; the PSP
 holds the card as a file. At the start the PSP sends its file (or says it has

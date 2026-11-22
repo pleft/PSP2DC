@@ -163,6 +163,7 @@ int psp2dc_init(void)
 }
 
 static void caps_look(void);
+static int send_max = PSP2DC_COMP_DATA_MAX;   /* a command's data, at most: psp2dc_send_max() */
 static int palette_send(int id, int first, int n);
 static int sprite_send(int id);
 static void caps_take(const uint8_t *d, int len);
@@ -202,7 +203,7 @@ void psp2dc_update(void)
         int n = 0;
         while (n < out_len) {
             int rec = 3 + (out[n + 1] | out[n + 2] << 8);
-            if (n + rec > PSP2DC_COMP_DATA_MAX) break;
+            if (n && n + rec > send_max) break;  /* (a record longer than that goes alone) */
             n += rec;
         }
         sent_len = n;
@@ -213,6 +214,7 @@ void psp2dc_update(void)
     }
 }
 
+void psp2dc_send_max(int bytes) { send_max = bytes < 1 ? 1 : bytes > PSP2DC_COMP_DATA_MAX ? PSP2DC_COMP_DATA_MAX : bytes; }
 int psp2dc_found(void) { return found; }
 int psp2dc_psp(void) { return found && psp; }
 int psp2dc_version(void) { return version; }

@@ -208,7 +208,7 @@ int sim_psp_screen_save(const char *file)
 int sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes)
 {
     static uint32_t req[256], rep[256];
-    static int started, slow = 1, replug, no_psp;
+    static int started, slow = 1, replug, no_psp, max_words;
     static unsigned commands;
     static const char *page, *screen;
     int words = in_bytes / 4, out_words, code;
@@ -220,10 +220,12 @@ int sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes)
         if ((s = getenv("PSP2DC_SIM_SLOW")) && atoi(s) > 1) slow = atoi(s);
         if ((s = getenv("PSP2DC_SIM_REPLUG"))) replug = atoi(s);
         no_psp = getenv("PSP2DC_SIM_NO_PSP") != NULL;
+        if ((s = getenv("PSP2DC_SIM_MAX_WORDS"))) max_words = atoi(s);
         if (!no_psp) sim_psp_plug(1);
     }
     *out_bytes = 0;
     if (in_bytes < 4 || (in_bytes & 3) || words > 255) return -1;
+    if (max_words && words > max_words) return -1;      /* an adapter that cannot take a frame that long */
     memcpy(req, in, (size_t)in_bytes);
     code = sim_maple(req, words, rep, &out_words);
     if (code < 0) return code;

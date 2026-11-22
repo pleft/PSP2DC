@@ -1,7 +1,7 @@
 From 5294abfd42afc8a8d0dcb3d1253b48804aa257fc Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Fri, 20 Nov 2026 18:11:20 +0200
-Subject: [PATCH 14/17] PSP2DC: the companion's Maple command and its two byte
+Subject: [PATCH 14/16] PSP2DC: the companion's Maple command and its two byte
  queues (protocol 7)
 
 A Dreamcast program sends command 0x50 to the memory card unit; the adapter

@@ -46,7 +46,8 @@ void sim_psp_log(FILE *f);
  *   PSP2DC_SIM_SCREEN=file  the PSP's screen as a picture (BMP), ten times a second
  *   PSP2DC_SIM_SLOW=n       an exchange every n commands only (the PSP reads slowly)
  *   PSP2DC_SIM_REPLUG=n     the PSP unplugged and back every n seconds
- *   PSP2DC_SIM_NO_PSP=1     no PSP on the adapter */
+ *   PSP2DC_SIM_NO_PSP=1     no PSP on the adapter
+ *   PSP2DC_SIM_MAX_WORDS=n  commands longer than n words go unanswered (127: the receiver before its fix) */
 int  sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes);
 
 #endif
