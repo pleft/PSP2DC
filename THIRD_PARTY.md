@@ -12,7 +12,7 @@ The texts are in licenses/ and go with every copy of the programs (a release's z
 
 - **The PSP's programs** (EBOOT.PBP, psp2dc_app.prx, pspexp_usb.prx) are built with PSPSDK and link its libraries, BSD (licenses/PSPSDK.txt), and newlib's C library in pspdev's port (licenses/newlib-COPYING.NEWLIB.txt).
 - **The adapter's firmware** (.uf2) is joypad-os with the patches above, built with the Raspberry Pi Pico SDK, BSD-3-Clause (licenses/pico-sdk-LICENSE.txt), and TinyUSB, MIT (licenses/tinyusb-LICENSE.txt). "Joypad" is its author's trademark; PSP2DC is not affiliated with or endorsed by the joypad-os project.
-- **The Dreamcast programs** (.cdi: the companion's demo, test and samples) are built with [KallistiOS](https://github.com/KallistiOS/KallistiOS) and link it, under the KOS License, a BSD licence (licenses/KallistiOS-LICENSE.KOS.txt, its authors in licenses/KallistiOS-AUTHORS.txt).
+- **The Dreamcast programs** (.cdi: the companion's demo, test and tutorial) are built with [KallistiOS](https://github.com/KallistiOS/KallistiOS) and link it, under the KOS License, a BSD licence (licenses/KallistiOS-LICENSE.KOS.txt, its authors in licenses/KallistiOS-AUTHORS.txt).
 
 # Names
 

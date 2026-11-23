@@ -650,7 +650,7 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** External developers can integrate PSP2DC Companion into their games.
 
-**Status:** the guide (`dreamcast/libpsp2dc/README.md`), the library's version (1.0), three samples (hello, dashboard, save) that build with KallistiOS and are checked against the simulator (`scripts/dev/companion-samples.sh`), and the demo as the reference game. Left: feedback from other developers, once the project is public.
+**Status:** the guide (`dreamcast/libpsp2dc/README.md`), the library's version (1.0), a tutorial in seven steps (`dreamcast/tutorial`: hello, buttons, dashboard, drawing, pictures, input, save), each one commented file that builds with KallistiOS and is run and checked against the simulator (`scripts/dev/companion-tutorial.sh`), and the demo as the reference game. Left: feedback from other developers, once the project is public.
 
 ### Phase 6: KallistiOS Integration
 

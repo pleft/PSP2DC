@@ -18,7 +18,7 @@ V="$1"
 cd "$ROOT"
 export PSP2DC_RELEASE="$V"   # (scripts/version.sh: the PSP application says it)
 if [ -n "$PACK" ]; then
-    # what is built already (the release workflow's jobs): dist/PSP2DC, build/*.cdi, build/samples, one build/psp2dc_rp2040zero_*.uf2
+    # what is built already (the release workflow's jobs): dist/PSP2DC, build/*.cdi, build/tutorial, one build/psp2dc_rp2040zero_*.uf2
     UF2="$(ls build/psp2dc_rp2040zero_*.uf2 | tail -1)"
 else
 [ -z "$(git status --porcelain)" ] || { echo "there are changes that are not committed" >&2; exit 1; }
@@ -35,11 +35,11 @@ scripts/build-dreamcast.sh
 fi
 OUT="$ROOT/build/release/PSP2DC-$V"
 rm -rf "$OUT" "$OUT.zip"
-mkdir -p "$OUT/psp/PSP/GAME/PSP2DC" "$OUT/adapter" "$OUT/dreamcast/samples" "$OUT/licences"
+mkdir -p "$OUT/psp/PSP/GAME/PSP2DC" "$OUT/adapter" "$OUT/dreamcast/tutorial" "$OUT/licences"
 cp dist/PSP2DC/EBOOT.PBP dist/PSP2DC/psp2dc_app.prx dist/PSP2DC/pspexp_usb.prx "$OUT/psp/PSP/GAME/PSP2DC/"
 cp "$UF2" "$OUT/adapter/psp2dc_rp2040zero-$V.uf2"
 cp build/psp2dc_demo.cdi build/psp2dc_test.cdi "$OUT/dreamcast/"
-cp build/samples/*.cdi "$OUT/dreamcast/samples/"
+cp build/tutorial/*.cdi "$OUT/dreamcast/tutorial/"
 
 cp LICENSE "$OUT/licences/LICENSE.txt"
 cp THIRD_PARTY.md "$OUT/licences/THIRD_PARTY.txt"
@@ -53,7 +53,7 @@ psp/        Copy the PSP folder onto the PSP's Memory Stick (it holds
 adapter/    The RP2040-Zero's firmware: hold BOOT while plugging the board into
             a computer and copy the .uf2 onto the drive that appears.
 dreamcast/  For homebrew developers: disc images (GDEMU and the like) of the
-            companion's demo, its test and the library's samples.
+            companion's demo, its test and the library's tutorial, step by step.
 licences/   PSP2DC's licence (MIT) and those of what it is built from
             (THIRD_PARTY.txt says which is which).
 

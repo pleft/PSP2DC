@@ -16,7 +16,7 @@ One file, `PSP2DC-X.Y.Z.zip`, and its SHA-256:
 |---|---|
 | `psp/PSP/GAME/PSP2DC/` | the PSP application and its USB driver |
 | `adapter/psp2dc_rp2040zero-X.Y.Z.uf2` | the adapter's firmware |
-| `dreamcast/` | disc images of the companion's demo, test and samples |
+| `dreamcast/` | disc images of the companion's demo, its test and the library's tutorial |
 | `licences/` | `LICENSE`, `THIRD_PARTY.md` and the texts of `licenses/` |
 
 `scripts/make-release.sh X.Y.Z` makes the same on the maintainer's machine, for trying.
@@ -34,7 +34,7 @@ A draft that is not wanted: `gh release delete vX.Y.Z` (a draft has no tag until
 
 ## What CI does not do
 
-- **The tests** (`scripts/dev/companion-test.sh`, `companion-samples.sh`, `maple-rx-test.sh`, the card tests) run on the maintainer's machine before step 1: the simulator's build uses a macOS linker.
+- **The tests** (`scripts/dev/companion-test.sh`, `companion-tutorial.sh`, `maple-rx-test.sh`, the card tests) run on the maintainer's machine before step 1: the simulator's build uses a macOS linker.
 - **Hardware:** step 4 is by hand.
 - **The same bytes as the maintainer's build.** The firmware is the same code from the same compiler version, and the same size, but not the same file: built on Linux, a block of small C library functions (488 bytes, `memcmp` and its neighbours) is linked in another order than on macOS, and the 30 calls into it differ with it (compared on 23 November 2026). Two builds on the same machine are identical. So what was tried before a release is not what CI makes, which is why step 4 tries the draft's zip.
 - **Pinning:** joypad-os is pinned by commit and the Arm compiler by version (13.3.rel1); the pspdev and KallistiOS images are whatever is `latest` on the day.

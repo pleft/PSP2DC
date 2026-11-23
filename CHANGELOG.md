@@ -12,7 +12,7 @@ The first release. PSP2DC makes a PSP-1000 a Dreamcast controller, VMU, memory c
 - **A card per game** with GDEMU and openMenu: the game's own card is put in as it starts.
 - **The Dreamcast keyboard**, typed on the PSP (openMenu, Typing of the Dead).
 - **The VMU by itself:** with no Dreamcast, the PSP runs the card's mini-games (Chao Adventure 2 and others).
-- **For homebrew developers, the companion:** a KallistiOS library, `libpsp2dc`, with which a Dreamcast program uses the PSP as a second screen (widgets, drawing, pictures), reads the PSP's buttons and keeps files on its Memory Stick. A guide, three samples and a demo game come with it (`dreamcast/libpsp2dc/README.md`).
+- **For homebrew developers, the companion:** a KallistiOS library, `libpsp2dc`, with which a Dreamcast program uses the PSP as a second screen (widgets, drawing, pictures), reads the PSP's buttons and keeps files on its Memory Stick. A guide, a tutorial in seven steps and a demo game come with it (`dreamcast/tutorial/README.md`).
 
 **What you need:** a PSP-1000 with custom firmware (made and tried on 6.60 PRO-C), a Waveshare RP2040-Zero with a Dreamcast controller cable soldered to it (the README shows how), and a mini-USB OTG cable or adapter between the two.
 

@@ -180,6 +180,8 @@ void sim_psp_print(FILE *f)
             (unsigned)st[2], (unsigned)st[3]);
     for (i = 0; i < COMP_ROWS; i++) fprintf(f, "%2d |%s\n", i, g_comp.rows[i]);
     fprintf(f, "screen: %s, %u bad records\n", g_comp.screen ? "the program's" : "none", g_comp.screen_bad);
+    if (g_comp.focus) fprintf(f, "buttons taken: %04X\n", g_comp.focus);
+    if (g_comp.notice_us) fprintf(f, "notice: \"%s\"\n", g_comp.notice);
     for (i = 0; i < PSP2DC_REGIONS; i++) {
         const CompRegion *r = &g_comp.regions[i];
         if (r->w) fprintf(f, "region %d: %d,%d %ux%u\n", i, r->x, r->y, r->w, r->h);

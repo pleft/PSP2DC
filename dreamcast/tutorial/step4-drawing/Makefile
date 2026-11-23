@@ -1,6 +1,6 @@
-# PSP2DC sample: save (KallistiOS). Built by scripts/build-dreamcast.sh; on its own:
+# PSP2DC tutorial, step4-drawing (KallistiOS). Built by scripts/build-dreamcast.sh; on its own:
 #   . /opt/toolchains/dc/kos/environ.sh && make
-TARGET = psp2dc_save.elf
+TARGET = psp2dc_step4_drawing.elf
 OBJS = main.o ../../libpsp2dc/psp2dc.o
 KOS_CFLAGS += -I../../libpsp2dc -I../../../protocol
 

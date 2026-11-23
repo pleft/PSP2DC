@@ -12,6 +12,8 @@
 #define CONT_DPAD_DOWN          (1 << 5)
 #define CONT_DPAD_LEFT          (1 << 6)
 #define CONT_DPAD_RIGHT         (1 << 7)
+#define CONT_Y                  (1 << 9)
+#define CONT_X                  (1 << 10)
 #define MAPLE_RESPONSE_DATATRF  8
 #define MAPLE_RESPONSE_NONE     (-1)
 #define MAPLE_RESPONSE_AGAIN    (-4)

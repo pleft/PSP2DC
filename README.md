@@ -49,8 +49,8 @@ screen, send bitmaps and sprites, keep files on the PSP's Memory Stick, and
 take some of the PSP's buttons for its own screen. It runs on a Dreamcast: 59
 KB a second to the PSP without an error, files read back at 54 KB a second,
 and the demo game's dashboard on the PSP. For developers:
-[dreamcast/libpsp2dc/README.md](dreamcast/libpsp2dc/README.md), with three
-small samples.
+[the library's guide](dreamcast/libpsp2dc/README.md) and
+[a tutorial in seven steps](dreamcast/tutorial/README.md).
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
@@ -109,7 +109,7 @@ everything built:
 - `adapter/`: the RP2040-Zero's firmware. Hold BOOT while plugging the board
   into a computer and copy the `.uf2` onto the drive that appears.
 - `dreamcast/`: disc images for homebrew developers (the companion's demo,
-  its test, the library's samples).
+  its test, the library's tutorial step by step).
 
 The PSP application and the adapter's firmware must be of the same release
 (Settings > Details on the PSP says which it is). How a release is made:
@@ -160,8 +160,8 @@ scripts/build-dreamcast.sh
 
 The results are disc images for GDEMU: `build/psp2dc_test.cdi`, which
 measures what the path carries, `build/psp2dc_demo.cdi`, a small game
-with its dashboard on the PSP, and the library's samples in `build/samples/`
-(hello, dashboard, save).
+with its dashboard on the PSP, and the library's tutorial in `build/tutorial/`
+(seven steps, from hello to save).
 
 ## Using it
 
@@ -257,7 +257,7 @@ the PSP.
 | `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
 | `firmware/` | joypad-os patches: the adapter's firmware |
-| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`, with its guide), its test program, a demo, samples, and an image converter |
+| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`, with its guide), its test program, a demo, a tutorial in seven steps, and an image converter |
 | `scripts/` | Build scripts |
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
@@ -287,7 +287,7 @@ with no Dreamcast. Everything but the Dreamcast link can be tried, and Demo
   from their own sources. `scripts/dev/companion-test.sh` tests the
   Dreamcast library against it, `scripts/dev/companion-demo.sh` runs the
   demo on it and saves the PSP's screen as a picture,
-  `scripts/dev/companion-samples.sh` runs the samples on it and checks them, and
+  `scripts/dev/companion-tutorial.sh` runs the tutorial's steps on it and checks them, and
   `scripts/dev/flycast-companion.sh` puts it into Flycast, where a program
   built on `libpsp2dc` then finds a companion.
 - A file `ms0:/PSP2DC/dev_companion.bin` of the companion's records (the

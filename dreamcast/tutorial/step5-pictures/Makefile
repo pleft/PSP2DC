@@ -1,6 +1,6 @@
-# PSP2DC sample: dashboard (KallistiOS). Built by scripts/build-dreamcast.sh; on its own:
+# PSP2DC tutorial, step5-pictures (KallistiOS). Built by scripts/build-dreamcast.sh; on its own:
 #   . /opt/toolchains/dc/kos/environ.sh && make
-TARGET = psp2dc_dashboard.elf
+TARGET = psp2dc_step5_pictures.elf
 OBJS = main.o ../../libpsp2dc/psp2dc.o
 KOS_CFLAGS += -I../../libpsp2dc -I../../../protocol
 

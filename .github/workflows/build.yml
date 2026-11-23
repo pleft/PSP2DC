@@ -82,7 +82,7 @@ jobs:
           name: dreamcast
           path: |
             build/*.cdi
-            build/samples/*.cdi
+            build/tutorial/*.cdi
 
   pack:
     name: Put together

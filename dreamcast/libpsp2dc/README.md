@@ -91,11 +91,8 @@ The PSP says its level in CAPS; the adapter its protocol in its HELLO (`psp2dc_v
 
 An older PSP application ignores what it does not know: nothing shows, file operations cannot start (-2), focus does nothing. Adapter protocol 7 works; protocol 8 also sends again a reply that was lost on the bus, so nothing the PSP sends is lost with it.
 
-## Samples, and trying without the hardware
+## Learning it, and trying without the hardware
 
-- `dreamcast/samples/hello`: found, a page of text, the PSP's buttons.
-- `dreamcast/samples/dashboard`: widgets driven by the controller; L and R taken for a list.
-- `dreamcast/samples/save`: a counter kept in a file.
-- `dreamcast/demo`: a small game with a map, a dashboard and a list on the PSP.
+[The tutorial](../tutorial/README.md) is seven small programs, from "hello" to files, each one commented file that adds one idea: start there. `dreamcast/demo` is a small game that uses them together.
 
-`scripts/build-dreamcast.sh` builds them all with KallistiOS in Docker, each as a disc image for GDEMU. On a computer, `scripts/dev/companion-samples.sh` runs the samples against a simulated adapter and PSP, `scripts/dev/companion-test.sh` tests the library, and `scripts/dev/flycast-companion.sh` builds Flycast with the simulator behind its memory card, so a disc can be tried in the emulator.
+`scripts/build-dreamcast.sh` builds them all with KallistiOS in Docker, each as a disc image for GDEMU. On a computer, `scripts/dev/companion-tutorial.sh` runs the tutorial's steps against a simulated adapter and PSP, `scripts/dev/companion-test.sh` tests the library, and `scripts/dev/flycast-companion.sh` builds Flycast with the simulator behind its memory card, so a disc can be tried in the emulator.

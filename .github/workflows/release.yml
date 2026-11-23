@@ -46,7 +46,7 @@ jobs:
 
           - **psp/**: copy its \`PSP\` folder onto the PSP's Memory Stick (custom firmware needed).
           - **adapter/**: the RP2040-Zero's firmware. Hold BOOT while plugging the board into a computer and copy the \`.uf2\` onto the drive that appears.
-          - **dreamcast/**: for homebrew developers, disc images of the companion's demo, test and samples.
+          - **dreamcast/**: for homebrew developers, disc images of the companion's demo, its test and the library's tutorial.
 
           The PSP application and the adapter's firmware must be of the same release. How to build the adapter and use it: the README. What is new and what is known not to work: CHANGELOG.md."
           gh release upload "$TAG" PSP2DC-"$V".zip PSP2DC-"$V".zip.sha256 --repo "$GITHUB_REPOSITORY" --clobber
