@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and checked on the computer (Appendix E) |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E) |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -638,7 +638,7 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** A KallistiOS game stores and retrieves data from the PSP Memory Stick.
 
-**Status:** built and checked on the computer (Appendix E); not yet on a Dreamcast.
+**Status:** built, checked on the computer and on a Dreamcast (Appendix E).
 
 ### Phase 5: Developer SDK
 
@@ -1062,7 +1062,7 @@ So a map made of tiles is sprites, sent once and then placed; a picture of the w
 
 ## Appendix E. Phase 4: Files on the Memory Stick (23 November 2026)
 
-A program keeps files of its own on the PSP's Memory Stick: a save larger than a VMU's, levels, replays, settings. Built and checked on the computer (E.6); not yet on a Dreamcast (E.7).
+A program keeps files of its own on the PSP's Memory Stick: a save larger than a VMU's, levels, replays, settings. Built, checked on the computer (E.6) and on a Dreamcast (E.7).
 
 ### E.1 What the path allows (from the code)
 
@@ -1136,6 +1136,13 @@ default:               /* NOT_FOUND, BAD_NAME, NO_ROOM, GONE (start it again), F
 ### E.7 On a Dreamcast: one round
 
 The adapter's firmware (protocol 8), the PSP application and the test disc change. The test disc's last part, after the record sizes of B.9: 64 KB written to `test/speed.bin` in the folder `psp2dctest`, read back with windows of 1, 2 and 3 KB and compared byte for byte, the folder listed, the file deleted, and found gone. The television's row 16 shows each step's speed in KB a second as it ends (write, then the three reads) or ok/BAD; row 17 says DONE and whether the files passed. The PSP's `companion_log.txt` adds, each second, the main loop's longest turn and the files' counts, which tell whether the controller's input waited on the files.
+
+**Done on 23 November 2026,** with firmware `psp2dc_rp2040zero_20261123_1945.uf2` (protocol 8):
+
+- The record sizes as in B.9: every size at 60 commands a second without an error, 58 795 bytes a second at 996; round trip 3 to 8 frames.
+- **Files: all steps passed.** Write 38 KB a second; reads 19, 39 and 54 KB a second with windows of 1, 2 and 3 KB, each byte as written; the listing, the delete, the file gone. The 3 KB window stays the library's.
+- **The PSP's main loop did not wait on the files:** while they ran, its longest turn was one frame (16.7 ms), with one turn of two frames, as often as when nothing runs. The files' counts: 196 answers, of them 1 not OK (the last step's "not found", as it should be), no record dropped.
+- **Writing is slower than reading,** and slower than the simulator's 55 KB a second. Not yet known why; the Memory Stick taking the bytes 990 at a time is one guess, to be measured before anything is changed.
 
 ### E.8 After this: pictures kept (the rest of phase 3, 6.5)
 
