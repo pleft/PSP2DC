@@ -46,6 +46,14 @@
 #include "vmu_game.h"
 #include "companion.h"
 #include "comp_files.h"
+/* What this build is: a release's name, or "dev" and the commit (release.h, written by
+ * scripts/build-psp.sh from scripts/version.sh; without it, as built by hand: "dev"). */
+#if __has_include("release.h")
+#include "release.h"
+#endif
+#ifndef PSP2DC_RELEASE
+#define PSP2DC_RELEASE "dev"
+#endif
 #include "cards.h"
 #include "card_sync.h"
 #include "cardfs.h"
@@ -478,6 +486,7 @@ static void show(int usb_rc, const Psp2dcInput *in, unsigned sent, unsigned erro
         printf("  bus %08X  device %08X  activate %08X  state %08X\n", (unsigned)g_usb_bus,
                (unsigned)g_usb_drv, (unsigned)g_usb_act, (unsigned)sceUsbGetState());
     }
+    printf("PSP2DC   %s (protocol %u)      \n", PSP2DC_RELEASE, PSP2DC_PROTOCOL_VERSION);
     printf("link     %s\n", link);
     printf("usb      packet %u  attach %u  detach %u  sync %u  restarts %u    \n",
            (unsigned)st.packet_size, (unsigned)st.attaches, (unsigned)st.detaches, (unsigned)st.resyncs,

@@ -1,0 +1,107 @@
+# Every push: the three parts built from the sources, each in its toolchain's own container or
+# with the same compiler a release is tried with, and put together as a release would be
+# (scripts/make-release.sh --pack). Releases are release.yml's (docs/releasing.md).
+# The tests of scripts/dev run on the maintainer's machine: they need a macOS linker.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: "The release's name (empty: a development build)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  PSP2DC_RELEASE: ${{ inputs.release }}
+
+jobs:
+  psp:
+    name: PSP application
+    runs-on: ubuntu-24.04
+    container: ghcr.io/pspdev/pspdev:latest
+    steps:
+      - name: Tools
+        run: apk add --no-cache git bash make
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          psp-gcc --version | head -1
+          PSPDEV="$(psp-config --pspdev-path)" scripts/build-psp.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: psp
+          path: dist/PSP2DC
+
+  firmware:
+    name: Adapter firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends cmake ninja-build python3 xz-utils
+      - name: The Arm toolchain (13.3.rel1, as on the maintainer's machine)
+        run: |
+          curl -fsSL -o /tmp/arm.tar.xz https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
+          mkdir -p "$HOME/arm" && tar -xf /tmp/arm.tar.xz -C "$HOME/arm" --strip-components=1
+          "$HOME/arm/bin/arm-none-eabi-gcc" --version | head -1
+      - name: joypad-os with the patches (firmware/README.md)
+        run: |
+          cd firmware
+          git clone https://github.com/joypad-ai/joypad-os.git
+          cd joypad-os
+          git checkout -b superpico 9fa79f45
+          git -c user.name=ci -c user.email=ci@example.invalid am ../patches/*.patch
+          make init
+      - name: Build
+        run: PICO_TOOLCHAIN_PATH="$HOME/arm" scripts/build-firmware.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: build/psp2dc_rp2040zero_*.uf2
+
+  dreamcast:
+    name: Dreamcast programs
+    runs-on: ubuntu-24.04
+    container: kazade/dreamcast-sdk:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: bash
+        run: scripts/build-dreamcast.sh --here
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dreamcast
+          path: |
+            build/*.cdi
+            build/samples/*.cdi
+
+  pack:
+    name: Put together
+    needs: [psp, firmware, dreamcast]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: psp, path: dist/PSP2DC }
+      - uses: actions/download-artifact@v4
+        with: { name: firmware, path: build }
+      - uses: actions/download-artifact@v4
+        with: { name: dreamcast, path: build }
+      - name: The zip
+        run: |
+          V="${PSP2DC_RELEASE#v}"; V="${V:-dev-$(git rev-parse --short HEAD)}"
+          scripts/make-release.sh --pack "$V"
+          cd build/release && sha256sum "PSP2DC-$V.zip" > "PSP2DC-$V.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: build/release/PSP2DC-*.zip*

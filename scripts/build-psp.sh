@@ -10,6 +10,10 @@ USB="$ROOT/psp/usb"
 
 command -v psp-gcc >/dev/null || { echo "psp-gcc not found (PSPDEV=$PSPDEV)" >&2; exit 1; }
 
+# what the application says it is (Settings, Details): rewritten only when it changes
+REL="#define PSP2DC_RELEASE \"$("$ROOT/scripts/version.sh")\""
+[ "$(cat "$ROOT/psp/app/release.h" 2>/dev/null)" = "$REL" ] || echo "$REL" > "$ROOT/psp/app/release.h"
+
 make -C "$USB"
 make -C "$ROOT/psp/boot"
 make -C "$ROOT/psp/app" PSPEXP_USB="$USB"

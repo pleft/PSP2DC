@@ -9,6 +9,8 @@ psp/*/*.elf
 psp/*/*.prx
 psp/*/EBOOT.PBP
 psp/*/PARAM.SFO
+# written by scripts/build-psp.sh: the build's name
+psp/app/release.h
 # joypad-os is its own repository (branch superpico); its changes are kept
 # here as patches in firmware/patches
 /firmware/joypad-os/

@@ -99,7 +99,9 @@ Watara SuperPico cartridge. That adapter still works, and its wiring is in
 
 ## Installing a release
 
-A release (the repository's Releases page) is one zip with everything built:
+A release (the repository's [Releases](https://github.com/pleft/PSP2DC/releases)
+page; what each brings: [CHANGELOG.md](CHANGELOG.md)) is one zip with
+everything built:
 
 - `psp/`: copy its `PSP` folder onto the PSP's Memory Stick.
 - `adapter/`: the RP2040-Zero's firmware. Hold BOOT while plugging the board
@@ -107,8 +109,9 @@ A release (the repository's Releases page) is one zip with everything built:
 - `dreamcast/`: disc images for homebrew developers (the companion's demo,
   its test, the library's samples).
 
-The PSP application and the adapter's firmware must be of the same release.
-`scripts/make-release.sh <version>` makes the zip from the sources.
+The PSP application and the adapter's firmware must be of the same release
+(Settings > Details on the PSP says which it is). How a release is made:
+[docs/releasing.md](docs/releasing.md).
 
 ## Building
 
@@ -258,6 +261,9 @@ the PSP.
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
 | `docs/superpico.md` | The prototype adapter: a Pico on a Watara SuperPico cartridge |
 | `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, the phases as built and measured |
+| `docs/releasing.md` | Versions, what a release holds, the steps to make one |
+| `CHANGELOG.md` | Release notes |
+| `THIRD_PARTY.md`, `licenses/` | What is under other licences than PSP2DC's, and their texts |
 | `docs/optimisations.md` | Optimisations for later: what each would gain and cost |
 | `site/` | The web page for psp2dc.pspexp.dev: `python3 site/build.py` builds it into `site/out/` |
 
@@ -299,11 +305,16 @@ wherever you keep them.
 - PSPExp (MIT): the PSP's kernel USB driver in `psp/usb/`, copied unchanged.
   Its descriptors and driver start follow PSPLink's usbhostfs (BSD,
   `psp/usb/LICENSE.PSPLINK`).
+- [KallistiOS](https://github.com/KallistiOS/KallistiOS) (KOS License, BSD):
+  what the companion's Dreamcast programs are built with.
 - [Superpico](https://github.com/zwenergy/Superpico): the cartridge whose
   Raspberry Pi Pico was the prototype adapter.
 
 PSP2DC is released under the MIT licence: see [LICENSE](LICENSE). Files taken
-from other projects keep their own licences, as listed above: the firmware
-patches apply to joypad-os (Apache-2.0), `psp/app/vmu_core.c` carries
-libevmu's MIT notice, and parts of `psp/usb/main.c` are under PSPLink's BSD
-licence.
+from other projects keep their own licences, and a release's programs carry
+those of what they are built with: [THIRD_PARTY.md](THIRD_PARTY.md) says
+which is which, and the texts are in `licenses/`.
+
+PSP2DC is a hobby project, not affiliated with or endorsed by Sony, Sega or
+the joypad-os project. PSP, Dreamcast and VMU are their owners' names, used
+here only to say what it works with.

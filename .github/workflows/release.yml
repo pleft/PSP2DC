@@ -1,0 +1,55 @@
+# A release: a tag v* (or a run by hand, kept as a draft unless told to publish) makes a GitHub
+# Release with one zip, built here from public things only (build.yml's jobs): the PSP
+# application, the adapter's firmware, the Dreamcast discs and their licences, and its SHA-256.
+# How one is made, step by step: docs/releasing.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release's name, vX.Y.Z (a tag made at this commit when it does not exist)"
+        required: true
+      publish:
+        description: "Publish it (otherwise it stays a draft)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      release: ${{ inputs.tag || github.ref_name }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: release }
+      - name: The Release
+        run: |
+          V="${TAG#v}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "PSP2DC $V" --notes \
+            "PSP2DC $V: a PSP-1000 as a Dreamcast controller, VMU, memory card and keyboard.
+
+          One file, \`PSP2DC-$V.zip\` (its SHA-256 beside it):
+
+          - **psp/**: copy its \`PSP\` folder onto the PSP's Memory Stick (custom firmware needed).
+          - **adapter/**: the RP2040-Zero's firmware. Hold BOOT while plugging the board into a computer and copy the \`.uf2\` onto the drive that appears.
+          - **dreamcast/**: for homebrew developers, disc images of the companion's demo, test and samples.
+
+          The PSP application and the adapter's firmware must be of the same release. How to build the adapter and use it: the README. What is new and what is known not to work: CHANGELOG.md."
+          gh release upload "$TAG" PSP2DC-"$V".zip PSP2DC-"$V".zip.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          if [ "${{ github.event_name }}" = push ] || [ "${{ inputs.publish }}" = true ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          fi
