@@ -18,6 +18,11 @@
 #include <stdint.h>
 #include "psp2dc_protocol.h"   /* the widgets' types and flags, PSP2DC_RGB565 */
 
+/* The library's version (README.md). MAJOR changes only when a program written for it would
+ * have to change; MINOR with what is added. */
+#define PSP2DC_LIB_MAJOR 1
+#define PSP2DC_LIB_MINOR 0
+
 #define PSP2DC_RECORD_MAX 1000   /* a record's data, at most */
 
 /* Looks for the companion on every memory card unit, waiting up to half a

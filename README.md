@@ -41,13 +41,15 @@ Not done yet:
 - Configurable button mapping.
 
 In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
-use the PSP as a second screen. The proposal and what is built of it (phases 1
-and 2, and the first part of phase 3) are in
+use the PSP as a second screen. The proposal and what is built of it are in
 [docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
 widgets (labels, numbers, bars, lists) on the PSP, draw into regions of its
-screen, and send bitmaps and sprites. This is built and tested against a
-simulated adapter and PSP, and it runs on a Dreamcast: 59 KB a second without
-an error, and the demo game's dashboard on the PSP.
+screen, send bitmaps and sprites, keep files on the PSP's Memory Stick, and
+take some of the PSP's buttons for its own screen. It runs on a Dreamcast: 59
+KB a second to the PSP without an error, files read back at 54 KB a second,
+and the demo game's dashboard on the PSP. For developers:
+[dreamcast/libpsp2dc/README.md](dreamcast/libpsp2dc/README.md), with three
+small samples.
 
 The full design notes, test records and history are in
 [docs/psp2dc.md](docs/psp2dc.md).
@@ -139,9 +141,10 @@ KallistiOS and its compiler.
 scripts/build-dreamcast.sh
 ```
 
-The results are two disc images for GDEMU: `build/psp2dc_test.cdi`, which
-measures what the path carries, and `build/psp2dc_demo.cdi`, a small game
-with its dashboard on the PSP.
+The results are disc images for GDEMU: `build/psp2dc_test.cdi`, which
+measures what the path carries, `build/psp2dc_demo.cdi`, a small game
+with its dashboard on the PSP, and the library's samples in `build/samples/`
+(hello, dashboard, save).
 
 ## Using it
 
@@ -237,12 +240,13 @@ the PSP.
 | `psp/usb/` | The kernel USB driver, copied from PSPExp |
 | `protocol/psp2dc_protocol.h` | The USB message format, shared by the PSP and the firmware |
 | `firmware/` | joypad-os patches: the adapter's firmware |
-| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`), its test program, a demo, and an image converter |
+| `dreamcast/` | The companion's KallistiOS library (`libpsp2dc`, with its guide), its test program, a demo, samples, and an image converter |
 | `scripts/` | Build scripts |
 | `scripts/dev/` | PPSSPP runner, host tests for the card code, the VMU core comparison, the companion's simulator |
 | `docs/psp2dc.md` | Design notes, hardware findings, test records |
 | `docs/superpico.md` | The prototype adapter: a Pico on a Watara SuperPico cartridge |
-| `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, phases 1 to 3 as far as built |
+| `docs/psp2dc-companion.md` | The companion: proposal, constraints checked, the phases as built and measured |
+| `docs/optimisations.md` | Optimisations for later: what each would gain and cost |
 | `site/` | The web page for psp2dc.pspexp.dev: `python3 site/build.py` builds it into `site/out/` |
 
 ## Development without hardware
@@ -262,7 +266,8 @@ with no Dreamcast. Everything but the Dreamcast link can be tried, and Demo
 - `scripts/dev/companion-sim/` is the adapter and a PSP as a library, built
   from their own sources. `scripts/dev/companion-test.sh` tests the
   Dreamcast library against it, `scripts/dev/companion-demo.sh` runs the
-  demo on it and saves the PSP's screen as a picture, and
+  demo on it and saves the PSP's screen as a picture,
+  `scripts/dev/companion-samples.sh` runs the samples on it and checks them, and
   `scripts/dev/flycast-companion.sh` puts it into Flycast, where a program
   built on `libpsp2dc` then finds a companion.
 - A file `ms0:/PSP2DC/dev_companion.bin` of the companion's records (the

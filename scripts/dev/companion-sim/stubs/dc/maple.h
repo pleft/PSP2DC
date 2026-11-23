@@ -5,6 +5,8 @@
 
 #define MAPLE_FUNC_MEMCARD      0x02000000
 #define MAPLE_FUNC_CONTROLLER   0x01000000
+#define CONT_B                  (1 << 1)
+#define CONT_A                  (1 << 2)
 #define CONT_START              (1 << 3)
 #define CONT_DPAD_UP            (1 << 4)
 #define CONT_DPAD_DOWN          (1 << 5)
@@ -36,7 +38,7 @@ typedef struct {
 typedef struct { uint32_t functions; } maple_devinfo_t;
 typedef struct { int port, unit; maple_devinfo_t info; } maple_device_t;
 
-typedef struct { uint32_t buttons; } cont_state_t;
+typedef struct { uint32_t buttons; int ltrig, rtrig; } cont_state_t;
 void *maple_dev_status(maple_device_t *dev);
 maple_device_t *maple_enum_dev(int port, int unit);
 maple_device_t *maple_enum_type(int n, uint32_t func);
