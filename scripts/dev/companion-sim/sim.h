@@ -39,6 +39,15 @@ int  sim_psp_screen_save(const char *file);
  * the PSP application as ms0:/PSP2DC/dev_companion.bin, it shows what it would on a Dreamcast. */
 void sim_psp_log(FILE *f);
 
+/* The PSP's files (psp/app/comp_files.c): its Memory Stick is the folder given (made when it
+ * is not there; at first $PSP2DC_SIM_FILES, or psp2dc-sim-files). Free space as given (< 0: not
+ * known, the default); writes to it failing or not. The bytes the PSP sends the adapter in an
+ * exchange, at most (1024 at first). */
+void sim_files_root(const char *dir);
+void sim_files_free(long long bytes);
+void sim_files_fail(int on);
+void sim_psp_up_budget(unsigned bytes);
+
 /* Behind an emulator's memory card: a command in, the reply out (its code
  * as sim_maple's). The PSP is plugged in at the first one and an exchange
  * runs after each. The environment sets the rest:
@@ -47,7 +56,9 @@ void sim_psp_log(FILE *f);
  *   PSP2DC_SIM_SLOW=n       an exchange every n commands only (the PSP reads slowly)
  *   PSP2DC_SIM_REPLUG=n     the PSP unplugged and back every n seconds
  *   PSP2DC_SIM_NO_PSP=1     no PSP on the adapter
- *   PSP2DC_SIM_MAX_WORDS=n  commands longer than n words go unanswered (127: the receiver before its fix) */
+ *   PSP2DC_SIM_MAX_WORDS=n  commands longer than n words go unanswered (127: the receiver before its fix)
+ *   PSP2DC_SIM_FILES=dir    the PSP's Memory Stick for files (sim_files_root)
+ *   PSP2DC_SIM_UP=n         bytes the PSP sends the adapter in an exchange, at most (sim_psp_up_budget) */
 int  sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes);
 
 #endif

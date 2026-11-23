@@ -1,0 +1,65 @@
+From dfd7c9685b85f1c033d8ffb6b3b2d27e231e2d28 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Mon, 23 Nov 2026 19:45:14 +0200
+Subject: [PATCH] PSP2DC: a companion reply that was lost is sent again
+ (protocol 8)
+
+A command with PSP2DC_COMP_TURN carries a turn the Dreamcast changes with
+each new command and keeps when it sends one again for want of a reply.
+The same turn as the last data reply, in the same session: that reply
+again, unchanged, so the PSP's bytes in it are neither lost nor taken
+twice. HELLO starts over.
+---
+ src/native/device/dreamcast/vmu.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 71c9a94b..7d63de45 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -366,6 +366,8 @@ static volatile bool    comp_link;      // a PSP is there
+ static volatile uint8_t comp_session;   // +1 each time its link opens
+ static uint8_t          comp_session_seen;   // the Maple side's
+ static uint8_t          comp_seq_taken;      // the last SEND whose data was taken (0: none since HELLO)
++static uint8_t          comp_last_turn = 0xFF;   // the turn of the last data reply (0xFF: none to send again)
++static uint8_t          comp_last_session;   // ... and its session
+ static volatile uint32_t comp_cmds, comp_agains, comp_bytes_in, comp_bytes_out;
+ 
+ static struct __attribute__((packed, aligned(4))) {
+@@ -401,10 +403,15 @@ static uint32_t __not_in_flash_func(comp_q_read)(CompQueue *q, uint8_t *dst, uin
+ void __not_in_flash_func(vmu_handle_companion)(const uint32_t *pkt, uint32_t num_words)
+ {
+     const uint8_t *req = (const uint8_t *)&pkt[1];   // Psp2dcCompRequest, then its data
+-    uint8_t op = 0xFF, seq = 0, status = PSP2DC_COMP_OK, session = comp_session;
++    uint8_t op = 0xFF, seq = 0, status = PSP2DC_COMP_OK, session = comp_session, turn = 0xFF;
+     uint32_t len = 0, n = 0, words, room;
+     comp_cmds++;
+     if (num_words >= 2) { op = req[0]; seq = req[1]; len = req[2] | (uint32_t)req[3] << 8; }
++    if (op & PSP2DC_COMP_TURN) {          // protocol 8: the same turn as the last reply, which did not arrive
++        turn = (op & PSP2DC_COMP_TURN_BIT) ? 1 : 0;
++        op &= PSP2DC_COMP_OP_MASK;
++        if (turn == comp_last_turn && session == comp_last_session && comp_send == &comp_pkt) return;   // that reply again
++    }
+     if (session != comp_session_seen) {   // the PSP's link opened again: what it sent before is stale
+         comp_dc.got = comp_dc.put;
+         comp_session_seen = session;
+@@ -435,6 +442,7 @@ void __not_in_flash_func(vmu_handle_companion)(const uint32_t *pkt, uint32_t num
+         comp_pkt.Data[n++] = PSP2DC_PROTOCOL_VERSION;
+         comp_pkt.Data[n++] = 0;
+         comp_seq_taken = 0;
++        turn = 0xFF;                       // (nothing before a HELLO is sent again)
+     } else if (status == PSP2DC_COMP_OK) {
+         n = comp_q_read(&comp_dc, comp_pkt.Data, PSP2DC_COMP_DATA_MAX);
+         comp_bytes_out += n;
+@@ -455,6 +463,8 @@ void __not_in_flash_func(vmu_handle_companion)(const uint32_t *pkt, uint32_t num
+     comp_pkt.BitPairsMinus1 = (words * 4 + 5) * 4 - 1;   // header, payload and the CRC's byte, in pairs of bits
+     ((uint32_t *)&comp_pkt.Func)[words] = CalcCRC((uint32_t *)&comp_pkt.Command, words + 1);
+     comp_send = &comp_pkt; comp_send_words = words + 3;
++    comp_last_turn = turn;
++    comp_last_session = session;
+ }
+ const void* __not_in_flash_func(vmu_get_companion_packet)(uint32_t *sz) { *sz = comp_send_words; return comp_send; }
+ 
+-- 
+2.54.0 (Apple Git-157)
+

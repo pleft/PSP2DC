@@ -2,6 +2,7 @@
 #include <string.h>
 #include <pspkernel.h>
 #include "companion.h"
+#include "comp_files.h"
 
 Comp g_comp;
 extern unsigned char msx[];            /* the debug screen's font: 8 bytes a character, the top bit leftmost */
@@ -296,6 +297,7 @@ void comp_reset(void)
     g_comp.test_records = g_comp.test_bytes = g_comp.test_bad = 0;
     g_comp.sessions++;
     screen_reset();
+    comp_files_reset();
 }
 
 static void record(int type, const unsigned char *d, int len)
@@ -325,6 +327,8 @@ static void record(int type, const unsigned char *d, int len)
     } else if (type == PSP2DC_REC_RESET || (type >= PSP2DC_REC_WIDGET && type <= PSP2DC_REC_NOTIFY) ||
                (type >= PSP2DC_REC_REGION && type <= PSP2DC_REC_DRAWSPRITE)) {
         if (!screen_record(type, d, len)) g_comp.screen_bad++;
+    } else if (type >= PSP2DC_REC_FOLDER && type <= PSP2DC_REC_LIST) {
+        comp_files_record(type, d, len);   /* (done on a thread of its own: comp_files.h) */
     }
 }
 
@@ -353,7 +357,7 @@ int comp_event_take(unsigned char out[PSP2DC_COMP_EVENT_MAX])
     if (caps_asked) {
         Psp2dcCompCaps c;
         memset(&c, 0, sizeof(c));
-        c.level = 3;
+        c.level = 4;
         c.widgets = PSP2DC_WIDGETS;
         c.regions = PSP2DC_REGIONS;
         c.text_max = PSP2DC_WIDGET_TEXT_MAX;
@@ -364,6 +368,7 @@ int comp_event_take(unsigned char out[PSP2DC_COMP_EVENT_MAX])
         c.formats = (1u << (PSP2DC_FMT_565 + 1)) - 1;
         c.sprites = PSP2DC_SPRITES;
         c.sprite_bytes = PSP2DC_SPRITE_BYTES;
+        c.files_max = PSP2DC_FILES_MAX;
         out[0] = PSP2DC_REC_CAPS; out[1] = (unsigned char)sizeof(c); out[2] = 0;
         memcpy(out + sizeof(Psp2dcCompRecord), &c, sizeof(c));
         caps_asked = 0;

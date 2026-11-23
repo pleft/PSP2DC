@@ -17,6 +17,8 @@ static int epoch;                        /* +1 each time records that were queue
 static volatile int lost;                /* commands in a row with no good answer */
 static volatile int failed;              /* the command that is out got none: its records go again */
 static uint8_t seq;                      /* the last SEND's (1 to 255) */
+static uint8_t turn;                     /* protocol 8: changes with each new command (PSP2DC_COMP_TURN) */
+static int last_op = -1;                 /* the last command's op */
 
 /* records waiting to go (whole ones only) */
 static uint8_t out[4096];
@@ -24,7 +26,7 @@ static int out_len;
 static int sent_len;                     /* of them, in the command that is out */
 
 /* bytes from the PSP: the reply handler puts (an interrupt), psp2dc_poll takes */
-#define IN_SIZE 2048
+#define IN_SIZE 8192
 static uint8_t in[IN_SIZE];
 static volatile uint32_t in_put, in_got;
 
@@ -57,7 +59,7 @@ static int reset_due;                    /* psp2dc_screen_reset(): the RESET is 
 static int quiet;                        /* frames with nothing sent */
 static psp2dc_caps_t caps;
 static int caps_have;
-static uint32_t in_seen;                 /* how far psp2dc_update has looked for the PSP's CAPS */
+static uint32_t in_seen;                 /* how far look() has gone: CAPS and the files' records taken */
 
 static void reply(maple_state_t *st, maple_frame_t *frm)
 {
@@ -66,7 +68,7 @@ static void reply(maple_state_t *st, maple_frame_t *frm)
     const uint8_t *data = resp->data + 4 + sizeof(Psp2dcCompReply);
     int good = resp->response == MAPLE_RESPONSE_DATATRF && resp->data_len >= 3 &&
                r->len <= PSP2DC_COMP_DATA_MAX && (uint32_t)r->len + 12 <= (uint32_t)resp->data_len * 4;
-    uint8_t op = ((const uint8_t *)&send_buf[1])[0];
+    uint8_t op = ((const uint8_t *)&send_buf[1])[0] & PSP2DC_COMP_OP_MASK;
     (void)st;
     maple_frame_unlock(frm);
     if (!good) {
@@ -119,6 +121,13 @@ static int command(int p, int u, int op, const uint8_t *data, int len, int again
      * would come round to the last SEND's after 255 commands, and that SEND would be dropped. */
     if (op == PSP2DC_COMP_OP_SEND && !again) seq = seq % 255 + 1;
     req->op = op; req->seq = op == PSP2DC_COMP_OP_SEND ? seq : 0; req->len = len;
+    /* Protocol 8: a command sent again keeps its turn, and the adapter answers it with the reply
+     * that was lost, so the PSP's bytes in it are not lost with it. */
+    if (op != PSP2DC_COMP_OP_HELLO && version >= 8) {
+        if (!again) turn ^= 1;
+        req->op = (uint8_t)(op | PSP2DC_COMP_TURN | (turn ? PSP2DC_COMP_TURN_BIT : 0));
+    }
+    last_op = op;
     if (len) memcpy(req + 1, data, len);
     frame.cmd = PSP2DC_COMP_CMD;
     frame.dst_port = p;
@@ -162,7 +171,9 @@ int psp2dc_init(void)
     return -1;
 }
 
-static void caps_look(void);
+static void look(void);
+static void files_flush(void);
+static void files_session(void);
 static int send_max = PSP2DC_COMP_DATA_MAX;   /* a command's data, at most: psp2dc_send_max() */
 static int palette_send(int id, int first, int n);
 static int sprite_send(int id);
@@ -173,8 +184,9 @@ void psp2dc_update(void)
 {
     static int frames;
     frames++;
-    caps_look();
+    look();
     screen_flush();
+    files_flush();
     if (out_len) quiet = 0;
     else if (psp2dc_psp() && ++quiet >= 60) {    /* nothing for a second: a word, so the PSP keeps the screen up */
         psp2dc_record(PSP2DC_REC_NOP, NULL, 0);
@@ -183,6 +195,10 @@ void psp2dc_update(void)
     if (busy) return;                            /* the last command is still out (an "again" is resent for us) */
     if (sent_len && failed && port >= 0 && lost <= 30) {   /* no answer: the same records, the same seq */
         if (command(port, unit, PSP2DC_COMP_OP_SEND, out, sent_len, 1) < 0) lost++;
+        return;
+    }
+    if (failed && last_op == PSP2DC_COMP_OP_POLL && version >= 8 && port >= 0 && lost <= 30) {
+        if (command(port, unit, PSP2DC_COMP_OP_POLL, NULL, 0, 1) < 0) lost++;   /* (its reply again) */
         return;
     }
     if (sent_len) {                              /* it went: its records leave the queue */
@@ -246,21 +262,26 @@ int psp2dc_idle(void) { return out_len == 0; }   /* (what a command took stays u
 
 int psp2dc_poll(psp2dc_event_t *ev)
 {
-    uint32_t have = in_put - in_got, i;
-    int len;
-    if (have < 3) return 0;
-    len = in[(in_got + 1) & (IN_SIZE - 1)] | in[(in_got + 2) & (IN_SIZE - 1)] << 8;
-    if (len > (int)sizeof(ev->data)) { in_got = in_put; return 0; }   /* no such record: drop what is there */
-    if (have < 3u + len) return 0;
-    ev->type = in[in_got & (IN_SIZE - 1)];
-    ev->len = len;
-    for (i = 0; i < (uint32_t)len; i++) ev->data[i] = in[(in_got + 3 + i) & (IN_SIZE - 1)];
-    in_got += 3 + len;
-    if (ev->type == PSP2DC_REC_CAPS) {           /* the library's own: psp2dc_get_caps() */
-        caps_take(ev->data, len);
-        return psp2dc_poll(ev);
+    look();                                      /* (what is the library's own is taken there, and skipped here) */
+    for (;;) {
+        uint32_t have = in_seen - in_got, i;   /* (what look() has been through) */
+        int len, type;
+        if (have < 3) return 0;
+        type = in[in_got & (IN_SIZE - 1)];
+        len = in[(in_got + 1) & (IN_SIZE - 1)] | in[(in_got + 2) & (IN_SIZE - 1)] << 8;
+        if (len > PSP2DC_COMP_UP_MAX - 3) { in_got = in_seen = in_put; return 0; }   /* no such record */
+        if (have < 3u + len) return 0;
+        if (type == PSP2DC_REC_CAPS || (type >= PSP2DC_REC_RDATA && type <= PSP2DC_REC_DONE) ||
+            len > (int)sizeof(ev->data)) {
+            in_got += 3 + len;
+            continue;
+        }
+        ev->type = type;
+        ev->len = len;
+        for (i = 0; i < (uint32_t)len; i++) ev->data[i] = in[(in_got + 3 + i) & (IN_SIZE - 1)];
+        in_got += 3 + len;
+        return 1;
     }
-    return 1;
 }
 
 void psp2dc_stats(psp2dc_stats_t *o) { *o = stats; }
@@ -280,26 +301,31 @@ static void caps_take(const uint8_t *d, int len)
     caps.width = c.width; caps.height = c.height; caps.region_pixels = c.region_pixels;
     caps.widget_types = c.widget_types; caps.formats = c.formats;
     caps.sprites = c.sprites; caps.sprite_bytes = c.sprite_bytes;
+    caps.files_max = c.files_max;
     caps_have = 1;
 }
-/* The PSP's CAPS among what has come, for a program that does not call psp2dc_poll() (which
- * finds it too, and keeps it from the program). */
-static void caps_look(void)
+static void file_take(int type, const uint8_t *d, int len);
+/* What has come from the PSP that is the library's own (CAPS, the files' records), taken once,
+ * whether or not the program calls psp2dc_poll() (which then skips them). A program that never
+ * polls has its events dropped here, not written over. */
+static void look(void)
 {
+    static uint8_t d[PSP2DC_COMP_UP_MAX];
     uint32_t put = in_put, i;
     if ((int32_t)(in_seen - in_got) < 0 || (int32_t)(put - in_seen) < 0) in_seen = in_got;
     while (put - in_seen >= 3) {
-        uint8_t d[sizeof(Psp2dcCompCaps)];
+        int type = in[in_seen & (IN_SIZE - 1)];
         uint32_t len = in[(in_seen + 1) & (IN_SIZE - 1)] | in[(in_seen + 2) & (IN_SIZE - 1)] << 8;
-        if (len > PSP2DC_COMP_EVENT_MAX) { in_seen = put; break; }
+        if (len > PSP2DC_COMP_UP_MAX - 3) { in_seen = in_got = put; break; }
         if (put - in_seen < 3 + len) break;
-        if (in[in_seen & (IN_SIZE - 1)] == PSP2DC_REC_CAPS) {
-            uint32_t n = len < sizeof(d) ? len : sizeof(d);
-            for (i = 0; i < n; i++) d[i] = in[(in_seen + 3 + i) & (IN_SIZE - 1)];
-            caps_take(d, (int)n);
+        if (type == PSP2DC_REC_CAPS || (type >= PSP2DC_REC_RDATA && type <= PSP2DC_REC_DONE)) {
+            for (i = 0; i < len; i++) d[i] = in[(in_seen + 3 + i) & (IN_SIZE - 1)];
+            if (type == PSP2DC_REC_CAPS) caps_take(d, (int)len);
+            else file_take(type, d, (int)len);
         }
         in_seen += 3 + len;
     }
+    if (in_seen - in_got > IN_SIZE / 2) in_got = in_seen;
 }
 int psp2dc_get_caps(psp2dc_caps_t *o)
 {
@@ -401,6 +427,7 @@ static void screen_flush(void)
         for (i = 0; i < PSP2DC_SPRITES; i++) sprites[i].sent = 0;
         reset_due = 0;
         caps_have = 0;
+        files_session();
         told = session_now();                    /* (from here the program's own records are in their place) */
     }
     if (reset_due) {
@@ -620,4 +647,237 @@ int psp2dc_draw_sprite(int region, int id, int x, int y, int key)
     d[2] = (uint8_t)x; d[3] = (uint8_t)(x >> 8); d[4] = (uint8_t)y; d[5] = (uint8_t)(y >> 8);
     d[6] = key >= 0; d[7] = (uint8_t)key; d[8] = (uint8_t)(key >> 8);
     return region_record(PSP2DC_REC_DRAWSPRITE, d, sizeof(d));
+}
+
+/* ---- files ------------------------------------------------------------------ */
+static char folder[PSP2DC_FOLDER_MAX + 1];       /* the program's ("": none given) */
+static int folder_due;                           /* its FOLDER is still to go this session */
+static int read_window = 3 * 1024;               /* a read's bytes asked for and not yet answered, at most */
+static uint8_t op_last;                          /* the last operation's number (1 to 255) */
+static struct {
+    int kind;                                    /* PSP2DC_REC_WRITE, _READ, _STAT, _DELETE, _LIST, _STAT */
+    int status;                                  /* PSP2DC_FILE_* (NONE: nothing started yet) */
+    uint8_t op;
+    int session;                                 /* session_now() as it started */
+    int quiet;                                   /* frames with nothing of it either way */
+    char name[PSP2DC_FILES_NAME_MAX + 1];
+    const uint8_t *src;                          /* a write's bytes */
+    uint8_t *dst;                                /* where a read's go */
+    uint32_t size;                               /* a write's bytes, a read's length */
+    uint32_t offset;                             /* where in the file a read starts */
+    uint32_t sent, acked, crc;                   /* a write: bytes queued, written on the PSP; its CRC */
+    int begun, ended;                            /* its first record went; its last */
+    uint32_t asked, answered, got;               /* a read: bytes asked for, answered (DONE), arrived */
+    uint32_t value;                              /* the answer */
+} fo = { 0, PSP2DC_FILE_NONE };
+
+static uint32_t crc_table[256];
+static uint32_t crc32_more(uint32_t crc, const uint8_t *p, uint32_t n)   /* crc: ~0 at the start */
+{
+    if (!crc_table[1]) {
+        uint32_t i, k, c;
+        for (i = 0; i < 256; i++) {
+            for (c = i, k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            crc_table[i] = c;
+        }
+    }
+    while (n--) crc = crc_table[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+    return crc;
+}
+static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+static uint32_t rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+
+static int name_ok(const char *s, int is_folder)   /* as the PSP checks it (comp_files.c) */
+{
+    int n = (int)strlen(s), i, start = 1;
+    if (n < 1 || n > (is_folder ? PSP2DC_FOLDER_MAX : PSP2DC_FILES_NAME_MAX)) return 0;
+    for (i = 0; i < n; i++) {
+        char c = s[i];
+        if (c == '/') {
+            if (is_folder || start) return 0;
+            start = 1;
+            continue;
+        }
+        if (start && c == '.') return 0;
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || (c == '.' && !is_folder)))
+            return 0;
+        start = 0;
+    }
+    return !start;
+}
+
+static void finish(int status, uint32_t value) { fo.status = status; fo.value = value; }
+static int status_of(int fs)
+{
+    return fs == PSP2DC_FS_OK ? PSP2DC_FILE_DONE : fs == PSP2DC_FS_NOT_FOUND ? PSP2DC_FILE_NOT_FOUND
+         : fs == PSP2DC_FS_BAD_NAME ? PSP2DC_FILE_BAD_NAME : fs == PSP2DC_FS_NO_ROOM ? PSP2DC_FILE_NO_ROOM
+         : fs == PSP2DC_FS_NO_FOLDER ? PSP2DC_FILE_GONE : PSP2DC_FILE_FAILED;
+}
+static uint32_t piece(uint32_t at, uint32_t size) { return size - at < PSP2DC_FILES_PIECE ? size - at : PSP2DC_FILES_PIECE; }
+
+static void files_session(void)                  /* a new session: the PSP knows no folder, and no operation */
+{
+    folder_due = folder[0] != 0;
+    if (fo.status == PSP2DC_FILE_BUSY) finish(PSP2DC_FILE_GONE, 0);
+}
+
+static void file_take(int type, const uint8_t *d, int len)
+{
+    if (fo.status != PSP2DC_FILE_BUSY || len < 1 || d[0] != fo.op) return;   /* (an earlier operation's) */
+    fo.quiet = 0;
+    if (type == PSP2DC_REC_ACK && len >= 5 && fo.kind == PSP2DC_REC_WRITE) {
+        uint32_t a = rd32(d + 1);
+        if (a > fo.acked && a <= fo.sent) fo.acked = a;
+    } else if (type == PSP2DC_REC_RDATA && len >= 5 && (fo.kind == PSP2DC_REC_READ || fo.kind == PSP2DC_REC_LIST)) {
+        uint32_t at = rd32(d + 1) - fo.offset, n = (uint32_t)len - 5;
+        if (at != fo.got || at + n > fo.asked) { finish(PSP2DC_FILE_GONE, 0); return; }   /* bytes missing on the way */
+        memcpy(fo.dst + at, d + 5, n);
+        fo.got += n;
+    } else if (type == PSP2DC_REC_DONE && len >= (int)sizeof(Psp2dcCompDone)) {
+        Psp2dcCompDone dn;
+        memcpy(&dn, d, sizeof(dn));
+        if (dn.status != PSP2DC_FS_OK) { finish(status_of(dn.status), 0); return; }
+        if (fo.kind == PSP2DC_REC_READ || fo.kind == PSP2DC_REC_LIST) {
+            uint32_t want = piece(fo.answered, fo.size);
+            if (fo.got != fo.answered + dn.value || dn.value > want) { finish(PSP2DC_FILE_GONE, 0); return; }
+            fo.answered += want;
+            if (dn.value < want || fo.answered >= fo.size) finish(PSP2DC_FILE_DONE, fo.got);   /* (its end, or all asked for) */
+        } else {
+            finish(PSP2DC_FILE_DONE, dn.value);
+        }
+    }
+}
+
+/* Once a frame: the folder, then what the operation has still to send, as the queue takes it
+ * and the windows allow. */
+static void files_flush(void)
+{
+    uint8_t d[8 + PSP2DC_FILES_NAME_MAX + PSP2DC_FILES_WDATA];
+    int nl;
+    if (fo.status == PSP2DC_FILE_BUSY) {
+        if (!psp2dc_psp() || fo.session != session_now()) { finish(PSP2DC_FILE_GONE, 0); return; }
+        if (++fo.quiet > 5 * 60) { finish(PSP2DC_FILE_GONE, 0); return; }   /* five seconds and not a word */
+    }
+    if (!live()) return;
+    if (folder_due) {
+        if (psp2dc_record(PSP2DC_REC_FOLDER, folder, (int)strlen(folder)) < 0) return;
+        folder_due = 0;
+    }
+    if (fo.status != PSP2DC_FILE_BUSY) return;
+    nl = (int)strlen(fo.name);
+    d[0] = fo.op;
+    switch (fo.kind) {
+    case PSP2DC_REC_WRITE:
+        if (!fo.begun) {
+            put32(d + 1, fo.size);
+            memcpy(d + 5, fo.name, nl);
+            if (psp2dc_record(PSP2DC_REC_WRITE, d, 5 + nl) < 0) return;
+            fo.begun = 1;
+            fo.quiet = 0;
+        }
+        while (fo.sent < fo.size && fo.sent - fo.acked < PSP2DC_FILES_WINDOW_W) {
+            int n = (int)(fo.size - fo.sent), room = psp2dc_room() - RESERVE - 3 - 5;
+            if (n > PSP2DC_FILES_WDATA) n = PSP2DC_FILES_WDATA;
+            if (n > (int)(PSP2DC_FILES_WINDOW_W - (fo.sent - fo.acked))) n = (int)(PSP2DC_FILES_WINDOW_W - (fo.sent - fo.acked));
+            if (n > room) return;                /* (whole pieces only: a short one would take a command of its own) */
+            put32(d + 1, fo.sent);
+            memcpy(d + 5, fo.src + fo.sent, n);
+            if (psp2dc_record(PSP2DC_REC_WDATA, d, 5 + n) < 0) return;
+            fo.crc = crc32_more(fo.crc, fo.src + fo.sent, (uint32_t)n);
+            fo.sent += (uint32_t)n;
+            fo.quiet = 0;
+        }
+        if (fo.sent == fo.size && !fo.ended) {
+            put32(d + 1, ~fo.crc);
+            if (psp2dc_record(PSP2DC_REC_WEND, d, 5) < 0) return;
+            fo.ended = 1;
+        }
+        break;
+    case PSP2DC_REC_READ:
+    case PSP2DC_REC_LIST:
+        while (fo.asked < fo.size && fo.asked - fo.answered < (uint32_t)read_window) {
+            uint32_t n = piece(fo.asked, fo.size);
+            int k = fo.kind == PSP2DC_REC_READ ? nl : 0;
+            put32(d + 1, fo.offset + fo.asked);
+            d[5] = (uint8_t)n; d[6] = (uint8_t)(n >> 8);
+            memcpy(d + 7, fo.name, k);
+            if (psp2dc_record(fo.kind, d, 7 + k) < 0) return;
+            fo.asked += n;
+            fo.quiet = 0;
+        }
+        break;
+    default:                                     /* STAT, DELETE: the one record */
+        if (fo.begun) break;
+        memcpy(d + 1, fo.name, nl);
+        if (psp2dc_record(fo.kind, d, 1 + nl) < 0) return;
+        fo.begun = 1;
+        fo.quiet = 0;
+        break;
+    }
+}
+
+int psp2dc_files(const char *name)
+{
+    if (!name || !name_ok(name, 1)) return -1;
+    strcpy(folder, name);
+    folder_due = 1;
+    return 0;
+}
+void psp2dc_file_window(int bytes) { read_window = bytes < PSP2DC_FILES_PIECE ? PSP2DC_FILES_PIECE : bytes; }
+
+/* an operation begun: 0, -1 (not now: try again), -2 (cannot be) */
+static int start(int kind, const char *name, int name_needed)
+{
+    if (fo.status == PSP2DC_FILE_BUSY) return -1;
+    if (!psp2dc_psp() || !folder[0]) return -2;
+    if (!live() || !caps_have || folder_due) return -1;   /* (the PSP is new: it has not said yet what it can) */
+    if (caps.level < 4) return -2;
+    if (name_needed && (!name || !name_ok(name, 0))) return -2;
+    memset(&fo, 0, sizeof(fo));
+    fo.kind = kind;
+    fo.status = PSP2DC_FILE_BUSY;
+    op_last = (uint8_t)(op_last % 255 + 1);
+    fo.op = op_last;
+    fo.session = session_now();
+    fo.crc = ~0u;
+    if (name_needed) strcpy(fo.name, name);
+    return 0;
+}
+int psp2dc_file_write(const char *name, const void *data, uint32_t size)
+{
+    int r;
+    if (size > PSP2DC_FILES_MAX || (size && !data)) return -2;
+    if ((r = start(PSP2DC_REC_WRITE, name, 1)) < 0) return r;
+    fo.src = (const uint8_t *)data;
+    fo.size = size;
+    return 0;
+}
+int psp2dc_file_read(const char *name, uint32_t offset, void *buf, uint32_t len)
+{
+    int r;
+    if (len && !buf) return -2;
+    if ((r = start(PSP2DC_REC_READ, name, 1)) < 0) return r;
+    fo.dst = (uint8_t *)buf;
+    fo.offset = offset;
+    fo.size = len;
+    if (!len) finish(PSP2DC_FILE_DONE, 0);
+    return 0;
+}
+int psp2dc_file_list(char *buf, uint32_t len)
+{
+    int r;
+    if (len && !buf) return -2;
+    if ((r = start(PSP2DC_REC_LIST, NULL, 0)) < 0) return r;
+    fo.dst = (uint8_t *)buf;
+    fo.size = len;
+    if (!len) finish(PSP2DC_FILE_DONE, 0);
+    return 0;
+}
+int psp2dc_file_size(const char *name) { return start(PSP2DC_REC_STAT, name, 1); }
+int psp2dc_file_delete(const char *name) { return start(PSP2DC_REC_DELETE, name, 1); }
+int psp2dc_files_free(void) { return start(PSP2DC_REC_STAT, NULL, 0); }
+int psp2dc_file_status(uint32_t *n)
+{
+    if (n) *n = fo.status == PSP2DC_FILE_DONE ? fo.value : 0;
+    return fo.status;
 }

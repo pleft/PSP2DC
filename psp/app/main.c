@@ -45,6 +45,7 @@
 #include "vmu_sa.h"
 #include "vmu_game.h"
 #include "companion.h"
+#include "comp_files.h"
 #include "cards.h"
 #include "card_sync.h"
 #include "cardfs.h"
@@ -72,18 +73,23 @@ static volatile unsigned g_rx_bad;
 static char g_log[48 * 1024];
 static volatile unsigned g_log_len;
 static unsigned g_log_written, g_log_cmds;
+static volatile unsigned g_loop_log_max_us;   /* the main loop's longest turn since the last line */
 static void log_status(const Psp2dcStatus *st)
 {
     unsigned n = g_log_len;
     if (st->comp_cmds == g_log_cmds || n + 200 > sizeof(g_log)) return;   /* (nothing from the program this second) */
     g_log_cmds = st->comp_cmds;
     if (!n) n = snprintf(g_log, sizeof(g_log), "up_s cmds again adapter_bytes psp_bytes psp_records psp_bad | maple: bad "
-                         "unanswered late over1ms longest_us | rx: longest_B broken broken_at line_errors fifo_full_s\n");
-    n += snprintf(g_log + n, sizeof(g_log) - n, "%u %u %u %u %u %u %u | %u %u %u %u %u | %u %u %u %u %u\n",
+                         "unanswered late over1ms longest_us | rx: longest_B broken broken_at line_errors fifo_full_s"
+                         " | psp_loop_max_us | files: written read ops failed dropped\n");
+    n += snprintf(g_log + n, sizeof(g_log) - n, "%u %u %u %u %u %u %u | %u %u %u %u %u | %u %u %u %u %u | %u | %u %u %u %u %u\n",
                   (unsigned)st->uptime_ms / 1000, st->comp_cmds, st->comp_agains, (unsigned)st->comp_bytes,
                   g_comp.bytes, g_comp.records, g_comp.test_bad + g_comp.stream_bad,
                   st->maple_bad, st->maple_unanswered, st->maple_skipped, st->maple_slow, st->maple_max_us,
-                  st->maple_longest, st->maple_broken, st->maple_broken_at, st->maple_errors, st->maple_stalls);
+                  st->maple_longest, st->maple_broken, st->maple_broken_at, st->maple_errors, st->maple_stalls,
+                  g_loop_log_max_us, g_comp_files.written, g_comp_files.read, g_comp_files.ops, g_comp_files.failed,
+                  g_comp_files.dropped);
+    g_loop_log_max_us = 0;
     g_log_len = n;
 }
 static void log_write(void)
@@ -582,6 +588,22 @@ static void notice(const char *s) { snprintf(g_notice, sizeof(g_notice), "%s", s
  * the notice. Absent, nothing. */
 /* The companion is in use: its bytes came in the last three seconds. */
 static int comp_on(void) { return g_comp.last_us && now_us() - g_comp.last_us < 3000000; }
+/* The companion's files (comp_files.h): their answers, a record a message, from the files'
+ * thread (pspexpUsbWrite takes one writer at a time, so the main loop's messages go between). */
+static int comp_files_send(const unsigned char *rec, int len)
+{
+    static unsigned char buf[PSP2DC_HEADER_LEN + PSP2DC_COMP_UP_MAX] __attribute__((aligned(64)));
+    if (g_no_usb || !pspexpUsbConnected() || len > PSP2DC_COMP_UP_MAX) return -1;
+    buf[0] = PSP2DC_MAGIC0; buf[1] = PSP2DC_MAGIC1; buf[2] = PSP2DC_MSG_COMP_EVENT; buf[3] = (unsigned char)len;
+    memcpy(buf + PSP2DC_HEADER_LEN, rec, len);
+    return pspexpUsbWrite(buf, PSP2DC_HEADER_LEN + len);
+}
+static int files_thread(SceSize args, void *argp)
+{
+    (void)args; (void)argp;
+    for (;;) if (!comp_files_work()) sceKernelDelayThread(2000);
+    return 0;
+}
 /* ms0:/PSP2DC/dev_companion.txt, for seeing the companion's page without a
  * Dreamcast: its lines as PRINT records, row by row, once at the start and
  * kept as if still arriving. Or dev_companion.bin: a Dreamcast program's
@@ -1942,10 +1964,13 @@ int main(int argc, char *argv[])
     g_card_lock = sceKernelCreateSema("card", 0, 1, 1, NULL);
     dev_input_load();
     dev_gameid_load();
+    comp_files_init(comp_files_send);
     dev_companion_load();
     card_load();
     game_audio_start();
     thid = sceKernelCreateThread("save", saver_thread, 0x20, 0x4000, 0, NULL);
+    if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
+    thid = sceKernelCreateThread("files", files_thread, 0x24, 0x4000, 0, NULL);
     if (thid >= 0) sceKernelStartThread(thid, 0, NULL);
     if (g_no_usb) {
         /* no USB (PPSSPP): standalone, as with no Dreamcast */
@@ -1975,6 +2000,7 @@ int main(int argc, char *argv[])
             unsigned t = now_us(), dt = last_turn ? t - last_turn : 0;
             last_turn = t;
             if (dt > g_loop_max_us) g_loop_max_us = dt;
+            if (dt > g_loop_log_max_us) g_loop_log_max_us = dt;
             if (dt > 20000) g_loop_slow++;
             if ((g_loop_window_us += dt) >= 5000000) {
                 g_loop_shown_max_us = g_loop_max_us; g_loop_shown_slow = g_loop_slow;

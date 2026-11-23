@@ -4,7 +4,9 @@
  * the path carries: TEST records of several sizes, one a frame, five seconds
  * a size, and the round trip of a small ECHO. The controller's state is
  * shown throughout, and Y draws the VMU's screen every frame as a game
- * might, to see the three together.
+ * might, to see the three together. Then files (Appendix E): 64 KB written
+ * to the PSP's Memory Stick, read back with each window and compared, listed
+ * and deleted.
  */
 #include <kos.h>
 #include <stdio.h>
@@ -39,6 +41,76 @@ static const int sizes[] = { 0, 64, 256, 384, 497, 501, 640, 768, 896, 996 };
 #define PHASE_FRAMES 300
 #define QUEUE_EMPTY 4096   /* psp2dc_room() with nothing waiting */
 
+/* The files' part: its steps, one operation each, and what each gave. */
+#define FILE_BYTES 65536
+#define FILE_NAME  "test/speed.bin"
+enum { F_WRITE, F_READ1, F_READ2, F_READ3, F_LIST, F_DELETE, F_GONE, F_STEPS };
+static const char *step_name[F_STEPS] = { "write", "read 1K", "read 2K", "read 3K", "list", "delete", "gone" };
+static struct { int done, status; unsigned frames, n, wrong; } fres[F_STEPS];
+static uint8_t fbuf[FILE_BYTES], fback[FILE_BYTES];
+static char flist[1024];
+static uint8_t fbyte(unsigned i) { unsigned x = (i + 1) * 2654435761u; return (uint8_t)(x >> 13 ^ x >> 24); }
+static int fstep = -1, fstarted;             /* -1: not begun; F_STEPS: all done */
+static unsigned fstart;
+static int files_step(unsigned frame)        /* once a frame: 1 when every step is done */
+{
+    int r;
+    uint32_t n;
+    if (fstep == F_STEPS) return 1;
+    if (fstep < 0) {
+        unsigned i;
+        for (i = 0; i < FILE_BYTES; i++) fbuf[i] = fbyte(i);
+        psp2dc_send_max(PSP2DC_COMP_DATA_MAX);
+        fstep = 0;
+    }
+    if (!fstarted) {
+        switch (fstep) {
+        case F_WRITE:  r = psp2dc_file_write(FILE_NAME, fbuf, FILE_BYTES); break;
+        case F_READ1: case F_READ2: case F_READ3:
+            psp2dc_file_window((fstep - F_READ1 + 1) * 1024);
+            memset(fback, 0, sizeof(fback));
+            r = psp2dc_file_read(FILE_NAME, 0, fback, FILE_BYTES);
+            break;
+        case F_LIST:   memset(flist, 0, sizeof(flist)); r = psp2dc_file_list(flist, sizeof(flist) - 1); break;
+        case F_DELETE: r = psp2dc_file_delete(FILE_NAME); break;
+        default:       r = psp2dc_file_size(FILE_NAME); break;
+        }
+        if (r == -1) return 0;               /* (not now: next frame) */
+        if (r < 0) {                         /* cannot be: a PSP application without files */
+            fres[fstep].done = 1; fres[fstep].status = 100;
+            fstep = F_STEPS;
+            return 1;
+        }
+        fstarted = 1;
+        fstart = frame;
+        return 0;
+    }
+    r = psp2dc_file_status(&n);
+    if (r == PSP2DC_FILE_BUSY) return 0;
+    fres[fstep].done = 1;
+    fres[fstep].status = r;
+    fres[fstep].frames = frame - fstart;
+    fres[fstep].n = n;
+    if (fstep >= F_READ1 && fstep <= F_READ3 && r == PSP2DC_FILE_DONE) {
+        unsigned i;
+        for (i = 0; i < FILE_BYTES; i++) if (fback[i] != fbuf[i]) fres[fstep].wrong++;
+    }
+    if (fstep == F_LIST && r == PSP2DC_FILE_DONE && !strstr(flist, FILE_NAME " 65536\n")) fres[fstep].wrong = 1;
+    fstarted = 0;
+    fstep++;
+    psp2dc_file_window(3 * 1024);
+    return fstep == F_STEPS;
+}
+/* each step as it should have ended */
+static int step_ok(int i)
+{
+    if (!fres[i].done) return 0;
+    if (i == F_GONE) return fres[i].status == PSP2DC_FILE_NOT_FOUND;
+    return fres[i].status == PSP2DC_FILE_DONE && !fres[i].wrong &&
+           (i > F_READ3 || fres[i].n == FILE_BYTES);
+}
+static unsigned kbs(int i) { return fres[i].frames ? FILE_BYTES * 60u / 1024 / fres[i].frames : 0; }
+
 int main(int argc, char **argv)
 {
     static uint8_t test[1000], lcd[192];
@@ -48,12 +120,14 @@ int main(int argc, char **argv)
     unsigned frame = 0, phase_frame = 0, number = 0, last_cont = 0;
     unsigned echo_sent = 0, echo_last = 0, echo_min = 0, echo_max = 0, echoes = 0;
     int phase = 0, running = 0, finished = 0, told = 0, best = -1, paused = 0, draw_vmu = 0, p, u, i;
+    int files_done = 0, files_ok = 0;
     (void)argc; (void)argv;
 
     memset(res, 0, sizeof(res));
     line(0, "PSP2DC companion test");
     line(1, "looking for the companion...");
     psp2dc_init();
+    psp2dc_files("psp2dctest");
     psp2dc_stats(&st0);
 
     for (;;) {
@@ -120,12 +194,20 @@ int main(int argc, char **argv)
                 }
             }
         }
+        /* then the files, once every size is done */
+        if (finished && !paused && !files_done && (fstep >= 0 || psp2dc_room() == QUEUE_EMPTY)) files_done = files_step(frame);
+        for (files_ok = 1, i = 0; i < F_STEPS; i++) if (!step_ok(i)) files_ok = 0;
+
         /* the largest size that ran without an error, every smaller one too */
         for (best = -1, i = 0; i < PHASES && res[i].done && !res[i].errors && (!sizes[i] || res[i].bytes); i++) best = i;
-        if (finished && !told && psp2dc_psp()) {
-            char s[64];
-            snprintf(s, sizeof(s), "done: records up to %d bytes without an error", best < 0 ? 0 : sizes[best]);
+        if (files_done && !told && psp2dc_psp()) {
+            char s[80];
+            snprintf(s, sizeof(s), "done: records up to %d bytes without an error; files %s", best < 0 ? 0 : sizes[best],
+                     files_ok ? "ok" : "FAILED");
             if (psp2dc_print(4, s) == 0) told = 1;
+            snprintf(s, sizeof(s), "files: write %u KB/s, read %u, %u, %u KB/s (1, 2, 3 KB windows)", kbs(F_WRITE),
+                     kbs(F_READ1), kbs(F_READ2), kbs(F_READ3));
+            psp2dc_print(5, s);
         }
 
         if (draw_vmu) {                                       /* a bar moving down the VMU's screen */
@@ -151,9 +233,23 @@ int main(int argc, char **argv)
         line(14, "round trip: %u frames (min %u, max %u; %u of %u)", echo_last, echo_min, echo_max, echoes, echo_sent);
         line(15, "totals: %u sent, %u out, %u in, %u errors", (unsigned)st.commands, (unsigned)st.bytes_out,
              (unsigned)st.bytes_in, (unsigned)st.errors);
-        if (finished) line(16, "DONE. Without an error: up to %d bytes", best < 0 ? 0 : sizes[best]);
-        else line(16, "running: size %d of %d%s", phase + 1, PHASES, running ? "" : " (waiting for the companion)");
-        line(17, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
+        /* the files: each step's speed or status as it ends */
+        {
+            char s[COLS + 1];
+            int k = snprintf(s, sizeof(s), "files:");
+            for (i = 0; i < F_STEPS && k < COLS; i++) {
+                if (!fres[i].done) break;
+                if (i <= F_READ3 && step_ok(i)) k += snprintf(s + k, sizeof(s) - k, " %u", kbs(i));
+                else k += snprintf(s + k, sizeof(s) - k, " %s", step_ok(i) ? "ok" : "BAD");
+            }
+            if (fstep >= 0 && fstep < F_STEPS && k < COLS) snprintf(s + k, sizeof(s) - k, " (%s...)", step_name[fstep]);
+            line(16, "%s", s);
+        }
+        if (files_done) line(17, "DONE. Up to %d bytes; files %s", best < 0 ? 0 : sizes[best],
+                             files_ok ? "ok (KB/s: write, reads 1/2/3K)" : "FAILED");
+        else if (finished) line(17, "sizes done (up to %d bytes); files running", best < 0 ? 0 : sizes[best]);
+        else line(17, "running: size %d of %d%s", phase + 1, PHASES, running ? "" : " (waiting for the companion)");
+        line(18, "X: pause   Y: VMU screen every frame (%s)", draw_vmu ? "on" : "off");
     }
     return 0;
 }

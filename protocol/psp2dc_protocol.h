@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-#define PSP2DC_PROTOCOL_VERSION 7
+#define PSP2DC_PROTOCOL_VERSION 8
 
 /* the PSPExp link under it */
 #define PSP2DC_USB_VID      0x054Cu
@@ -317,11 +317,21 @@ typedef struct {
 #define PSP2DC_COMP_OP_HELLO   0     /* is a companion there? the reply's data: Psp2dcCompHello */
 #define PSP2DC_COMP_OP_SEND    1     /* data: records for the PSP */
 #define PSP2DC_COMP_OP_POLL    2     /* nothing to send */
+/* Protocol 8: a lost reply is not lost. With PSP2DC_COMP_TURN in op, the bit after it says
+ * whose turn: the program changes it with each new command and keeps it when it sends a
+ * command again because no reply came. The adapter answers a command with the turn of its
+ * last data reply, in the same session, with that reply again, unchanged: the PSP's bytes in
+ * it are not taken twice, nor lost. Protocol 7 adapters answer such an op BAD. */
+#define PSP2DC_COMP_TURN       0x80
+#define PSP2DC_COMP_TURN_BIT   0x40
+#define PSP2DC_COMP_OP_MASK    0x3F
 #define PSP2DC_COMP_OK         0
 #define PSP2DC_COMP_NO_PSP     1     /* no PSP on the adapter: a SEND's data was dropped */
 #define PSP2DC_COMP_BAD        2     /* the request made no sense */
 #define PSP2DC_COMP_DATA_MAX   1000  /* data bytes in a request or a reply */
-#define PSP2DC_COMP_EVENT_MAX  56    /* a record from the PSP, header and all */
+#define PSP2DC_COMP_EVENT_MAX  56    /* a record from the PSP's main loop (buttons, CAPS, ECHO), header and all */
+#define PSP2DC_COMP_UP_MAX     255   /* any record from the PSP, header and all: a COMP_EVENT's whole payload
+                                      * (a file's records are this long, Appendix E) */
 typedef struct {
     uint8_t op;           /* PSP2DC_COMP_OP_* */
     uint8_t seq;          /* echoed in the reply. A SEND with the seq of the last one taken is not
@@ -456,7 +466,7 @@ typedef struct {
     int32_t max;          /* a bar's full value */
 } __attribute__((packed)) Psp2dcCompWidget;
 typedef struct {
-    uint8_t level;        /* 2: the screen; 3: pictures too (and the last two fields) */
+    uint8_t level;        /* 2: the screen; 3: pictures too (and the two fields after formats); 4: files */
     uint8_t widgets;      /* PSP2DC_WIDGETS */
     uint8_t regions;      /* PSP2DC_REGIONS */
     uint8_t text_max;     /* PSP2DC_WIDGET_TEXT_MAX */
@@ -467,6 +477,59 @@ typedef struct {
     uint8_t sprites;          /* PSP2DC_SPRITES */
     uint8_t reserved;
     uint32_t sprite_bytes;    /* PSP2DC_SPRITE_BYTES */
+    uint32_t files_max;       /* level 4: the bytes a program's folder may hold (PSP2DC_FILES_MAX) */
 } __attribute__((packed)) Psp2dcCompCaps;
+
+/*
+ * Files (docs/psp2dc-companion.md, Appendix E): a program's own files on the
+ * Memory Stick, in a folder of its own (ms0:/PSP2DC/games/<folder>/). Only
+ * the program and the PSP know these records; the adapter carries them.
+ *
+ * One operation at a time, numbered by the program (op, 1 to 255); a record
+ * of another operation's is ignored. A write is a WRITE, its bytes in order
+ * (WDATA) and a WEND: the PSP writes them to a file of its own and puts it
+ * in the file's place only when all of it came, so a file is either what it
+ * was or what was written. The PSP acknowledges what it has written (ACK);
+ * the program keeps at most PSP2DC_FILES_WINDOW_W bytes unacknowledged. A
+ * read asks for a piece (READ, PSP2DC_FILES_PIECE at most); the PSP answers
+ * with its bytes (RDATA, in order) and a DONE. Every other operation ends
+ * with a DONE too; a write's DONE comes after its WEND.
+ *
+ * A folder's name: 1 to 16 of a-z 0-9 - _. A file's: up to 63 of a-z 0-9 . - _ /,
+ * no part empty or starting with a dot (the PSP's own files start with one).
+ */
+#define PSP2DC_REC_FOLDER  0x30  /* the folder's name: the program's folder, made when it is not there */
+#define PSP2DC_REC_WRITE   0x31  /* op (1), size (4), then the name: a write begins */
+#define PSP2DC_REC_WDATA   0x32  /* op (1), offset (4), then bytes: the write's next */
+#define PSP2DC_REC_WEND    0x33  /* op (1), CRC-32 (4) of all the bytes: the write's end */
+#define PSP2DC_REC_READ    0x34  /* op (1), offset (4), length (2), then the name */
+#define PSP2DC_REC_STAT    0x35  /* op (1), then the name: DONE's value is its size. No name: what the
+                                  * folder may still take (its limit, or the Memory Stick's free space) */
+#define PSP2DC_REC_DELETE  0x36  /* op (1), then the name */
+#define PSP2DC_REC_LIST    0x37  /* op (1), offset (4), length (2): a read of the folder's listing, a line
+                                  * a file ("name size\n", subfolders' files with their path) */
+/* PSP -> Dreamcast */
+#define PSP2DC_REC_RDATA   0x40  /* op (1), offset (4), then bytes: a READ's or a LIST's */
+#define PSP2DC_REC_ACK     0x41  /* op (1), bytes written (4) */
+#define PSP2DC_REC_DONE    0x42  /* Psp2dcCompDone */
+typedef struct {
+    uint8_t op;
+    uint8_t status;       /* PSP2DC_FS_* */
+    uint32_t value;       /* READ, LIST: the bytes given; STAT: the size; WEND: the size written */
+    uint32_t total;       /* READ: the file's size; LIST: the listing's */
+} __attribute__((packed)) Psp2dcCompDone;
+#define PSP2DC_FS_OK        0
+#define PSP2DC_FS_NOT_FOUND 1
+#define PSP2DC_FS_BAD_NAME  2
+#define PSP2DC_FS_NO_ROOM   3
+#define PSP2DC_FS_IO        4     /* the Memory Stick failed, or what arrived was not what was sent */
+#define PSP2DC_FS_NO_FOLDER 5     /* no FOLDER yet this session */
+#define PSP2DC_FILES_MAX      (16u * 1024 * 1024)   /* a folder's limit */
+#define PSP2DC_FILES_PIECE    1024                  /* a READ's or a LIST's length, at most */
+#define PSP2DC_FILES_RDATA    240                   /* an RDATA's bytes, at most */
+#define PSP2DC_FILES_WDATA    990                   /* a WDATA's bytes, at most */
+#define PSP2DC_FILES_WINDOW_W (16 * 1024)           /* a write's bytes sent and not yet acknowledged, at most */
+#define PSP2DC_FILES_NAME_MAX 63
+#define PSP2DC_FOLDER_MAX     16
 
 #endif /* PSP2DC_PROTOCOL_H */

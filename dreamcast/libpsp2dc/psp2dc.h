@@ -3,7 +3,8 @@
  * (docs/psp2dc-companion.md; the wire format is protocol/psp2dc_protocol.h).
  *
  * Find the companion; put widgets on the PSP's screen and keep them up to
- * date, draw into regions of it; take what the PSP sends (its buttons). And
+ * date, draw into regions of it; take what the PSP sends (its buttons); keep
+ * files on its Memory Stick. And
  * the plain records underneath: text rows, test data, bytes to send back.
  *
  * Call psp2dc_update() once a frame. It sends one Maple command per vblank
@@ -117,7 +118,7 @@ int  psp2dc_draw_sprite(int region, int id, int x, int y, int key);
  * 1 and the answer, or 0 (not yet, or a PSP whose application is older than
  * the screen: then nothing above shows). */
 typedef struct {
-    int level;                    /* 2: widgets and regions; 3: pictures too */
+    int level;                    /* 2: widgets and regions; 3: pictures too; 4: files too */
     int width, height;            /* the screen */
     int widgets, regions;         /* how many of each */
     int region_pixels;            /* all regions together, at most */
@@ -125,8 +126,46 @@ typedef struct {
     uint32_t widget_types;        /* bit n: PSP2DC_WIDGET_ type n */
     uint32_t formats;             /* bit n: PSP2DC_FMT_ format n */
     int sprites, sprite_bytes;    /* how many sprites, and their pixels together at most */
+    uint32_t files_max;           /* level 4: files can be kept, this many bytes of them */
 } psp2dc_caps_t;
 int  psp2dc_get_caps(psp2dc_caps_t *out);
+
+/*
+ * Files: the program's own, on the PSP's Memory Stick, in a folder of its own
+ * (ms0:/PSP2DC/games/<folder>/). One operation at a time; each starts here
+ * and goes on in psp2dc_update(), and psp2dc_file_status() says how it
+ * ended. A buffer handed over stays the program's, and must stay where it is
+ * until then. A write replaces the file only once all of it has arrived: a
+ * file is what it was or what was written, whenever the PSP goes.
+ *
+ * Names: up to 63 of a-z 0-9 . - _ and /, no part empty or starting with a
+ * dot ("levels/map01.dat"). The folder's: up to 16 of a-z 0-9 - _.
+ *
+ * A start returns 0; -1 when not now (another operation is going, or the PSP
+ * has just come and not yet said what it can: try again next frame); -2 when
+ * it cannot be (no PSP, one whose application keeps no files, no folder
+ * given, a name not allowed).
+ */
+int  psp2dc_files(const char *folder);           /* once, before the rest: 0, or -1 for a name not allowed */
+int  psp2dc_file_write(const char *name, const void *data, uint32_t size);
+int  psp2dc_file_read(const char *name, uint32_t offset, void *buf, uint32_t len);   /* n: the bytes read */
+int  psp2dc_file_size(const char *name);         /* n: its size */
+int  psp2dc_file_delete(const char *name);
+int  psp2dc_file_list(char *buf, uint32_t len);  /* a line a file, "name size\n", subfolders' with their
+                                                  * path; n: its bytes (not ended by a 0) */
+int  psp2dc_files_free(void);                    /* n: the bytes the folder may still take */
+#define PSP2DC_FILE_DONE       0
+#define PSP2DC_FILE_BUSY       1
+#define PSP2DC_FILE_NONE       2                 /* nothing started yet */
+#define PSP2DC_FILE_NOT_FOUND -1
+#define PSP2DC_FILE_BAD_NAME  -2
+#define PSP2DC_FILE_NO_ROOM   -3                 /* the folder's limit, or the Memory Stick full */
+#define PSP2DC_FILE_GONE      -4                 /* the PSP went, or started over: start it again */
+#define PSP2DC_FILE_FAILED    -5                 /* the Memory Stick failed */
+int  psp2dc_file_status(uint32_t *n);            /* PSP2DC_FILE_*; *n as each start says, once DONE */
+/* A read's bytes asked for and not yet answered, at most (3 KB as the library starts). The
+ * adapter drops what the PSP sends past its 4 KB queue, so more than that loses bytes. For tests. */
+void psp2dc_file_window(int bytes);
 
 /* Counts, for measuring: commands answered, bytes of records sent, bytes
  * received, commands that got no answer or a wrong one. */

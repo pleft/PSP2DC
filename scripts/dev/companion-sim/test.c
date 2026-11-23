@@ -417,7 +417,8 @@ static void screen(void)
     sim_psp_plug(1);
     screen_frames(30);
     CHECK(psp2dc_psp() && psp->screen);
-    CHECK(psp2dc_get_caps(&caps) && caps.level == 3 && caps.width == 480 && caps.height == 272);
+    CHECK(psp2dc_get_caps(&caps) && caps.level == 4 && caps.width == 480 && caps.height == 272);
+    CHECK(caps.files_max == PSP2DC_FILES_MAX);
     CHECK(caps.formats == 0xF && caps.sprites == PSP2DC_SPRITES && caps.sprite_bytes == PSP2DC_SPRITE_BYTES);
     CHECK(caps.widgets == PSP2DC_WIDGETS && caps.regions == PSP2DC_REGIONS && caps.widget_types == 0x1F);
     screen_same();
@@ -671,6 +672,290 @@ static void pictures_faults(void)
            lost_replies);
 }
 
+/* ---- files ---- */
+static char files_dir[1024];               /* the simulated Memory Stick's folder for files */
+static void files_fresh(void)
+{
+    char cmd[1100];
+    const char *d = getenv("PSP2DC_SIM_FILES");
+    snprintf(files_dir, sizeof(files_dir), "%s", d ? d : "build/companion-sim/files");
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", files_dir);
+    if (system(cmd) != 0) CHECK(!"the files' folder could not be emptied");
+    sim_files_root(files_dir);
+}
+/* a file's bytes, from a seed */
+static uint8_t byte_of(uint32_t seed, uint32_t i) { uint32_t x = (seed + i) * 2654435761u; return (uint8_t)(x >> 13 ^ x >> 24); }
+static void bytes_of(uint8_t *p, uint32_t seed, uint32_t n) { uint32_t i; for (i = 0; i < n; i++) p[i] = byte_of(seed, i); }
+static long long disk_size(const char *name)
+{
+    char p[1200];
+    FILE *f;
+    long long n;
+    snprintf(p, sizeof(p), "%s/testgame/%s", files_dir, name);
+    if (!(f = fopen(p, "rb"))) return -1;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fclose(f);
+    return n;
+}
+static int disk_is(const char *name, uint32_t seed, uint32_t n)   /* the file holds those bytes */
+{
+    static uint8_t a[1 << 20];
+    char p[1200];
+    FILE *f;
+    uint32_t i, got;
+    snprintf(p, sizeof(p), "%s/testgame/%s", files_dir, name);
+    if (!(f = fopen(p, "rb"))) return 0;
+    got = (uint32_t)fread(a, 1, sizeof(a), f);
+    fclose(f);
+    if (got != n) return 0;
+    for (i = 0; i < n; i++) if (a[i] != byte_of(seed, i)) return 0;
+    return 1;
+}
+static void disk_put(const char *name, uint32_t seed, uint32_t n)
+{
+    static uint8_t a[1 << 20];
+    char p[1200];
+    FILE *f;
+    snprintf(p, sizeof(p), "%s/testgame/%s", files_dir, name);
+    bytes_of(a, seed, n);
+    if (!(f = fopen(p, "wb"))) { CHECK(!"a file could not be made"); return; }
+    fwrite(a, 1, n, f);
+    fclose(f);
+}
+static int temps_left(void)                /* the PSP's own files left in the folder */
+{
+    char cmd[1200];
+    snprintf(cmd, sizeof(cmd), "find '%s/testgame' -name '.*' | grep -q .", files_dir);
+    return system(cmd) == 0;
+}
+/* an operation started (when "not now", frame by frame until it can be) and waited for: its status */
+#define START(call) ({ int r_, k_ = 0; while ((r_ = (call)) == -1 && k_++ < 600) frame(); r_; })
+static uint32_t op_n;
+static unsigned op_frames;
+static int wait_op(void)
+{
+    int i, st;
+    unsigned at = vblanks;
+    for (i = 0; i < 100000; i++) {
+        st = psp2dc_file_status(&op_n);
+        if (st != PSP2DC_FILE_BUSY) { op_frames = vblanks - at; return st; }
+        frame();
+    }
+    return 99;
+}
+#define RUN(call) (START(call) == 0 ? wait_op() : 100)
+
+static void files(void)
+{
+    static uint8_t a[70000], b[70000];
+    static char list[4096];
+    int w;
+    files_fresh();
+    sim_psp_plug(1);
+    CHECK(psp2dc_init() == 0);
+    frames(10);
+    CHECK(psp2dc_file_size("one.dat") == -2);              /* no folder given */
+    CHECK(psp2dc_file_status(NULL) == PSP2DC_FILE_NONE);
+    CHECK(psp2dc_files("Bad") == -1 && psp2dc_files("a/b") == -1 && psp2dc_files("") == -1);
+    CHECK(psp2dc_files("seventeen-letters") == -1 && psp2dc_files("testgame") == 0);
+    CHECK(START(psp2dc_file_size("../x")) == -2 && psp2dc_file_size(".hidden") == -2 && psp2dc_file_size("a//b") == -2);
+    CHECK(psp2dc_file_size("A.SAV") == -2 && psp2dc_file_size("") == -2 && psp2dc_file_size("a/") == -2);
+    CHECK(psp2dc_file_size("a/.b") == -2);
+    /* a write, and the file it made */
+    bytes_of(a, 7, sizeof(a));
+    CHECK(RUN(psp2dc_file_write("save/one.dat", a, sizeof(a))) == PSP2DC_FILE_DONE && op_n == sizeof(a));
+    printf("    70000 bytes written in %u frames (%u KB a second)\n", op_frames, (unsigned)(sizeof(a) * 60 / 1024 / op_frames));
+    CHECK(disk_is("save/one.dat", 7, sizeof(a)) && !temps_left());
+    CHECK(START(psp2dc_file_write("x", a, 1)) == 0 && psp2dc_file_size("x") == -1);   /* (one at a time) */
+    CHECK(wait_op() == PSP2DC_FILE_DONE && RUN(psp2dc_file_delete("x")) == PSP2DC_FILE_DONE);
+    CHECK(RUN(psp2dc_file_size("save/one.dat")) == PSP2DC_FILE_DONE && op_n == sizeof(a));
+    /* reads: whole, a part, past the end, of nothing */
+    memset(b, 0, sizeof(b));
+    CHECK(RUN(psp2dc_file_read("save/one.dat", 0, b, sizeof(b))) == PSP2DC_FILE_DONE && op_n == sizeof(a));
+    CHECK(!memcmp(a, b, sizeof(a)));
+    printf("    70000 bytes read in %u frames (%u KB a second)\n", op_frames, (unsigned)(sizeof(a) * 60 / 1024 / op_frames));
+    memset(b, 0, sizeof(b));
+    CHECK(RUN(psp2dc_file_read("save/one.dat", 1000, b, 5000)) == PSP2DC_FILE_DONE && op_n == 5000);
+    CHECK(!memcmp(a + 1000, b, 5000));
+    CHECK(RUN(psp2dc_file_read("save/one.dat", 69000, b, 5000)) == PSP2DC_FILE_DONE && op_n == 1000);
+    CHECK(!memcmp(a + 69000, b, 1000));
+    CHECK(RUN(psp2dc_file_read("save/one.dat", 80000, b, 10)) == PSP2DC_FILE_DONE && op_n == 0);
+    CHECK(RUN(psp2dc_file_read("nothing", 0, b, 10)) == PSP2DC_FILE_NOT_FOUND);
+    CHECK(RUN(psp2dc_file_size("nothing")) == PSP2DC_FILE_NOT_FOUND);
+    /* a file replaced; an empty one; the listing */
+    CHECK(RUN(psp2dc_file_write("save/one.dat", a + 5, 100)) == PSP2DC_FILE_DONE && disk_is("save/one.dat", 12, 100));
+    CHECK(RUN(psp2dc_file_write("empty", a, 0)) == PSP2DC_FILE_DONE && disk_size("empty") == 0);
+    memset(list, 0, sizeof(list));
+    CHECK(RUN(psp2dc_file_list(list, sizeof(list) - 1)) == PSP2DC_FILE_DONE && op_n == strlen(list));
+    CHECK(strstr(list, "save/one.dat 100\n") && strstr(list, "empty 0\n") && !strstr(list, "/.") && list[0] != '.');
+    CHECK(RUN(psp2dc_file_list(list, 5)) == PSP2DC_FILE_DONE && op_n == 5);
+    /* room: the folder's limit, then the Memory Stick's free space */
+    CHECK(RUN(psp2dc_files_free()) == PSP2DC_FILE_DONE && op_n == PSP2DC_FILES_MAX - 100);
+    CHECK(RUN(psp2dc_file_write("big", a, PSP2DC_FILES_MAX)) == PSP2DC_FILE_NO_ROOM && disk_size("big") < 0);
+    CHECK(psp2dc_file_write("big", a, PSP2DC_FILES_MAX + 1) == -2);
+    sim_files_free(200000);
+    CHECK(RUN(psp2dc_files_free()) == PSP2DC_FILE_DONE && op_n == 200000 - 65536);
+    CHECK(RUN(psp2dc_file_write("save/one.dat", a, sizeof(a))) == PSP2DC_FILE_DONE);
+    sim_files_free(100000);
+    CHECK(RUN(psp2dc_file_write("save/one.dat", a + 5, 50000)) == PSP2DC_FILE_NO_ROOM && disk_is("save/one.dat", 7, sizeof(a)));
+    sim_files_free(-1);
+    /* the Memory Stick failing: the file as it was, nothing of the PSP's left */
+    sim_files_fail(1);
+    CHECK(RUN(psp2dc_file_write("save/one.dat", a + 5, 3000)) == PSP2DC_FILE_FAILED);
+    sim_files_fail(0);
+    CHECK(disk_is("save/one.dat", 7, sizeof(a)) && !temps_left());
+    /* deleted */
+    CHECK(RUN(psp2dc_file_delete("empty")) == PSP2DC_FILE_DONE && disk_size("empty") < 0);
+    CHECK(RUN(psp2dc_file_delete("empty")) == PSP2DC_FILE_NOT_FOUND);
+    /* the PSP unplugged in the middle of a write: the file as it was; the PSP's half file gone
+     * once it is back */
+    CHECK(START(psp2dc_file_write("save/one.dat", a + 5, 60000)) == 0);
+    frames(20);
+    sim_psp_plug(0);
+    CHECK(wait_op() == PSP2DC_FILE_GONE);
+    CHECK(disk_is("save/one.dat", 7, sizeof(a)));
+    sim_psp_plug(1);
+    frames(60);
+    CHECK(disk_is("save/one.dat", 7, sizeof(a)) && !temps_left());
+    /* cut short between its two renames: the whole new file is in its place once the PSP is back */
+    disk_put(".one.dat.done", 99, 777);
+    disk_put(".half.dat.part", 98, 50);
+    sim_psp_plug(0); frames(5); sim_psp_plug(1);
+    frames(10);                                            /* (the library hears that the PSP is back) */
+    CHECK(RUN(psp2dc_file_size("one.dat")) == PSP2DC_FILE_DONE && op_n == 777);
+    CHECK(disk_is("one.dat", 99, 777) && !temps_left());
+    /* reads with each window, 64 KB */
+    for (w = 1; w <= 3; w++) {
+        psp2dc_file_window(w * 1024);
+        memset(b, 0, sizeof(b));
+        CHECK(RUN(psp2dc_file_read("save/one.dat", 0, b, 65536)) == PSP2DC_FILE_DONE && op_n == 65536);
+        CHECK(!memcmp(a, b, 65536));
+        printf("    64 KB read with a %d KB window: %u frames (%u KB a second)\n", w, op_frames, 64 * 60 / op_frames);
+    }
+    psp2dc_file_window(3 * 1024);
+}
+
+/* Files through everything at once. A file must be, whenever it is looked at, wholly what it
+ * was or wholly what was last written; a read gives its bytes or a status, never wrong bytes. */
+#define NAMES 5
+#define CANDS 8
+static const char *fnames[NAMES] = { "a.sav", "b.dat", "levels/one", "levels/two", "x" };
+typedef struct { int exists; uint32_t seed, size; } fstate_t;
+static struct { fstate_t c[CANDS]; int n; } fm[NAMES];   /* what each file may be (more than one: an operation's fate unknown) */
+static void fm_is(int k, int exists, uint32_t seed, uint32_t size)
+{
+    fm[k].n = 1; fm[k].c[0].exists = exists; fm[k].c[0].seed = seed; fm[k].c[0].size = size;
+}
+static void fm_may(int k, int exists, uint32_t seed, uint32_t size)
+{
+    if (fm[k].n == CANDS) { memmove(fm[k].c, fm[k].c + 1, sizeof(fm[k].c[0]) * (CANDS - 1)); fm[k].n--; }   /* (never this many) */
+    fm[k].c[fm[k].n].exists = exists; fm[k].c[fm[k].n].seed = seed; fm[k].c[fm[k].n].size = size;
+    fm[k].n++;
+}
+static void fm_check_disk(void)            /* each file on the Memory Stick is one of what it may be */
+{
+    int k, i;
+    for (k = 0; k < NAMES; k++) {
+        long long n = disk_size(fnames[k]);
+        for (i = 0; i < fm[k].n; i++) {
+            const fstate_t *c = &fm[k].c[i];
+            if (n < 0 ? !c->exists : c->exists && disk_is(fnames[k], c->seed, c->size)) break;
+        }
+        if (i == fm[k].n) { printf("    %s is none of what it may be (%d)\n", fnames[k], fm[k].n); CHECK(0); continue; }
+        fm[k].c[0] = fm[k].c[i];
+        fm[k].n = 1;
+    }
+}
+static unsigned f_ok, f_gone, f_other, f_reads;
+static void files_op(int quiet_link)
+{
+    static uint8_t wbuf[40000], rbuf[40000];
+    int k = rand() % NAMES, what = rand() % 10, st, i, j;
+    uint32_t seed = (uint32_t)rand(), size = (uint32_t)(rand() % 3 ? rand() % 4000 : rand() % sizeof(wbuf));
+    if (what < 4) {                         /* a write */
+        bytes_of(wbuf, seed, size);
+        if (START(psp2dc_file_write(fnames[k], wbuf, size)) != 0) return;
+        st = wait_op();
+        if (st == PSP2DC_FILE_DONE) fm_is(k, 1, seed, size);
+        else if (st == PSP2DC_FILE_GONE) fm_may(k, 1, seed, size);
+    } else if (what < 8) {                  /* a read, from somewhere */
+        uint32_t off = (uint32_t)(rand() % 3 ? 0 : rand() % 5000), len = (uint32_t)(rand() % sizeof(rbuf)), x;
+        if (START(psp2dc_file_read(fnames[k], off, rbuf, len)) != 0) return;
+        st = wait_op();
+        f_reads++;
+        if (st == PSP2DC_FILE_DONE || st == PSP2DC_FILE_NOT_FOUND) {
+            /* what the file may be, of what the read saw: its bytes, or that it is not there */
+            for (i = j = 0; i < fm[k].n; i++) {
+                const fstate_t *c = &fm[k].c[i];
+                int ok = st == PSP2DC_FILE_NOT_FOUND ? !c->exists : c->exists;
+                if (ok && st == PSP2DC_FILE_DONE) {
+                    uint32_t want = off >= c->size ? 0 : c->size - off < len ? c->size - off : len;
+                    ok = op_n == want;
+                    for (x = 0; ok && x < op_n; x++) ok = rbuf[x] == byte_of(c->seed, off + x);
+                }
+                if (ok) fm[k].c[j++] = *c;
+            }
+            if (!j) { printf("    a read of %s saw what it never was (status %d)\n", fnames[k], st); CHECK(0); fm_is(k, 0, 0, 0); }
+            else fm[k].n = j;
+        }
+    } else {                                /* deleted */
+        if (START(psp2dc_file_delete(fnames[k])) != 0) return;
+        st = wait_op();
+        if (st == PSP2DC_FILE_DONE || st == PSP2DC_FILE_NOT_FOUND) fm_is(k, 0, 0, 0);
+        else if (st == PSP2DC_FILE_GONE) fm_may(k, 0, 0, 0);
+    }
+    if (st == PSP2DC_FILE_DONE || st == PSP2DC_FILE_NOT_FOUND) f_ok++;
+    else if (st == PSP2DC_FILE_GONE) f_gone++;
+    else f_other++;
+    if (quiet_link && st == PSP2DC_FILE_GONE) { printf("    an operation lost with only commands and replies lost\n"); CHECK(0); }
+}
+static void files_faults(void)
+{
+    int round, i;
+    files_fresh();
+    sim_psp_plug(1);
+    psp2dc_init();
+    psp2dc_files("testgame");
+    for (round = 0; round < NAMES; round++) fm_is(round, 0, 0, 0);
+    /* commands and replies lost, and nothing else: no operation may fail for it */
+    lose_request = lose_reply = 50;
+    for (i = 0; i < 400; i++) files_op(1);
+    lose_request = lose_reply = 0;
+    fm_check_disk();
+    printf("    commands and replies lost (5 %% each): %u operations, %u failed\n", f_ok + f_gone + f_other, f_gone + f_other);
+    /* everything at once */
+    for (round = 0; round < 30 && !failures; round++) {
+        lose_request = lose_reply = 20;
+        for (i = 0; i < 60; i++) {
+            if (rand() % 6 == 0) usb_every = 1 + rand() % 3;
+            if (rand() % 10 == 0) sim_psp_up_budget(64 + rand() % 1200);
+            if (rand() % 12 == 0) {         /* the PSP away in the middle of an operation */
+                int k = rand() % NAMES;
+                uint32_t seed = (uint32_t)rand(), size = 20000 + rand() % 20000;
+                static uint8_t buf[40000];
+                bytes_of(buf, seed, size);
+                if (START(psp2dc_file_write(fnames[k], buf, size)) == 0) {
+                    frames(rand() % 30);
+                    if (rand() % 2) { sim_psp_plug(0); frames(rand() % 100); sim_psp_plug(1); }
+                    else sim_usb_fail();
+                    int st = wait_op();
+                    if (st == PSP2DC_FILE_DONE) fm_is(k, 1, seed, size);
+                    else if (st == PSP2DC_FILE_GONE) fm_may(k, 1, seed, size);
+                }
+            }
+            if (rand() % 25 == 0) { card_there = 0; frames(10 + rand() % 100); card_there = 1; }
+            files_op(0);
+        }
+        lose_request = lose_reply = 0; usb_every = 1; sim_psp_up_budget(1024);
+        frames(60);
+        fm_check_disk();
+    }
+    printf("    %u operations: %u ended well, %u lost with the PSP (started again), %u otherwise; %u reads\n",
+           f_ok + f_gone + f_other, f_ok, f_gone, f_other, f_reads);
+    printf("    %u vblanks, %u + %u lost\n", vblanks, lost_requests, lost_replies);
+}
+
 static const struct { const char *name, *what; void (*run)(void); } scenarios[] = {
     { "plain",      "found; rows of text; records of every size arrive, each once and whole", plain },
     { "slow",       "a PSP that reads slowly: \"again\", and nothing lost", slow_psp },
@@ -686,6 +971,8 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "screen-faults", "the screen through everything at once, 100000 frames", screen_faults },
     { "pictures",   "a palette, bitmaps in every format, sprites: pixel for pixel", pictures },
     { "pictures-faults", "pictures through everything at once, 60000 frames", pictures_faults },
+    { "files",      "each operation, names refused, the limits, a write cut short", files },
+    { "files-faults", "files through everything at once: whole or as they were", files_faults },
 };
 
 int main(int argc, char **argv)

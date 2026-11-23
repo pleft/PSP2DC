@@ -6,6 +6,7 @@
 #include "native/device/dreamcast/vmu_storage.h"
 #include "../../../psp/app/companion.h"
 #include "../../../psp/app/comp_screen.h"
+#include "../../../psp/app/comp_files.h"
 #include "sim.h"
 
 /* what vmu.c and companion.c want from around them */
@@ -20,6 +21,25 @@ static int plugged, reset_due, fail_next;
 static unsigned buttons, buttons_sent = ~0u;
 static FILE *stream_log;
 void sim_psp_log(FILE *f) { stream_log = f; }
+
+/* The files' answers on their way to the adapter (main.c: comp_files_send, from the files'
+ * thread): a whole record a message, as many bytes an exchange as the link takes. */
+static uint8_t up[65536];
+static unsigned up_len, up_budget = 1024;
+static int up_send(const unsigned char *rec, int len)
+{
+    if (!plugged || up_len + 1 + (unsigned)len > sizeof(up)) return -1;
+    up[up_len] = (uint8_t)len;
+    memcpy(up + up_len + 1, rec, (size_t)len);
+    up_len += 1 + (unsigned)len;
+    return len;
+}
+void sim_psp_up_budget(unsigned bytes) { up_budget = bytes; }
+static void files_start(void)
+{
+    static int done;
+    if (!done) { comp_files_init(up_send); done = 1; }
+}
 
 int sim_maple(const uint32_t *payload, int words, uint32_t *out, int *out_words)
 {
@@ -89,12 +109,27 @@ void sim_usb(void)
     /* The PSP's reader (main.c: reader_thread); the other messages are not looked at here. */
     for (pos = 0; pos + PSP2DC_HEADER_LEN <= n; ) {
         const uint8_t *p = tx + pos;
-        if (p[2] == PSP2DC_MSG_COMP_RESET) comp_reset();
+        if (p[2] == PSP2DC_MSG_COMP_RESET) { files_start(); comp_reset(); }
         else if (p[2] == PSP2DC_MSG_COMP_DATA) {
             comp_feed(p + PSP2DC_HEADER_LEN, p[3]);
             if (stream_log) fwrite(p + PSP2DC_HEADER_LEN, 1, p[3], stream_log);
         }
         pos += PSP2DC_HEADER_LEN + p[3];
+    }
+
+    /* The files' thread does what came; what it sends goes out as the link takes it (each
+     * message 4 bytes and the record), dropped by the adapter when its queue is full. */
+    files_start();
+    while (comp_files_work()) {}
+    {
+        unsigned at = 0, budget = 0;
+        while (at < up_len && budget + 4 + up[at] <= up_budget) {
+            vmu_companion_put(up + at + 1, up[at]);
+            budget += 4 + up[at];
+            at += 1 + up[at];
+        }
+        memmove(up, up + at, up_len - at);
+        up_len -= at;
     }
 
     /* The PSP to the adapter (main.c, before its INPUT): while the companion's bytes come. */
@@ -123,8 +158,11 @@ void sim_psp_plug(int in)
         reset_due = 1;
         memset(&g_comp, 0, sizeof(g_comp));
         buttons_sent = ~0u;
+        files_start();
+        comp_files_reset();                /* (the application started again: nothing of before) */
     }
     plugged = in;
+    up_len = 0;                            /* (what was on its way is gone with the link) */
 }
 void sim_psp_buttons(unsigned b) { buttons = b; }
 const void *sim_psp_page(void) { return &g_comp; }
@@ -221,6 +259,7 @@ int sim_emulator(const uint8_t *in, int in_bytes, uint8_t *out, int *out_bytes)
         if ((s = getenv("PSP2DC_SIM_REPLUG"))) replug = atoi(s);
         no_psp = getenv("PSP2DC_SIM_NO_PSP") != NULL;
         if ((s = getenv("PSP2DC_SIM_MAX_WORDS"))) max_words = atoi(s);
+        if ((s = getenv("PSP2DC_SIM_UP")) && atoi(s) > 0) sim_psp_up_budget((unsigned)atoi(s));
         if (!no_psp) sim_psp_plug(1);
     }
     *out_bytes = 0;

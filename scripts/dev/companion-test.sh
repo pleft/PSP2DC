@@ -9,6 +9,7 @@ OUT="$ROOT/build/companion-sim"
 "$SIM/build.sh" "$OUT"
 cc -O1 -g -Wall -I "$SIM/stubs" -I "$SIM" -I "$ROOT/protocol" -I "$ROOT/dreamcast/libpsp2dc" \
    -o "$OUT/test" "$SIM/test.c" "$ROOT/dreamcast/libpsp2dc/psp2dc.c" "$OUT/libpsp2dcsim.a"
+export PSP2DC_SIM_FILES="$OUT/files"
 failed=0
 for s in $("$OUT/test" || true); do "$OUT/test" "$s" || failed=1; done
 exit $failed
