@@ -103,27 +103,30 @@
   <ol class="steps">
     <li><b>The adapter.</b> Solder the controller cable to the board.
       <a href="{{REPO}}#what-you-need">Wiring</a></li>
-    <li><b>Its firmware.</b> Build it, hold the board's BOOT button while plugging it into a computer, and copy the
-      <code>.uf2</code> file onto the drive that appears. <a href="{{REPO}}#adapter-firmware">Building the firmware</a></li>
-    <li><b>The PSP.</b> Build the application and copy its folder to <code>PSP/GAME/</code> on the Memory
-      Stick. <a href="{{REPO}}#psp-application">Building the PSP application</a></li>
+    <li><b>Download.</b> A release is one zip with the adapter's firmware and the PSP application.
+      <a href="{{REPO}}/releases/latest">The latest release</a></li>
+    <li><b>The adapter's firmware.</b> Hold the board's BOOT button while plugging it into a computer, and copy the
+      zip's <code>.uf2</code> file onto the drive that appears.</li>
+    <li><b>The PSP.</b> Copy the zip's <code>PSP</code> folder onto the Memory Stick.</li>
     <li><b>Play.</b> Plug the adapter into a controller port and the PSP into the adapter, then start PSP2DC
       from the PSP's Game menu. <a href="{{REPO}}#using-it">Using it</a></li>
   </ol>
-  <p class="note">Both parts are built from source for now.</p>
+  <p class="note">Or build both from source: <a href="{{REPO}}#building">Building</a>.</p>
 </section>
 
 <section class="wrap" id="companion">
   <div class="feature">
     <div>
-      <p class="tag">In progress</p>
+      <p class="tag">For developers</p>
       <h2>The companion: a second screen for homebrew</h2>
       <p>A Dreamcast program built with KallistiOS can use the PSP as its second screen: a map, an
       inventory or a dashboard on the PSP while the game is on the TV. The program places labels,
-      numbers, bars and lists, draws into regions of the screen, and sends pictures and sprites.</p>
-      <p>This is built and tested against a simulated adapter and PSP. It has not been tried on a real
-      Dreamcast yet.</p>
-      <p><a href="{{REPO}}/blob/main/docs/psp2dc-companion.md">The companion's design and status</a></p>
+      numbers, bars and lists, draws into regions of the screen, and sends pictures and sprites. It can
+      read the PSP's buttons and keep files on the Memory Stick.</p>
+      <p>It runs on a real Dreamcast, and comes as a small library with a guide, three samples and a
+      demo game. A release has their disc images.</p>
+      <p><a href="{{REPO}}/blob/main/dreamcast/libpsp2dc/README.md">The library's guide</a> ·
+      <a href="{{REPO}}/blob/main/docs/psp2dc-companion.md">Design and measurements</a></p>
     </div>
     <figure><img src="images/companion-dashboard.png" alt="A demo game's dashboard on the PSP's screen: the map explored so far on the left, and on the right health, score, steps and a list of keys" loading="lazy" width="480" height="272"><figcaption>A demo game's dashboard, as the PSP draws it</figcaption></figure>
   </div>
@@ -139,6 +142,7 @@
       <li>A card per game with GDEMU and openMenu.</li>
       <li>The keyboard, in openMenu and Typing of the Dead.</li>
       <li>The standalone VMU, with mini-games such as Chao Adventure 2.</li>
+      <li>The companion: a Dreamcast program's second screen, buttons and files on the PSP.</li>
     </ul>
   </div>
   <div>

@@ -2,7 +2,7 @@
 # PSP Dreamcast Controller & VMU
 
 **Status:** Working on hardware: the PSP plays a real Dreamcast through the adapter, shows the VMU's screen and keeps the memory cards on its Memory Stick; it can be a Dreamcast keyboard; standalone it is a VMU with its games. See section 10.  
-**Date:** November 2026 (revised 21 November 2026)  
+**Date:** November 2026 (revised 23 November 2026)  
 **Target hardware:** Sony PSP-1000, Waveshare RP2040-Zero (RP2040), Sega Dreamcast. The prototype ran on the Raspberry Pi Pico of a Watara SuperPico.
 
 **About this document.** These are the design notes and the development record, in the order things were decided, built and tested. A dated entry says what was known on that day; where a later entry changed it, the earlier one says so. How to build and use PSP2DC is in the [README](../README.md), the state of things today in section 10, and the companion (a second screen for Dreamcast homebrew) in [psp2dc-companion.md](psp2dc-companion.md).
@@ -809,13 +809,17 @@ Completed:
 - The build needs only pspdev: PSPExp's USB driver is in `psp/usb`; `scripts/install-psp.sh` installs without macOS's "._" files.
 - The Dreamcast keyboard (5.0e7): works on hardware in openMenu and Typing of the Dead (18 November 2026, RP2040-Zero).
 - Game names on per-game cards (5.0e8): built and checked in PPSSPP, not yet tried on hardware.
-- The companion, phases 1 and 2 and the first part of phase 3: built and tested without hardware; its data path measured on a Dreamcast on 22 November 2026, 59 KB a second without an error, after a fix to the adapter's Maple receiver for frames of 128 words and more ([psp2dc-companion.md](psp2dc-companion.md), B.9); the demo runs there with its dashboard on the PSP.
+- The companion ([psp2dc-companion.md](psp2dc-companion.md)): on a Dreamcast, its data path at 59 KB a second without an error after a fix to the adapter's Maple receiver for frames of 128 words and more (22 November 2026, B.9), the demo with its dashboard on the PSP, files on the Memory Stick read back at 54 KB a second (23 November, Appendix E, with protocol 8) and the PSP's buttons taken by a program (Appendix F). A guide, samples and a kos-ports port for developers (phases 5 and 6; the port not submitted).
 - The RP2040-Zero is the adapter to build and the SuperPico the prototype (21 November 2026): the README, the firmware script's default board, [superpico.md](superpico.md).
-- The menu beside the VMU (21 November 2026, 5.0a): a list in place of the tabs, the pages in a column beside the VMU, long names scrolling. Checked in PPSSPP, not yet on hardware.
+- The menu beside the VMU (21 November 2026, 5.0a): a list in place of the tabs, the pages in a column beside the VMU, long names scrolling. Checked in PPSSPP; on the PSP since 22 November 2026 and used there through the companion's tests, not yet judged in daily use.
+
+- Releases (23 November 2026): versions, one zip built by CI from a tag, the licences with it ([releasing.md](releasing.md), `CHANGELOG.md`, `THIRD_PARTY.md`). None published yet.
 
 Not yet completed:
 
-- Real-game compatibility and latency measurements.
+- Real-game compatibility: few games tried.
+- Latency measured (worked out: 5.1a).
+- What is put off: [optimisations.md](optimisations.md).
 
 ## 11. First Major Milestone
 

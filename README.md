@@ -39,9 +39,9 @@ Not done yet:
 
 - Latency measurements and broad game testing.
 
-In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
-use the PSP as a second screen. The proposal and what is built of it are in
-[docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
+For homebrew developers: the **companion**, a way for Dreamcast programs
+(KallistiOS) to use the PSP as a second screen. Its design and measurements
+are in [docs/psp2dc-companion.md](docs/psp2dc-companion.md): a program can put
 widgets (labels, numbers, bars, lists) on the PSP, draw into regions of its
 screen, send bitmaps and sprites, keep files on the PSP's Memory Stick, and
 take some of the PSP's buttons for its own screen. It runs on a Dreamcast: 59
