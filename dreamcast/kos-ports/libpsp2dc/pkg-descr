@@ -1,0 +1,6 @@
+libpsp2dc lets a KallistiOS program use a PSP as a second screen through the
+PSP2DC adapter (a PSP connected to the Dreamcast's controller port): widgets,
+drawing and pictures on the PSP's screen, the PSP's buttons, and files on its
+Memory Stick. Programs include <psp2dc/psp2dc.h> and link -lpsp2dc.
+
+URL: https://github.com/pleft/PSP2DC

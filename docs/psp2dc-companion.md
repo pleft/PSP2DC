@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E); input focus passed on a Dreamcast (Appendix F) |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E); input focus passed on a Dreamcast (Appendix F); a guide, samples (phase 5) and a KallistiOS port (phase 6, not submitted) are ready |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -661,6 +661,8 @@ The reference application should also measure Maple throughput, message latency,
 
 **Milestone:** PSP2DC Companion becomes a reusable, documented extension for Dreamcast homebrew development.
 
+**Status:** prepared, not submitted (Appendix G): a kos-ports port that installs and links in the KallistiOS image, the versioning written down. Submitting waits for the project to be public.
+
 ## 15. Technical Challenges
 
 Several areas require investigation before implementation.
@@ -1164,4 +1166,38 @@ Section 11: a program can take some of the PSP's buttons for its own screen, so 
 - **The demo** takes L and R, which move the mark in its list of keys; its maze does not use the triggers.
 - **Checked on the computer:** a `focus` case in the library's test (17 in all, all pass): taken, sent again after a new session, kept through the screen's RESET, changed, given back, SELECT and HOME refused. Not checkable there: the PSP leaving the buttons out of the controller's input (`main.c`), which needs the adapter.
 - **On a Dreamcast (23 November 2026):** the test disc's top row shows L and R as the PSP has them and as the Dreamcast's controller has them; the test disc takes both. Both held on the PSP: "PSP on on, Dreamcast 0 0", as it should be. The disc has no moment without the focus to show the triggers moving for comparison; that L and R reach the Dreamcast as triggers without it was seen before (the PSP's home page).
+
+---
+
+## Appendix G. Phase 6: KallistiOS (23 November 2026)
+
+What it would take for KallistiOS programs to get the library the usual way, prepared as far as it can be while the project is private.
+
+### G.1 A port, not a driver
+
+KallistiOS takes outside libraries as **kos-ports**: a folder in the kos-ports repository that says where to fetch the sources and how to build them; `make install` there puts the headers in `kos-ports/include/<name>/` and the library in `kos-ports/lib/`, both of which KallistiOS's Makefiles already search. libpng and libtremor are done this way.
+
+A **driver inside KallistiOS** (its Maple drivers are each a function code, attached when a device says it has it) does not fit yet: the companion is a command of its own sent to the memory card's unit (A.1), not a function of its own, and giving it one means the adapter reporting a new function to every program and the Dreamcast's own BIOS, which is untried. So the library stays a port; a function code of its own remains an idea for later.
+
+### G.2 The port
+
+`dreamcast/kos-ports/libpsp2dc/`, in the kos-ports layout:
+
+- `Makefile`: the name, version 1.0, MIT, the repository to clone (`GIT_REPOSITORY`, branch `main`), what is installed (`libpsp2dc.a`; `psp2dc.h` and `psp2dc_protocol.h` under `include/psp2dc/`). `MAINTAINER` is left to be set when it is submitted.
+- `pkg-descr`: a few lines and the project's address.
+- `files/KOSMakefile.mk`: builds `dreamcast/libpsp2dc/psp2dc.c` into `libpsp2dc.a` with kos-ports' own `lib.mk`.
+
+**Checked** in the KallistiOS image (`kazade/dreamcast-sdk`), with the repository cloned from this computer instead of GitHub (`GIT_REPOSITORY=/src`): `make install clean` builds and installs it, and a program with `#include <psp2dc/psp2dc.h>`, linked with `-lpsp2dc` alone, builds.
+
+**To submit, once the project is public:** set `MAINTAINER`, pin a release (`GIT_TAG`), try the port once from GitHub, and propose it to the kos-ports repository.
+
+### G.3 Versions
+
+Three numbers, each with its own meaning (`dreamcast/libpsp2dc/README.md`, Compatibility):
+
+- **The library's** (`PSP2DC_LIB_MAJOR`, `_MINOR`; 1.0): MAJOR changes only when a program written for it would have to change.
+- **The PSP application's level** (CAPS; 5 now): what it can show and do. A program asks, and does without what is not there.
+- **The adapter's protocol** (HELLO; 8 now): the library uses what it adds only with an adapter that says it.
+
+A new library works with older PSP applications and adapters, and an old program with newer ones: nothing is taken away, only added.
 

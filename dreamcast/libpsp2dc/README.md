@@ -13,6 +13,8 @@ OBJS = main.o ../libpsp2dc/psp2dc.o
 KOS_CFLAGS += -I../libpsp2dc -I../../protocol
 ```
 
+Or as a kos-ports port (`dreamcast/kos-ports/libpsp2dc`, not yet in kos-ports itself): `make install clean` there, then `#include <psp2dc/psp2dc.h>` and link `-lpsp2dc`.
+
 It uses KallistiOS's Maple driver with a frame of its own, and leaves the controller, the VMU and the memory card drivers alone.
 
 ## The frame loop
