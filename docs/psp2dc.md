@@ -585,7 +585,24 @@ The mapping:
 | Start | Start |
 | L / R | Analog triggers |
 
-The mapping is fixed. The PSP has no analog triggers, so L and R are sent fully pressed or released. A configurable mapping and trigger emulation are not done.
+The mapping is fixed. The PSP has no analog triggers, so L and R are sent fully pressed or released. A configurable mapping and trigger emulation are not done ([the optimisations list](optimisations.md), item 5).
+
+### 5.1a Latency, Worked Out (23 November 2026)
+
+Not measured; worked out from the code. What PSP2DC adds to a press, beside an original controller:
+
+| Step | Delay | Average |
+|---|---|---|
+| The PSP's next button sample: it samples once a PSP frame, at the display's refresh (`sceCtrlSetSamplingCycle(0)`) | 0 to 16.7 ms | 8.3 ms |
+| The PSP's main loop to its INPUT message: sent right after the buttons are taken, before anything is drawn | under 1 ms | 0.5 ms |
+| USB to the adapter, while the adapter is mostly reading | 1 to 2 ms | 1.5 ms |
+| **Added** | **about 1.5 to 20 ms** | **about 10 ms (0.6 of a frame)** |
+
+The rest is the same with either controller: the Dreamcast takes the controller's state once a frame (0 to 16.7 ms, 8 on average; with PSP2DC this wait comes after the steps above, so it is not added), then the game's own reaction (often 1 to 3 frames) and the television's lag. Most of what is added is a second sampling stage, the PSP's, not the link or the adapter.
+
+**Not known:** the adapter sends to the PSP and reads from it in turn, so an INPUT that arrives while it sends waits for the send to end. With a game's ordinary traffic (the VMU's screen, 196 bytes, and a status once a second) that is short; with the companion at full speed (about 1 KB a frame) it is not known how long.
+
+**Plan:** no hardware round for it alone. The next time the adapter's firmware changes for another reason, it also counts how old the input is that it hands to the Dreamcast (the typical and the longest age, in its status and so in the PSP's log), and that round measures it. A camera (the PSP and the television filmed together in slow motion) only if a published figure is wanted, or a game feels late.
 
 ### 5.2 VMU Display
 
@@ -614,7 +631,7 @@ As planned at the start; what became of each is in brackets (21 November 2026).
 - Trigger emulation. (L and R, fully pressed or released.)
 - Live VMU display on PSP. (Done.)
 - Virtual VMU save storage. (Done.)
-- Stable, low-latency controller operation. (Stable since 5.0e6; latency not measured.)
+- Stable, low-latency controller operation. (Stable since 5.0e6; latency worked out, about 10 ms added on average (5.1a), not measured.)
 
 ### Enhanced Features
 
@@ -714,7 +731,7 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 - Finding (15 November 2026): after many attach/detach rounds in one run of the application (16, over several firmware flashes) the PSP's USB driver stopped receiving the adapter's sync: cable detected, `sync 0`, with every firmware including the known-good one. A cold boot of the PSP cured it. Three firmware changes were made chasing this before the known-good firmware was tried, which is the test that should have come first. The application now restarts the PSP's USB when the cable is in and no sync has come for 5 s, as PSPExp's runtime does; untested.
 - Finding: on this PSP the driver's own start (`pspexpUsbStart`) fails with `0x80243001` because the USB bus driver is already running when the application starts, even after a cold boot, and stays running after a stop. The application now falls back to starting the steps itself and accepts "already done" for the bus; the device driver and activation then succeeded on the second try. What keeps the bus running (possibly the PSPExp plugin) is not established.
 - Implement configurable mapping and trigger emulation (the first version has a fixed mapping, L/R fully pressed or released). Moved on 23 November 2026 to [the optimisations list](optimisations.md), to be done for a game that needs it.
-- Measure end-to-end latency.
+- Measure end-to-end latency. Worked out instead for now (5.1a); measured with the next firmware change.
 
 **Go/no-go:** a real game is playable from the PSP.
 
