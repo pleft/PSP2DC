@@ -121,6 +121,7 @@ int main(int argc, char **argv)
     unsigned echo_sent = 0, echo_last = 0, echo_min = 0, echo_max = 0, echoes = 0;
     int phase = 0, running = 0, finished = 0, told = 0, best = -1, paused = 0, draw_vmu = 0, p, u, i;
     int files_done = 0, files_ok = 0;
+    unsigned psp_buttons = 0;
     (void)argc; (void)argv;
 
     memset(res, 0, sizeof(res));
@@ -128,6 +129,7 @@ int main(int argc, char **argv)
     line(1, "looking for the companion...");
     psp2dc_init();
     psp2dc_files("psp2dctest");
+    psp2dc_focus(PSP2DC_PSP_L | PSP2DC_PSP_R);   /* L and R the program's: the Dreamcast's triggers stay 0 */
     psp2dc_stats(&st0);
 
     for (;;) {
@@ -143,6 +145,7 @@ int main(int argc, char **argv)
         if (pressed & CONT_Y) draw_vmu = !draw_vmu;
 
         while (psp2dc_poll(&ev)) {
+            if (ev.type == PSP2DC_REC_BUTTONS && ev.len >= 4) psp_buttons = ev.data[0] | ev.data[1] << 8;
             if (ev.type == PSP2DC_REC_ECHO && ev.len == 4) {
                 unsigned f = ev.data[0] | ev.data[1] << 8 | ev.data[2] << 16 | (unsigned)ev.data[3] << 24;
                 echo_last = frame - f;
@@ -217,6 +220,8 @@ int main(int argc, char **argv)
             if (vmu) vmu_draw_lcd(vmu, lcd);
         }
 
+        line(0, "PSP2DC test  L R: PSP %s %s, Dreamcast %3d %3d", psp_buttons & PSP2DC_PSP_L ? "on " : "off",
+             psp_buttons & PSP2DC_PSP_R ? "on " : "off", cs ? cs->ltrig : 0, cs ? cs->rtrig : 0);
         psp2dc_where(&p, &u);
         psp2dc_stats(&st);
         if (psp2dc_found()) line(1, "companion: port %c unit %d, adapter protocol %d", 'A' + p, u, psp2dc_version());

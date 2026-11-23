@@ -1920,6 +1920,7 @@ static void system_view(UiSystem *v, int standalone, unsigned sent, unsigned err
 int main(int argc, char *argv[])
 {
     SceCtrlData pad;
+    unsigned comp_pad = 0;   /* the buttons the companion's program is told of: the ones it took too */
     Psp2dcInput in;
     unsigned generation = 0, sent = 0, errors = 0, frame = 0, last_buttons = 0, lcd_shown = ~0u, combo = 0, broke = 0;
     unsigned state_seen = 0, waiting_since = 0, usb_restarts = 0, restart_wait = 5000000;
@@ -2050,6 +2051,8 @@ int main(int argc, char *argv[])
             pad.Buttons = 0;
             pad.Lx = pad.Ly = 128;
         } else kb_reset(&g_kb);
+        comp_pad = pad.Buttons;
+        if (comp_on() && g_comp.focus) pad.Buttons &= ~g_comp.focus;   /* the program took them (FOCUS): not the Dreamcast's */
         map_input(&pad, &in);
 
         /* No Dreamcast: the PSP is the VMU standalone (vmu_sa.c), its buttons
@@ -2196,11 +2199,11 @@ int main(int argc, char *argv[])
                 unsigned char ev[PSP2DC_COMP_EVENT_MAX];
                 int n;
                 while ((n = comp_event_take(ev)) > 0) send_msg(PSP2DC_MSG_COMP_EVENT, ev, n);
-                if (pad.Buttons != comp_buttons) {
+                if (comp_pad != comp_buttons) {
                     ev[0] = PSP2DC_REC_BUTTONS; ev[1] = 4; ev[2] = 0;
-                    ev[3] = (unsigned char)pad.Buttons; ev[4] = (unsigned char)(pad.Buttons >> 8);
-                    ev[5] = (unsigned char)(pad.Buttons >> 16); ev[6] = (unsigned char)(pad.Buttons >> 24);
-                    if (send_msg(PSP2DC_MSG_COMP_EVENT, ev, 7) >= 0) comp_buttons = pad.Buttons;
+                    ev[3] = (unsigned char)comp_pad; ev[4] = (unsigned char)(comp_pad >> 8);
+                    ev[5] = (unsigned char)(comp_pad >> 16); ev[6] = (unsigned char)(comp_pad >> 24);
+                    if (send_msg(PSP2DC_MSG_COMP_EVENT, ev, 7) >= 0) comp_buttons = comp_pad;
                 }
             }
             in.seq = seq++;

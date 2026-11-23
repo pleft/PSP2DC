@@ -296,6 +296,7 @@ void comp_reset(void)
     g_comp.bytes = g_comp.records = 0;
     g_comp.test_records = g_comp.test_bytes = g_comp.test_bad = 0;
     g_comp.sessions++;
+    g_comp.focus = 0;                  /* (the screen's RESET leaves it: it is the program's, not the screen's) */
     screen_reset();
     comp_files_reset();
 }
@@ -324,6 +325,8 @@ static void record(int type, const unsigned char *d, int len)
         echo_len = (int)sizeof(Psp2dcCompRecord) + len;
     } else if (type == PSP2DC_REC_QUERY) {
         caps_asked = 1;
+    } else if (type == PSP2DC_REC_FOCUS && len >= 4) {
+        g_comp.focus = (d[0] | d[1] << 8 | d[2] << 16 | (unsigned)d[3] << 24) & PSP2DC_FOCUS_ALLOWED;
     } else if (type == PSP2DC_REC_RESET || (type >= PSP2DC_REC_WIDGET && type <= PSP2DC_REC_NOTIFY) ||
                (type >= PSP2DC_REC_REGION && type <= PSP2DC_REC_DRAWSPRITE)) {
         if (!screen_record(type, d, len)) g_comp.screen_bad++;
@@ -357,7 +360,7 @@ int comp_event_take(unsigned char out[PSP2DC_COMP_EVENT_MAX])
     if (caps_asked) {
         Psp2dcCompCaps c;
         memset(&c, 0, sizeof(c));
-        c.level = 4;
+        c.level = 5;
         c.widgets = PSP2DC_WIDGETS;
         c.regions = PSP2DC_REGIONS;
         c.text_max = PSP2DC_WIDGET_TEXT_MAX;

@@ -417,7 +417,7 @@ static void screen(void)
     sim_psp_plug(1);
     screen_frames(30);
     CHECK(psp2dc_psp() && psp->screen);
-    CHECK(psp2dc_get_caps(&caps) && caps.level == 4 && caps.width == 480 && caps.height == 272);
+    CHECK(psp2dc_get_caps(&caps) && caps.level == 5 && caps.width == 480 && caps.height == 272);
     CHECK(caps.files_max == PSP2DC_FILES_MAX);
     CHECK(caps.formats == 0xF && caps.sprites == PSP2DC_SPRITES && caps.sprite_bytes == PSP2DC_SPRITE_BYTES);
     CHECK(caps.widgets == PSP2DC_WIDGETS && caps.regions == PSP2DC_REGIONS && caps.widget_types == 0x1F);
@@ -670,6 +670,29 @@ static void pictures_faults(void)
     }
     printf("    %u vblanks, %d screen starts, %u \"again\", %u + %u lost\n", vblanks, restarts, agains, lost_requests,
            lost_replies);
+}
+
+/* ---- focus ---- */
+static void focus_test(void)
+{
+    sim_psp_plug(1);
+    psp2dc_init();
+    psp2dc_focus(PSP2DC_PSP_L | PSP2DC_PSP_R | 0x0001 | 0x10000);   /* (SELECT and HOME are not the program's) */
+    frames(10);
+    CHECK(psp->focus == (PSP2DC_PSP_L | PSP2DC_PSP_R));
+    sim_psp_plug(0); frames(5); sim_psp_plug(1);           /* a new PSP session: taken again */
+    CHECK(psp->focus == 0);
+    frames(10);
+    CHECK(psp->focus == (PSP2DC_PSP_L | PSP2DC_PSP_R));
+    psp2dc_screen_reset();                                 /* the screen emptied: the buttons stay taken */
+    frames(10);
+    CHECK(psp->focus == (PSP2DC_PSP_L | PSP2DC_PSP_R));
+    psp2dc_focus(PSP2DC_PSP_CROSS);
+    frames(10);
+    CHECK(psp->focus == PSP2DC_PSP_CROSS);
+    psp2dc_focus(0);
+    frames(10);
+    CHECK(psp->focus == 0);
 }
 
 /* ---- files ---- */
@@ -971,6 +994,7 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "screen-faults", "the screen through everything at once, 100000 frames", screen_faults },
     { "pictures",   "a palette, bitmaps in every format, sprites: pixel for pixel", pictures },
     { "pictures-faults", "pictures through everything at once, 60000 frames", pictures_faults },
+    { "focus",      "the PSP's buttons a program takes: sent, sent again, never SELECT", focus_test },
     { "files",      "each operation, names refused, the limits, a write cut short", files },
     { "files-faults", "files through everything at once: whole or as they were", files_faults },
 };

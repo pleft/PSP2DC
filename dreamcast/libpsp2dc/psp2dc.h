@@ -89,6 +89,12 @@ int  psp2dc_draw_line(int region, int x0, int y0, int x1, int y1, int rgb565);
 int  psp2dc_draw_text(int region, int x, int y, int rgb565, int size, const char *text);   /* size 1 to 4 */
 int  psp2dc_region_clip(int region, int x, int y, int w, int h);   /* drawing kept inside, from here on */
 int  psp2dc_present(int region);
+/* The PSP's buttons the program takes (PSP2DC_PSP_*, or-ed; 0: none): they
+ * reach it through psp2dc_poll() and no longer the Dreamcast's controller.
+ * Remembered, and sent again when the PSP starts over; SELECT and the PSP's
+ * own buttons cannot be taken. A PSP whose CAPS level is under 5 ignores it:
+ * the buttons then go to both. */
+void psp2dc_focus(uint32_t buttons);
 /* A line of text over the PSP's screen for a moment. */
 int  psp2dc_notify(const char *text);
 
@@ -118,7 +124,7 @@ int  psp2dc_draw_sprite(int region, int id, int x, int y, int key);
  * 1 and the answer, or 0 (not yet, or a PSP whose application is older than
  * the screen: then nothing above shows). */
 typedef struct {
-    int level;                    /* 2: widgets and regions; 3: pictures too; 4: files too */
+    int level;                    /* 2: widgets and regions; 3: pictures too; 4: files too; 5: focus too */
     int width, height;            /* the screen */
     int widgets, regions;         /* how many of each */
     int region_pixels;            /* all regions together, at most */

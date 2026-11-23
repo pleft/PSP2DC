@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E) |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E); input focus is built (Appendix F) |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -1001,7 +1001,7 @@ for (;;) {
 
 ### C.7 Left for later
 
-- Input focus (section 11): the PSP's buttons still go to the Dreamcast as the controller's as well.
+- ~~Input focus (section 11)~~: done (Appendix F).
 - Bitmaps, sprites, palettes and cached assets (phase 3); storage (phase 4).
 
 ---
@@ -1147,3 +1147,19 @@ The adapter's firmware (protocol 8), the PSP application and the test disc chang
 ### E.8 After this: pictures kept (the rest of phase 3, 6.5)
 
 Built on files: a sprite made with a name is looked for on the Memory Stick first, by name and CRC, and sent only when it is not there or differs; the PSP keeps what it was sent. So a program's pictures cross the cable once ever. They are kept apart from the program's folder (`ms0:/PSP2DC/cache/<name>/`) and outside its limit: the PSP may delete them and have them sent again, which it may never do with a save.
+
+---
+
+## Appendix F. Input Focus (23 November 2026)
+
+Section 11: a program can take some of the PSP's buttons for its own screen, so that they no longer press the Dreamcast's controller.
+
+- **`psp2dc_focus(buttons)`**, the PSP's buttons as `PSP2DC_PSP_*` or-ed (0: none). They still reach the program as BUTTONS (`psp2dc_poll`); the PSP leaves them out of the controller's input. The library remembers it and sends it again when the PSP starts over, as it does the widgets; the screen's RESET leaves it.
+- **Only a program that asks takes anything.** Commercial games and programs without the library never send it: every button goes to the Dreamcast as before. A program that uses the triggers does not take L and R, or takes buttons only while its PSP screen asks for them (an inventory open) and gives them back after (`psp2dc_focus(0)`).
+- **What cannot be taken:** SELECT, which opens PSP2DC's menu, and the PSP's own (HOME, the volume and screen buttons). `PSP2DC_FOCUS_ALLOWED` is the d-pad, the four face buttons, L, R and START.
+- **It ends by itself:** with the session (the PSP unplugged, its link opened again) and while the program is not there (none of its bytes in three seconds, the same rule that hands the screen back to PSP2DC).
+- **Record:** FOCUS 0x15, the buttons (4). CAPS says level 5. An older PSP application ignores the record, and the buttons go to both.
+- **The demo** takes L and R, which move the mark in its list of keys; its maze does not use the triggers.
+- **Checked on the computer:** a `focus` case in the library's test (17 in all, all pass): taken, sent again after a new session, kept through the screen's RESET, changed, given back, SELECT and HOME refused. Not checkable there: the PSP leaving the buttons out of the controller's input (`main.c`), which needs the adapter.
+- **On a Dreamcast (to do):** the test disc's top row shows L and R as the PSP has them and as the Dreamcast's controller has them. The test disc takes both, so pressing them on the PSP must show "on" for the PSP and 0 for the Dreamcast.
+

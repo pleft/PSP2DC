@@ -59,6 +59,8 @@ static int reset_due;                    /* psp2dc_screen_reset(): the RESET is 
 static int quiet;                        /* frames with nothing sent */
 static psp2dc_caps_t caps;
 static int caps_have;
+static uint32_t focus;                   /* the PSP's buttons the program takes (psp2dc_focus) */
+static int focus_due;                    /* ... still to be sent */
 static uint32_t in_seen;                 /* how far look() has gone: CAPS and the files' records taken */
 
 static void reply(maple_state_t *st, maple_frame_t *frm)
@@ -428,11 +430,17 @@ static void screen_flush(void)
         reset_due = 0;
         caps_have = 0;
         files_session();
+        focus_due = focus != 0;
         told = session_now();                    /* (from here the program's own records are in their place) */
     }
     if (reset_due) {
         if (psp2dc_record(PSP2DC_REC_RESET, NULL, 0) < 0) return;
         reset_due = 0;
+    }
+    if (focus_due) {
+        uint8_t d[4] = { (uint8_t)focus, (uint8_t)(focus >> 8), (uint8_t)(focus >> 16), (uint8_t)(focus >> 24) };
+        if (psp2dc_record(PSP2DC_REC_FOCUS, d, 4) < 0) return;
+        focus_due = 0;
     }
     for (i = 0; i < PSP2DC_WIDGETS; i++)
         if (widgets[i].dirty && widget_send(i) < 0) return;
@@ -508,6 +516,11 @@ int psp2dc_widget_remove(int id)
     w->used = 0;
     w->dirty = D_REMOVE;
     return 0;
+}
+void psp2dc_focus(uint32_t buttons)
+{
+    buttons &= PSP2DC_FOCUS_ALLOWED;
+    if (buttons != focus) { focus = buttons; focus_due = 1; }
 }
 void psp2dc_screen_reset(void)
 {

@@ -396,6 +396,23 @@ typedef struct {
 #define PSP2DC_REC_TEXT     0x12  /* id (1), then the text */
 #define PSP2DC_REC_REMOVE   0x13  /* id (1) */
 #define PSP2DC_REC_NOTIFY   0x14  /* text, shown over the screen for a moment */
+#define PSP2DC_REC_FOCUS    0x15  /* buttons (4, PSP2DC_PSP_*): the PSP's buttons the program takes. They reach
+                                   * it as BUTTONS and no longer the Dreamcast's controller, while the program
+                                   * is there (its bytes came in the last three seconds) and this session lasts.
+                                   * Only PSP2DC_FOCUS_ALLOWED: SELECT is PSP2DC's own. 0: none taken */
+/* the PSP's buttons, as BUTTONS and FOCUS carry them (the PSP SDK's PSP_CTRL_*) */
+#define PSP2DC_PSP_START    0x0008
+#define PSP2DC_PSP_UP       0x0010
+#define PSP2DC_PSP_RIGHT    0x0020
+#define PSP2DC_PSP_DOWN     0x0040
+#define PSP2DC_PSP_LEFT     0x0080
+#define PSP2DC_PSP_L        0x0100
+#define PSP2DC_PSP_R        0x0200
+#define PSP2DC_PSP_TRIANGLE 0x1000
+#define PSP2DC_PSP_CIRCLE   0x2000
+#define PSP2DC_PSP_CROSS    0x4000
+#define PSP2DC_PSP_SQUARE   0x8000
+#define PSP2DC_FOCUS_ALLOWED 0xF3F8u
 #define PSP2DC_REC_REGION   0x20  /* Psp2dcCompRect: a region made, black; every other region is emptied
                                    * too. w or h 0: removed */
 #define PSP2DC_REC_FILL     0x21  /* Psp2dcCompRect, colour (2) */
@@ -466,7 +483,8 @@ typedef struct {
     int32_t max;          /* a bar's full value */
 } __attribute__((packed)) Psp2dcCompWidget;
 typedef struct {
-    uint8_t level;        /* 2: the screen; 3: pictures too (and the two fields after formats); 4: files */
+    uint8_t level;        /* 2: the screen; 3: pictures too (and the two fields after formats); 4: files;
+                           * 5: FOCUS */
     uint8_t widgets;      /* PSP2DC_WIDGETS */
     uint8_t regions;      /* PSP2DC_REGIONS */
     uint8_t text_max;     /* PSP2DC_WIDGET_TEXT_MAX */

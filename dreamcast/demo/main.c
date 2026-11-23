@@ -161,6 +161,7 @@ int main(int argc, char **argv)
     (void)argc; (void)argv;
 
     psp2dc_init();
+    psp2dc_focus(PSP2DC_PSP_L | PSP2DC_PSP_R);   /* the list's; not the Dreamcast's triggers */
     /* The PSP's screen: made once, here; the library sends it whenever a PSP is there. */
     psp2dc_region_create(0, 8, 16, 240, 240);
     psp2dc_region_palette(0, 0, 16, tiles_palette);
@@ -205,8 +206,8 @@ int main(int argc, char **argv)
             unsigned pb;
             if (ev.type != PSP2DC_REC_BUTTONS || ev.len < 4) continue;
             pb = ev.data[0] | ev.data[1] << 8;
-            if (keys && (pb & 0x100) && !(psp_last & 0x100)) marked = (marked + keys - 1) % keys;
-            if (keys && (pb & 0x200) && !(psp_last & 0x200)) marked = (marked + 1) % keys;
+            if (keys && (pb & PSP2DC_PSP_L) && !(psp_last & PSP2DC_PSP_L)) marked = (marked + keys - 1) % keys;
+            if (keys && (pb & PSP2DC_PSP_R) && !(psp_last & PSP2DC_PSP_R)) marked = (marked + 1) % keys;
             psp_last = pb;
         }
 

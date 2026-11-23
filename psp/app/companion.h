@@ -50,6 +50,7 @@ typedef struct {
     unsigned notice_us;                /* ... and when it came (0: none) */
     unsigned screen_bad;               /* screen records that made no sense (each is skipped) */
     volatile unsigned gen;             /* moves when anything of the screen changes */
+    volatile unsigned focus;           /* the PSP's buttons the program took (FOCUS), this session */
 } Comp;
 extern Comp g_comp;
 
