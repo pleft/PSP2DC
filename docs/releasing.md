@@ -36,4 +36,5 @@ A draft that is not wanted: `gh release delete vX.Y.Z` (a draft has no tag until
 
 - **The tests** (`scripts/dev/companion-test.sh`, `companion-samples.sh`, `maple-rx-test.sh`, the card tests) run on the maintainer's machine before step 1: the simulator's build uses a macOS linker.
 - **Hardware:** step 4 is by hand.
+- **The same bytes as the maintainer's build.** The firmware is the same code from the same compiler version, and the same size, but not the same file: built on Linux, a block of small C library functions (488 bytes, `memcmp` and its neighbours) is linked in another order than on macOS, and the 30 calls into it differ with it (compared on 23 November 2026). Two builds on the same machine are identical. So what was tried before a release is not what CI makes, which is why step 4 tries the draft's zip.
 - **Pinning:** joypad-os is pinned by commit and the Arm compiler by version (13.3.rel1); the pspdev and KallistiOS images are whatever is `latest` on the day.
