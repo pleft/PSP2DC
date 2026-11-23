@@ -1,6 +1,6 @@
 # PSP2DC: Optimisations for Later
 
-Things that would make PSP2DC faster or lighter, but that nothing needs now. Each says what it would gain, what it would cost, and what is known. They are added as they are found and done only when chosen.
+Things that would make PSP2DC faster, lighter or easier to use, but that nothing needs now. Each says what it would gain, what it would cost, and what is known. They are added as they are found and done only when chosen.
 
 | # | What | Gain | Cost | Known |
 |---|---|---|---|---|
@@ -8,3 +8,4 @@ Things that would make PSP2DC faster or lighter, but that nothing needs now. Eac
 | 2 | **Files written faster** (companion, phase 4) | Writes measured 38 KB a second on a Dreamcast against 54 for reads and 55 in the simulator | Unknown until measured | Cause not known. One guess: the Memory Stick taking the bytes 990 at a time (one `sceIoWrite` per piece); a buffer of several pieces would test it |
 | 3 | **More than one companion command a vblank** | The Dreamcast to PSP path is one command a vblank today, about 60 KB a second at most; two would double it | Library only, if KallistiOS sends a second frame of the library's own in the same vblank | Possible in KallistiOS's queue by its code, not tried on hardware ([companion A.2](psp2dc-companion.md)) |
 | 4 | **A larger read window** (companion, phase 4) | Reads are at 54 KB a second with the 3 KB window, near the 60 KB ceiling of one command a vblank; more only with 3 | The adapter's 4 KB queue towards the Dreamcast made larger, so the window can grow: firmware | Worth it only after 3 |
+| 5 | **Controller options, if games need them** | The mapping is one to one and fixed (main.c, `map_input`): a remapping screen would only move buttons around. Two gaps are real: the nub is small and imprecise, and L and R send a trigger fully pressed or not at all | One option each, only for a game that needs it: the d-pad as the stick; L and R as a part-pressed trigger (held longer, pressed further, or similar) | Waits on game testing to show a game that needs either. Was "configurable button mapping" in the plans |

@@ -38,7 +38,6 @@ Working on hardware:
 Not done yet:
 
 - Latency measurements and broad game testing.
-- Configurable button mapping.
 
 In progress: the **companion**, a way for Dreamcast homebrew (KallistiOS) to
 use the PSP as a second screen. The proposal and what is built of it are in

@@ -20,7 +20,7 @@ The PSP will function as:
 - A Dreamcast game controller.
 - A live, full-size VMU display.
 - A virtual memory card manager.
-- A configurable controller with custom button mappings.
+- A configurable controller with custom button mappings. (Not planned now: the mapping is one to one; what a game might need is in [the optimisations list](optimisations.md).)
 - An enhanced second-screen companion for Dreamcast games.
 
 ## 2. System Architecture
@@ -620,8 +620,7 @@ As planned at the start; what became of each is in brackets (21 November 2026).
 
 - Multiple virtual VMU cards. (Done, and a card per game: 5.0e, 5.0e5.)
 - Save management and backup. (Done: 5.0e2, 5.0e3.)
-- Configurable button mapping. (Not done.)
-- Per-game controller profiles. (Not done.)
+- Configurable button mapping, per-game controller profiles. (Not planned now: [the optimisations list](optimisations.md), item 5.)
 - Custom VMU display themes. (Done: six themes.)
 - Controller and connection status. (Done.)
 - Enhanced VMU visualization. (Done: the drawn VMU, 5.0a.)
@@ -714,7 +713,7 @@ Cable used: the lead from a third-party Dreamcast PS/2 keyboard adapter, cut fro
 - Test the two together on hardware. **Passed (15 November 2026):** the PSP showed `CONNECTED to the adapter`, `packet 64`, 2909 inputs sent with 0 errors and 0 timeouts, and 48 status messages received at one a second with 0 bad bytes. Data flows both ways at full speed.
 - Finding (15 November 2026): after many attach/detach rounds in one run of the application (16, over several firmware flashes) the PSP's USB driver stopped receiving the adapter's sync: cable detected, `sync 0`, with every firmware including the known-good one. A cold boot of the PSP cured it. Three firmware changes were made chasing this before the known-good firmware was tried, which is the test that should have come first. The application now restarts the PSP's USB when the cable is in and no sync has come for 5 s, as PSPExp's runtime does; untested.
 - Finding: on this PSP the driver's own start (`pspexpUsbStart`) fails with `0x80243001` because the USB bus driver is already running when the application starts, even after a cold boot, and stays running after a stop. The application now falls back to starting the steps itself and accepts "already done" for the bus; the device driver and activation then succeeded on the second try. What keeps the bus running (possibly the PSPExp plugin) is not established.
-- Implement configurable mapping and trigger emulation (the first version has a fixed mapping, L/R fully pressed or released).
+- Implement configurable mapping and trigger emulation (the first version has a fixed mapping, L/R fully pressed or released). Moved on 23 November 2026 to [the optimisations list](optimisations.md), to be done for a game that needs it.
 - Measure end-to-end latency.
 
 **Go/no-go:** a real game is playable from the PSP.
@@ -800,8 +799,6 @@ Completed:
 Not yet completed:
 
 - Real-game compatibility and latency measurements.
-- Configurable button mapping and trigger emulation.
-- The companion on a real Dreamcast.
 
 ## 11. First Major Milestone
 
