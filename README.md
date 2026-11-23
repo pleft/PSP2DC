@@ -7,6 +7,8 @@ also be a Dreamcast keyboard. With no Dreamcast connected, it works as a
 standalone VMU: clock, file manager, and the VMU's own mini-games, buzzer
 included.
 
+<img src="docs/images/psp2dc-crazy-taxi-2.webp" alt="A PSP-1000 in front of a Dreamcast and a television showing Crazy Taxi 2's title screen; the PSP shows the same title as the game draws it on the VMU, with the controller and the game's memory card beside it" width="420">
+
 The PSP connects over USB to a small adapter: a
 [Waveshare RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm), an RP2040
 board, with a Dreamcast controller cable soldered to it. The adapter runs a fork of
