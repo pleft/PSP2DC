@@ -52,6 +52,10 @@ static const char *items[ITEMS] = { "Potion", "Map", "Torch", "Rope" };
 /* the buttons the menu works with: taken while it is open */
 #define MENU_BUTTONS (PSP2DC_PSP_UP | PSP2DC_PSP_DOWN | PSP2DC_PSP_CROSS)
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     psp2dc_event_t ev;
@@ -62,6 +66,7 @@ int main(int argc, char **argv)
 
     line(0, "PSP2DC tutorial 6: input");
     line(1, "Y (triangle on the PSP): the menu");
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
 
     psp2dc_widget_create(W_STATE, PSP2DC_WIDGET_LABEL, PSP2DC_WF_BIG | PSP2DC_WF_CENTRE, 0, 16, 480, 24, "menu closed");

@@ -153,6 +153,10 @@ static void move(int dx, int dy)
     if (health <= 0) faint();
 }
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     unsigned frame = 0, last = 0, psp_last = 0;
@@ -160,6 +164,7 @@ int main(int argc, char **argv)
     char s[64];
     (void)argc; (void)argv;
 
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
     psp2dc_focus(PSP2DC_PSP_L | PSP2DC_PSP_R);   /* the list's; not the Dreamcast's triggers */
     /* The PSP's screen: made once, here; the library sends it whenever a PSP is there. */

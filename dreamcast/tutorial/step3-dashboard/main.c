@@ -42,6 +42,10 @@ enum { W_TITLE, W_FRAMES, W_TRIGGER, W_HELD, W_LIST, W_HINT };
 static const char *list_text = "Sword\nShield\nBow\nPotion";   /* a list's lines, parted by '\n' */
 static const char *names[LINES] = { "Sword", "Shield", "Bow", "Potion" };
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     unsigned frame = 0, last = 0;
@@ -50,6 +54,7 @@ int main(int argc, char **argv)
     (void)argc; (void)argv;
 
     bfont_draw_str(vram_s + 40 * 640 + 40, 640, 1, "PSP2DC tutorial 3: dashboard (see the PSP)");
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
 
     /* MAKING WIDGETS. (id, kind, flags, x, y, width, height, text), in pixels of the PSP's

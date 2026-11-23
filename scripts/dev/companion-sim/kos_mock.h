@@ -98,3 +98,4 @@ static void vblank(void)
 }
 void *maple_dev_status(maple_device_t *dev) { return dev == &pad ? &pad_state : NULL; }
 void thd_sleep(int ms) { (void)ms; sleeps++; vblank(); }
+void arch_menu(void) { exit(0); }

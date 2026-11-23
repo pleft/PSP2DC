@@ -40,6 +40,8 @@ Steps 1, 2 and 7 show rows of text on the PSP and their results on the televisio
 
 **On a computer, without a Dreamcast or a PSP.** `scripts/dev/companion-tutorial.sh` runs every step against a simulated adapter and PSP, presses what the step is about, and checks the result (a Mac with the PSP toolchain: it uses the PSP's font). `scripts/dev/flycast-companion.sh` builds the Flycast emulator with the same simulator behind its memory card, so the disc images themselves can be run.
 
+**Leaving a step.** START + A + B + X + Y together goes back to the Dreamcast's menu, as in a commercial game: with GDEMU and openMenu, that is where the next disc is chosen. On the PSP: START, ✕, ○, □ and △.
+
 ## Starting your own program from a step
 
 Copy a step's folder, rename the target in its `Makefile`, and keep its three parts: `psp2dc_init()` once, `psp2dc_update()` every frame, and the session check wherever you print or draw. Give your files' folder a name of your own (`psp2dc_files("yourgame")`). The limits to design within (how many widgets, how large the regions, how fast the link) are in [the library's README](../libpsp2dc/README.md#limits).

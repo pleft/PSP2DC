@@ -111,6 +111,10 @@ static int step_ok(int i)
 }
 static unsigned kbs(int i) { return fres[i].frames ? FILE_BYTES * 60u / 1024 / fres[i].frames : 0; }
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     static uint8_t test[1000], lcd[192];
@@ -127,6 +131,7 @@ int main(int argc, char **argv)
     memset(res, 0, sizeof(res));
     line(0, "PSP2DC companion test");
     line(1, "looking for the companion...");
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
     psp2dc_files("psp2dctest");
     psp2dc_focus(PSP2DC_PSP_L | PSP2DC_PSP_R);   /* L and R the program's: the Dreamcast's triggers stay 0 */

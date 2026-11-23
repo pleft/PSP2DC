@@ -68,6 +68,10 @@ static int draw_tile(int tx, int ty, int hero_x, int hero_y)
     return 1;
 }
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     int hx = 7, hy = 5;            /* the hero's tile */
@@ -80,6 +84,7 @@ int main(int argc, char **argv)
     (void)argc; (void)argv;
 
     bfont_draw_str(vram_s + 40 * 640 + 40, 640, 1, "PSP2DC tutorial 5: pictures (see the PSP)");
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
 
     /* the bitmap's pixels: a byte each, which the PSP looks up in the region's palette.

@@ -33,6 +33,10 @@ static void line(int row, const char *text)
     bfont_draw_str(vram_s + (40 + row * 24) * 640 + 40, 640, 1, s);
 }
 
+/* START + A + B + X + Y together: back to the Dreamcast's menu, as a commercial game does
+ * (with GDEMU and openMenu: to choose the next disc). KallistiOS watches for the buttons. */
+static void to_menu(uint8_t addr, uint32_t buttons) { (void)addr; (void)buttons; arch_menu(); }
+
 int main(int argc, char **argv)
 {
     psp2dc_event_t ev;
@@ -44,6 +48,7 @@ int main(int argc, char **argv)
     (void)argc; (void)argv;
 
     line(0, "PSP2DC tutorial 2: buttons");
+    cont_btn_callback(0, CONT_START | CONT_A | CONT_B | CONT_X | CONT_Y, to_menu);
     psp2dc_init();
 
     for (;;) {
