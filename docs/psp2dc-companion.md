@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Document type | Concept and Architecture Proposal |
-| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E); input focus is built (Appendix F) |
+| Status | Draft v0.1. Phases 1 and 2 and the first part of phase 3 are built and tested without hardware (Appendices B to D). On a Dreamcast, phase 1's path is measured and the demo runs with its dashboard on the PSP (B.9). Phase 4 (files) is built and passed on a Dreamcast (Appendix E); input focus passed on a Dreamcast (Appendix F) |
 | Target platforms | Sega Dreamcast, KallistiOS, Sony PSP, RP2040 |
 | Project | PSP2DC |
 
@@ -1161,5 +1161,5 @@ Section 11: a program can take some of the PSP's buttons for its own screen, so 
 - **Record:** FOCUS 0x15, the buttons (4). CAPS says level 5. An older PSP application ignores the record, and the buttons go to both.
 - **The demo** takes L and R, which move the mark in its list of keys; its maze does not use the triggers.
 - **Checked on the computer:** a `focus` case in the library's test (17 in all, all pass): taken, sent again after a new session, kept through the screen's RESET, changed, given back, SELECT and HOME refused. Not checkable there: the PSP leaving the buttons out of the controller's input (`main.c`), which needs the adapter.
-- **On a Dreamcast (to do):** the test disc's top row shows L and R as the PSP has them and as the Dreamcast's controller has them. The test disc takes both, so pressing them on the PSP must show "on" for the PSP and 0 for the Dreamcast.
+- **On a Dreamcast (23 November 2026):** the test disc's top row shows L and R as the PSP has them and as the Dreamcast's controller has them; the test disc takes both. Both held on the PSP: "PSP on on, Dreamcast 0 0", as it should be. The disc has no moment without the focus to show the triggers moving for comparison; that L and R reach the Dreamcast as triggers without it was seen before (the PSP's home page).
 
