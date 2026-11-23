@@ -60,7 +60,7 @@ jobs:
           cd joypad-os
           git checkout -b superpico 9fa79f45
           git -c user.name=ci -c user.email=ci@example.invalid am ../patches/*.patch
-          make init
+          PICO_TOOLCHAIN_PATH="$HOME/arm" PATH="$HOME/arm/bin:$PATH" make init
       - name: Build
         run: PICO_TOOLCHAIN_PATH="$HOME/arm" scripts/build-firmware.sh
       - uses: actions/upload-artifact@v4
