@@ -315,6 +315,9 @@ from other projects keep their own licences, and a release's programs carry
 those of what they are built with: [THIRD_PARTY.md](THIRD_PARTY.md) says
 which is which, and the texts are in `licenses/`.
 
+Questions, reports of games that work or do not, and anything else:
+info@pspexp.dev, or an issue on GitHub.
+
 PSP2DC is a hobby project, not affiliated with or endorsed by Sony, Sega or
 the joypad-os project. PSP, Dreamcast and VMU are their owners' names, used
 here only to say what it works with.

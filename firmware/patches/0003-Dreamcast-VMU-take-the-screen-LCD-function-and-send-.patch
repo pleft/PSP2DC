@@ -1,7 +1,7 @@
-From bf3e190b5408e88bee2ad3ebb7971a8267f3362d Mon Sep 17 00:00:00 2001
+From d5a615286d83550377642cab2028b0943154c5eb Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 16:13:40 +0200
-Subject: [PATCH 03/16] Dreamcast VMU: take the screen (LCD function) and send
+Subject: [PATCH 03/17] Dreamcast VMU: take the screen (LCD function) and send
  it to the PSP
 
 The VMU already advertised the LCD function but answered nothing for it. Now

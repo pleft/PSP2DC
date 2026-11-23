@@ -1,7 +1,7 @@
-From 62bc1f63e0c61e8154ed6a19c776969965e8f5f4 Mon Sep 17 00:00:00 2001
+From 0a48d4cfcca30ff7cab1f99b46bf9ea535e91638 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Tue, 17 Nov 2026 00:43:14 +0200
-Subject: [PATCH 10/16] PSP2DC: openMenu's Game ID (Maple 0x21) taken and
+Subject: [PATCH 10/17] PSP2DC: openMenu's Game ID (Maple 0x21) taken and
  passed to the PSP
 
 The VMU's all-status reply names it as openMenu's known virtual VMUs do (at

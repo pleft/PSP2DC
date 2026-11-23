@@ -4,7 +4,7 @@ PORTNAME = libpsp2dc
 
 PORTVERSION = 1.0
 
-MAINTAINER = PSP2DC <set when the port is submitted>
+MAINTAINER = PSP2DC <info@pspexp.dev>
 
 LICENSE = MIT License - https://opensource.org/licenses/MIT
 

@@ -1,7 +1,7 @@
-From dfd7c9685b85f1c033d8ffb6b3b2d27e231e2d28 Mon Sep 17 00:00:00 2001
+From 6d4b9fa0aed11bd00903b1d19405b2b734fef3dd Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Mon, 23 Nov 2026 19:45:14 +0200
-Subject: [PATCH] PSP2DC: a companion reply that was lost is sent again
+Subject: [PATCH 17/17] PSP2DC: a companion reply that was lost is sent again
  (protocol 8)
 
 A command with PSP2DC_COMP_TURN carries a turn the Dreamcast changes with

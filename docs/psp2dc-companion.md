@@ -1183,13 +1183,13 @@ A **driver inside KallistiOS** (its Maple drivers are each a function code, atta
 
 `dreamcast/kos-ports/libpsp2dc/`, in the kos-ports layout:
 
-- `Makefile`: the name, version 1.0, MIT, the repository to clone (`GIT_REPOSITORY`, branch `main`), what is installed (`libpsp2dc.a`; `psp2dc.h` and `psp2dc_protocol.h` under `include/psp2dc/`). `MAINTAINER` is left to be set when it is submitted.
+- `Makefile`: the name, version 1.0, MIT, the repository to clone (`GIT_REPOSITORY`, branch `main`), what is installed (`libpsp2dc.a`; `psp2dc.h` and `psp2dc_protocol.h` under `include/psp2dc/`). 
 - `pkg-descr`: a few lines and the project's address.
 - `files/KOSMakefile.mk`: builds `dreamcast/libpsp2dc/psp2dc.c` into `libpsp2dc.a` with kos-ports' own `lib.mk`.
 
 **Checked** in the KallistiOS image (`kazade/dreamcast-sdk`), with the repository cloned from this computer instead of GitHub (`GIT_REPOSITORY=/src`): `make install clean` builds and installs it, and a program with `#include <psp2dc/psp2dc.h>`, linked with `-lpsp2dc` alone, builds.
 
-**To submit, once the project is public:** set `MAINTAINER`, pin a release (`GIT_TAG`), try the port once from GitHub, and propose it to the kos-ports repository.
+**To submit, once the project is public:** pin a release (`GIT_TAG`), try the port once from GitHub, and propose it to the kos-ports repository.
 
 ### G.3 Versions
 
