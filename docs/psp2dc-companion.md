@@ -1055,7 +1055,7 @@ So a map made of tiles is sprites, sent once and then placed; a picture of the w
 
 ### D.6 Left of phase 3
 
-- Assets kept on the Memory Stick, with a version to ask for (6.5), so that a game's pictures are sent once ever, not once a session.
+- Assets kept on the Memory Stick, with a version to ask for (6.5), so that a game's pictures are sent once ever, not once a session. Postponed: in [the optimisations list](optimisations.md).
 - ~~The throughput measured~~: done, 59 KB a second (B.9).
 
 ---
