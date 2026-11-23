@@ -25,5 +25,8 @@ for d in test demo samples/hello samples/dashboard samples/save; do
         -n "PSP2DC $(echo $p | tr a-z A-Z)" -a "PSP2DC"
     make clean >/dev/null
 done
+# what a disc built with KallistiOS has to carry with it (scripts/make-release.sh)
+mkdir -p /src/build/kos-licences
+cp $KOS_BASE/doc/LICENSE.md $KOS_BASE/doc/license/LICENSE.KOS $KOS_BASE/doc/license/LICENSE.BSD $KOS_BASE/AUTHORS /src/build/kos-licences/
 '
 ls -l "$ROOT/build/psp2dc_test.cdi" "$ROOT/build/psp2dc_demo.cdi" "$ROOT"/build/samples/*.cdi

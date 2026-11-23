@@ -97,6 +97,19 @@ PSP2DC was prototyped on another RP2040 board, the Raspberry Pi Pico of a
 Watara SuperPico cartridge. That adapter still works, and its wiring is in
 [docs/superpico.md](docs/superpico.md).
 
+## Installing a release
+
+A release (the repository's Releases page) is one zip with everything built:
+
+- `psp/`: copy its `PSP` folder onto the PSP's Memory Stick.
+- `adapter/`: the RP2040-Zero's firmware. Hold BOOT while plugging the board
+  into a computer and copy the `.uf2` onto the drive that appears.
+- `dreamcast/`: disc images for homebrew developers (the companion's demo,
+  its test, the library's samples).
+
+The PSP application and the adapter's firmware must be of the same release.
+`scripts/make-release.sh <version>` makes the zip from the sources.
+
 ## Building
 
 ### PSP application
