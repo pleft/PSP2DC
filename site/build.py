@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
 OUT = os.path.join(SITE, "out")
 REPO = "https://github.com/pleft/PSP2DC"
-LAUNCHED = False   # False: every address says "do not index" (the repository the page links to is
+LAUNCHED = True     # False: every address says "do not index" (the repository the page links to is
                    # still private). True: the custom domain is indexed; the pages.dev addresses
                    # never are, so search results show one address
 
