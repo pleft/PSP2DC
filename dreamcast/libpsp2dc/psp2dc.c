@@ -419,6 +419,7 @@ static void screen_flush(void)
             if (regions[i].w) need += 3 + (int)sizeof(Psp2dcCompRect) + 5 + 2 * palette_n[i];
         if (psp2dc_room() < need) return;
         psp2dc_record(PSP2DC_REC_RESET, NULL, 0);
+        psp2dc_record(PSP2DC_REC_CLEAR, NULL, 0);   /* (rows of an earlier program, when the PSP stayed) */
         psp2dc_record(PSP2DC_REC_QUERY, NULL, 0);
         for (i = 0; i < PSP2DC_REGIONS; i++) {
             if (!regions[i].w) continue;
@@ -430,7 +431,7 @@ static void screen_flush(void)
         reset_due = 0;
         caps_have = 0;
         files_session();
-        focus_due = focus != 0;
+        focus_due = 1;                           /* (also 0: an earlier program may have left buttons taken) */
         told = session_now();                    /* (from here the program's own records are in their place) */
     }
     if (reset_due) {

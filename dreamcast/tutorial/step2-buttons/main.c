@@ -29,7 +29,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 static void line(int row, const char *text)
 {
     char s[41];
-    snprintf(s, sizeof(s), "%-40s", text);
+    snprintf(s, sizeof(s), "%-40.40s", text);
     bfont_draw_str(vram_s + (40 + row * 24) * 640 + 40, 640, 1, s);
 }
 

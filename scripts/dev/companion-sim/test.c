@@ -695,6 +695,23 @@ static void focus_test(void)
     CHECK(psp->focus == 0);
 }
 
+/* A program started while the PSP stays linked (the next disc): the PSP's session is the same,
+ * and what the program before left is still there. */
+static void leftovers(void)
+{
+    int i;
+    Comp *was = (Comp *)psp;                               /* (the test plays the earlier program) */
+    sim_psp_plug(1);
+    for (i = 0; i < 10; i++) vblank();
+    was->focus = PSP2DC_PSP_L | PSP2DC_PSP_R;
+    strcpy(was->rows[2], "X pressed 28 times");
+    psp2dc_init();
+    for (i = 0; i < 10; i++) { vblank(); psp2dc_update(); }   /* (a program that sends no rows and takes no buttons) */
+    CHECK(psp2dc_psp());
+    CHECK(psp->focus == 0);
+    CHECK(psp->rows[2][0] == 0);
+}
+
 /* ---- files ---- */
 static char files_dir[1024];               /* the simulated Memory Stick's folder for files */
 static void files_fresh(void)
@@ -995,6 +1012,7 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "pictures",   "a palette, bitmaps in every format, sprites: pixel for pixel", pictures },
     { "pictures-faults", "pictures through everything at once, 60000 frames", pictures_faults },
     { "focus",      "the PSP's buttons a program takes: sent, sent again, never SELECT", focus_test },
+    { "leftovers",  "a program started on a PSP another has used: its rows and buttons gone", leftovers },
     { "files",      "each operation, names refused, the limits, a write cut short", files },
     { "files-faults", "files through everything at once: whole or as they were", files_faults },
 };

@@ -93,7 +93,7 @@ static void look(void)                     /* the tiles around the player are fo
 static void text(int row, const char *s)   /* beside the maze on the television, 12 characters a row */
 {
     char t[13];
-    snprintf(t, sizeof(t), "%-12s", s);
+    snprintf(t, sizeof(t), "%-12.12s", s);
     bfont_draw_str(vram_s + (24 + row * 28) * 640 + 492, 640, 1, t);
 }
 

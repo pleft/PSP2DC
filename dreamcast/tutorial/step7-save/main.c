@@ -61,7 +61,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 static void line(int row, const char *text)
 {
     char s[41];
-    snprintf(s, sizeof(s), "%-40s", text);
+    snprintf(s, sizeof(s), "%-40.40s", text);
     bfont_draw_str(vram_s + (40 + row * 24) * 640 + 40, 640, 1, s);
 }
 static const char *status_text(int st)
@@ -144,7 +144,7 @@ int main(int argc, char **argv)
                     char *nl;
                     listing[n] = 0;
                     if ((nl = strchr(listing, '\n'))) *nl = 0;      /* the first file is enough here */
-                    snprintf(s, sizeof(s), "first file: %s", n ? listing : "(none)");
+                    snprintf(s, sizeof(s), "first file: %.40s", n ? listing : "(none)");
                     want_free = 1;
                 } else snprintf(s, sizeof(s), "list: %s", status_text(st));
                 break;
