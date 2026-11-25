@@ -1,6 +1,6 @@
 # Release notes
 
-## 1.0.0 (not released yet)
+## 1.0.0 (2026-11-25)
 
 The first release. PSP2DC makes a PSP-1000 a Dreamcast controller, VMU, memory card and keyboard, through a small adapter (an RP2040-Zero) between the PSP's USB port and a Dreamcast controller port. The console and its games are as they are.
 
