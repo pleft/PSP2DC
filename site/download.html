@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download PSP2DC</title>
+<meta name="description" content="Download PSP2DC: one zip with the PSP application, the adapter's firmware and, for homebrew developers, the companion's disc images.">
+<link rel="stylesheet" href="{{style.css}}">
+<link rel="icon" href="{{icon.svg}}" type="image/svg+xml">
+</head>
+<body>
+<header class="bar"><div class="wrap"><a class="brand" href="./"><img src="{{icon.svg}}" alt="" width="28" height="28"><span>PSP<b>2DC</b></span></a><nav><a class="more" href="./#does">What it does</a><a class="more" href="./#how">How it works</a><a href="./#start">Get started</a><a href="download.html" aria-current="page">Download</a><a class="more" href="./#companion">Companion</a><a href="{{REPO}}">GitHub</a></nav></div></header>
+
+<main>
+<section class="hero dl-hero">
+  <div class="wrap">
+    <p class="kicker"><span data-version>Version {{VERSION}}</span> · <span data-date>{{DATE}}</span></p>
+    <h1>Download PSP2DC</h1>
+    <p class="lead">One zip: the PSP application and the adapter's firmware, and for homebrew developers the
+    companion's disc images. Free and open source.</p>
+    <div class="dl-main">
+      <a class="button dl-btn" data-link href="{{ZIP_URL}}">Download <span class="dl-size" data-size>{{ZIP_SIZE}}</span></a>
+      <p class="dl-file"><code data-name>{{ZIP_NAME}}</code></p>
+      <p class="dl-total"><span class="count" data-total>{{TOTAL}}</span> <span data-unit>{{TOTAL_UNIT}}</span> so far</p>
+      <details class="sha"><summary>SHA-256</summary><code data-sha>{{ZIP_SHA}}</code></details>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>In the zip</h2>
+  <div class="dl-grid">
+    <article class="dl">
+      <svg class="dl-icon" viewBox="0 0 64 40" aria-hidden="true"><rect x="14" y="4" width="36" height="32" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><rect x="24" y="13" width="16" height="14" rx="1" fill="currentColor" opacity=".35"/><path d="M8 12h6M8 20h6M8 28h6M50 12h6M50 20h6M50 28h6" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <h3><code>adapter/</code> The adapter's firmware</h3>
+      <p class="for">For the Waveshare RP2040-Zero, with the controller cable soldered to it.
+      <a href="{{REPO}}#what-you-need">Wiring</a></p>
+      <ol class="how">
+        <li>Hold the board's BOOT button while plugging it into a computer.</li>
+        <li>Copy the <code>.uf2</code> file onto the drive that appears.</li>
+        <li>The board restarts by itself, as the adapter.</li>
+      </ol>
+    </article>
+
+    <article class="dl">
+      <svg class="dl-icon" viewBox="0 0 64 40" aria-hidden="true"><rect x="2" y="4" width="60" height="32" rx="14" fill="none" stroke="currentColor" stroke-width="3"/><rect x="18" y="10" width="28" height="20" rx="2" fill="currentColor" opacity=".35"/><circle cx="10" cy="20" r="3" fill="currentColor"/><circle cx="54" cy="20" r="3" fill="currentColor"/></svg>
+      <h3><code>psp/</code> The PSP application</h3>
+      <p class="for">For a PSP-1000 with custom firmware (tested with 6.60 PRO-C).</p>
+      <ol class="how">
+        <li>Connect the PSP to your computer (<i>Settings &gt; USB Connection</i>).</li>
+        <li>Copy the zip's <code>PSP</code> folder onto the Memory Stick: it holds <code>PSP/GAME/PSP2DC</code>.</li>
+        <li>PSP2DC is now under <i>Game &gt; Memory Stick</i>.</li>
+      </ol>
+    </article>
+
+    <article class="dl">
+      <svg class="dl-icon" viewBox="0 0 64 40" aria-hidden="true"><circle cx="32" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="32" cy="20" r="9" fill="currentColor" opacity=".35"/><circle cx="32" cy="20" r="3" fill="currentColor"/></svg>
+      <h3><code>dreamcast/</code> The companion's discs</h3>
+      <p class="for">For homebrew developers: not needed to play.</p>
+      <ol class="how">
+        <li>Disc images (<code>.cdi</code>) for a GDEMU's card: a demo game, the library's test and its tutorial in seven steps.</li>
+        <li>Each uses the PSP as a second screen.
+        <a href="{{REPO}}/blob/main/dreamcast/tutorial/README.md">The tutorial</a></li>
+      </ol>
+    </article>
+  </div>
+</section>
+
+<section class="wrap dl-after">
+  <h2>Then</h2>
+  <p>Plug the adapter into a controller port and the PSP into the adapter, and start PSP2DC from the PSP's Game
+  menu. <a href="{{REPO}}#using-it">Using it</a></p>
+  <p class="note">The PSP application and the adapter's firmware must be of the same release.
+  What's new: <a href="{{REPO}}/blob/main/CHANGELOG.md">the release notes</a>. Earlier versions:
+  <a href="{{RELEASE_PAGE}}" data-release>the release on GitHub</a>. Or build both from source:
+  <a href="{{REPO}}#building">Building</a>.</p>
+</section>
+</main>
+
+<footer><div class="wrap">
+<p>PSP2DC is open source under the <a href="{{REPO}}/blob/main/LICENSE">MIT licence</a>; the projects it
+builds on are <a href="{{REPO}}#credits-and-licences">credited with their own licences</a>.
+PSP2DC is not made by or affiliated with Sony or Sega; "PSP" and "Dreamcast" name the consoles it works with.</p>
+<p><a href="{{REPO}}">GitHub</a> · <a href="{{REPO}}/blob/main/docs/psp2dc.md">Design notes</a> · <a href="https://pspexp.dev">PSPExp</a></p>
+</div></footer>
+
+<script>
+// Live numbers from GitHub (its API allows pages to ask, 60 times an hour per visitor; the answer
+// is kept 10 minutes in this browser). The page is complete without it: the build wrote them in.
+(function () {
+  var API = "https://api.github.com/repos/pleft/PSP2DC/releases?per_page=100";
+  var ZIP = /^PSP2DC-.*\.zip$/;
+  var calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function size(b) { return b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB"; }
+  function roll(el, to) {
+    var from = parseInt(el.textContent.replace(/[^0-9]/g, ""), 10) || 0, t0 = null;
+    el.parentNode.querySelector("[data-unit]").textContent = to === 1 ? "download" : "downloads";
+    if (calm || to < 1) { el.textContent = to.toLocaleString("en"); return; }
+    function step(t) {
+      if (t0 === null) t0 = t;
+      var k = Math.min(1, (t - t0) / 1200), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(from + (to - from) * e).toLocaleString("en");
+      if (k < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function show(releases) {
+    var rel = releases.filter(function (r) { return !r.draft && !r.prerelease; });
+    if (!rel.length) return;
+    var latest = rel[0], total = 0, a = null;
+    rel.forEach(function (r) { r.assets.forEach(function (x) { if (ZIP.test(x.name)) total += x.download_count; }); });
+    latest.assets.forEach(function (x) { if (ZIP.test(x.name)) a = x; });
+    if (a) {
+      document.querySelector("[data-link]").href = a.browser_download_url;
+      document.querySelector("[data-size]").textContent = size(a.size);
+      document.querySelector("[data-name]").textContent = a.name;
+      if (a.digest) document.querySelector("[data-sha]").textContent = a.digest.replace(/^sha256:/, "");
+    }
+    roll(document.querySelector("[data-total]"), total);
+    var d = new Date(latest.published_at);
+    document.querySelector("[data-version]").textContent = "Version " + latest.tag_name.replace(/^v/, "");
+    document.querySelector("[data-date]").textContent = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    document.querySelector("[data-release]").href = latest.html_url;
+  }
+  var cached = null;
+  try { cached = JSON.parse(sessionStorage.getItem("psp2dc-releases") || "null"); } catch (e) {}
+  if (cached && Date.now() - cached.at < 600000) { show(cached.data); return; }
+  fetch(API, { headers: { Accept: "application/json" } })
+    .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
+    .then(function (data) {
+      try { sessionStorage.setItem("psp2dc-releases", JSON.stringify({ at: Date.now(), data: data })); } catch (e) {}
+      show(data);
+    })
+    .catch(function () {});   // offline or rate-limited: the build's numbers and links stay
+})();
+</script>
+</body>
+</html>

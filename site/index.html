@@ -9,7 +9,7 @@
 <link rel="icon" href="{{icon.svg}}" type="image/svg+xml">
 </head>
 <body>
-<header class="bar"><div class="wrap"><a class="brand" href="#top"><img src="{{icon.svg}}" alt="" width="28" height="28"><span>PSP<b>2DC</b></span></a><nav><a class="more" href="#does">What it does</a><a class="more" href="#how">How it works</a><a href="#start">Get started</a><a class="more" href="#companion">Companion</a><a href="{{REPO}}">GitHub</a></nav></div></header>
+<header class="bar"><div class="wrap"><a class="brand" href="#top"><img src="{{icon.svg}}" alt="" width="28" height="28"><span>PSP<b>2DC</b></span></a><nav><a class="more" href="#does">What it does</a><a class="more" href="#how">How it works</a><a href="#start">Get started</a><a href="download.html">Download</a><a class="more" href="#companion">Companion</a><a href="{{REPO}}">GitHub</a></nav></div></header>
 
 <main id="top">
 <section class="hero">
@@ -20,7 +20,8 @@
       <p class="lead">PSP2DC makes a PSP-1000 the Dreamcast's controller and VMU. Its buttons play the
       game, the VMU's screen is shown full size on the PSP, and your memory cards are files on its
       Memory Stick. A small adapter connects the two; the console and its games stay as they are.</p>
-      <p class="cta"><a class="button" href="#start">Get started</a>
+      <p class="cta"><a class="button" href="download.html">Download</a>
+      <a class="button ghost" href="#start">Get started</a>
       <a class="button ghost" href="{{REPO}}">Source on GitHub</a></p>
     </div>
     <figure class="setup"><img src="images/psp2dc-setup.png" alt="The setup: a Dreamcast with a cable from controller port A to the RP2040-Zero adapter, powered by the Dreamcast's 5 V, and a USB cable from the adapter to a PSP-1000 running PSP2DC; controller inputs go to the Dreamcast, the VMU's screen and saves come back. Below: the controller, the VMU and the interface in a line each." width="1774" height="887"></figure>
@@ -124,7 +125,7 @@
     <li><b>The adapter.</b> Solder the controller cable to the board.
       <a href="{{REPO}}#what-you-need">Wiring</a></li>
     <li><b>Download.</b> A release is one zip with the adapter's firmware and the PSP application.
-      <a href="{{REPO}}/releases/latest">The latest release</a></li>
+      <a href="download.html">The download page</a></li>
     <li><b>The adapter's firmware.</b> Hold the board's BOOT button while plugging it into a computer, and copy the
       zip's <code>.uf2</code> file onto the drive that appears.</li>
     <li><b>The PSP.</b> Copy the zip's <code>PSP</code> folder onto the Memory Stick.</li>
