@@ -4,6 +4,8 @@
 
 The first release. PSP2DC makes a PSP-1000 a Dreamcast controller, VMU, memory card and keyboard, through a small adapter (an RP2040-Zero) between the PSP's USB port and a Dreamcast controller port. The console and its games are as they are.
 
+[A video of it](https://youtu.be/YzZmnof1pwY) on a real Dreamcast: Sonic Adventure and Crazy Taxi 2.
+
 **What works, on a real Dreamcast:**
 
 - **The controller:** d-pad, the four buttons, START, the analog nub as the stick, L and R as the triggers.
