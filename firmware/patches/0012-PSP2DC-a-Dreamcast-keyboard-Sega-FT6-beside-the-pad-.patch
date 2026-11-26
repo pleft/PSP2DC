@@ -1,7 +1,7 @@
 From edd284e952f03f1795382e6c57b5817651acb023 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Wed, 18 Nov 2026 20:59:06 +0200
-Subject: [PATCH 12/17] PSP2DC: a Dreamcast keyboard (Sega FT6), beside the pad
+Subject: [PATCH 12/19] PSP2DC: a Dreamcast keyboard (Sega FT6), beside the pad
  or alone, typed on the PSP (protocol 6)
 
 The PSP chooses the mode with a KEYBOARD message: off, one device with both

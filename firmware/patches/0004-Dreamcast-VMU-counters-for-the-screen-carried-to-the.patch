@@ -1,7 +1,7 @@
 From 380ed0caae4a2f6fcac39406a6856173d86112c4 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 15 Nov 2026 16:51:01 +0200
-Subject: [PATCH 04/17] Dreamcast VMU: counters for the screen, carried to the
+Subject: [PATCH 04/19] Dreamcast VMU: counters for the screen, carried to the
  PSP in the status message
 
 How many times the Dreamcast asked about the LCD, wrote to it, and how many

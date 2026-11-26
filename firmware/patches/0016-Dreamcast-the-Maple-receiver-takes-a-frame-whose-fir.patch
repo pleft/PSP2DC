@@ -1,7 +1,7 @@
 From e7ef5a84ce68dc93812aad1b450859f401046583 Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 22 Nov 2026 21:40:16 +0200
-Subject: [PATCH 16/17] Dreamcast: the Maple receiver takes a frame whose first
+Subject: [PATCH 16/19] Dreamcast: the Maple receiver takes a frame whose first
  bit is 1 (128 words or more)
 
 The state machine waited for pin 5 to fall before every bit's clock, as it

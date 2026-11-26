@@ -1,0 +1,52 @@
+From 4dfe0f0a57aa52a5f109237db51b5f0969514a15 Mon Sep 17 00:00:00 2001
+From: pleft <elefasgr@gmail.com>
+Date: Thu, 26 Nov 2026 22:23:06 +0200
+Subject: [PATCH 18/19] Dreamcast VMU: a block read's reply repeats the
+ request's location word
+
+The reply carried the block number in the word's first byte. Sega's software
+does not look at the word; KallistiOS compares it with the request's and
+refused every block but 0, so its memory card files failed (Doom 64 for
+Dreamcast: "VMU Bad").
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/native/device/dreamcast/vmu.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/native/device/dreamcast/vmu.c b/src/native/device/dreamcast/vmu.c
+index 7d63de45..16d14521 100644
+--- a/src/native/device/dreamcast/vmu.c
++++ b/src/native/device/dreamcast/vmu.c
+@@ -81,7 +81,7 @@ typedef struct __attribute__((packed)) {
+ typedef struct __attribute__((packed)) {
+     uint32_t BitPairsMinus1;
+     uint8_t  Command; uint8_t  Destination; uint8_t  Origin; uint8_t  NumWords;
+-    uint32_t Func; uint16_t Address; uint8_t Phase; uint8_t Reserved;
++    uint32_t Func; uint32_t Location;   // the request's, as it came
+     uint8_t  Data[VMU_BLOCK_SIZE];
+     uint32_t CRC;
+ } VmuBlockReadPkt;
+@@ -214,7 +214,7 @@ void vmu_build_packets(uint8_t port_addr) {
+       p->CRC=CalcCRC((uint32_t*)&p->Command,(sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC))/sizeof(uint32_t)); }
+     { VmuBlockReadPkt *p=&vmu_block_read_pkt;
+       p->Command=CMD_RESPOND_DATA_TRANSFER; p->Destination=0; p->Origin=port_addr;
+-      p->Func=__builtin_bswap32(FUNC_MEMORY); p->Phase=0; p->Reserved=0; }
++      p->Func=__builtin_bswap32(FUNC_MEMORY); p->Location=0; }
+     { VmuAckPkt *p=&vmu_ack_pkt;
+       p->BitPairsMinus1=(sizeof(*p)-7)*4-1; p->Command=7;
+       p->Destination=0; p->Origin=port_addr; p->NumWords=0;
+@@ -494,7 +494,9 @@ const void* __not_in_flash_func(vmu_handle_block_read)(const uint32_t *pkt, uint
+     uint16_t block = (uint16_t)((pkt[1] >> 24) & 0xFF);
+     if (block >= VMU_TOTAL_BLOCKS) block = 0;
+     VmuBlockReadPkt *p = &vmu_block_read_pkt;
+-    p->Address = block;
++    // The reply carries the request's location word unchanged, as a VMU's does: KallistiOS
++    // refuses a block whose word differs (Sega's own software does not look at it).
++    p->Location = pkt[1];
+     vmu_ram_copy(p->Data, vmu_ram + (uint32_t)block * VMU_BLOCK_SIZE, VMU_BLOCK_SIZE);
+     p->BitPairsMinus1 = (sizeof(*p)-7)*4-1;
+     p->NumWords = (sizeof(*p)-sizeof(p->BitPairsMinus1)-sizeof(p->CRC)-sizeof(uint32_t))/sizeof(uint32_t);
+-- 
+2.54.0 (Apple Git-157)
+

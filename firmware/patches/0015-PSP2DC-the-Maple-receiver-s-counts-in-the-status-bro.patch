@@ -1,7 +1,7 @@
 From 1e4e6dd62e84feaaaa728cae8af022dfdc52f2ff Mon Sep 17 00:00:00 2001
 From: pleft <elefasgr@gmail.com>
 Date: Sun, 22 Nov 2026 20:14:25 +0200
-Subject: [PATCH 15/17] PSP2DC: the Maple receiver's counts in the status
+Subject: [PATCH 15/19] PSP2DC: the Maple receiver's counts in the status
  (broken frames, line errors, longest frame, FIFO full)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
