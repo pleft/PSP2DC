@@ -1,5 +1,14 @@
 # Release notes
 
+## 1.0.1 (2026-11-27)
+
+Two fixes in the adapter's firmware. The PSP application is as it was but for its version.
+
+- **KallistiOS homebrew can use the memory card.** A block read's reply now repeats the request's location word, as a VMU's does. KallistiOS checks that word and refused every block: Doom 64 for Dreamcast said "VMU Bad". Sega's own software and the games tried do not look at it, so they worked before and work as they did.
+- **The adapter's light goes back to idle after a save.** It blinked blue from the first save on, as if changes were still waiting; it now stops once they are on the PSP.
+
+**Updating:** copy the new `.uf2` onto the adapter and the new `PSP` folder onto the Memory Stick. Cards and settings stay as they are.
+
 ## 1.0.0 (2026-11-25)
 
 The first release. PSP2DC makes a PSP-1000 a Dreamcast controller, VMU, memory card and keyboard, through a small adapter (an RP2040-Zero) between the PSP's USB port and a Dreamcast controller port. The console and its games are as they are.
