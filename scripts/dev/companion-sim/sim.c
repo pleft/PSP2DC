@@ -64,6 +64,24 @@ int sim_maple(const uint32_t *payload, int words, uint32_t *out, int *out_words)
     return head[0];
 }
 
+int sim_card_read(const uint32_t *payload, const uint8_t *block, uint32_t *out, int *out_words)
+{
+    static int built;
+    const uint32_t *pkt;
+    const uint8_t *head;
+    uint32_t size;
+    int part;
+    if (!built) { vmu_build_packets(0x01); built = 1; }
+    if (block)
+        for (part = 0; part < VMU_CARD_PARTS; part++)
+            vmu_card_set_part((uint8_t)(payload[1] >> 24), (uint8_t)part, block + part * VMU_CARD_PART_SIZE);
+    pkt = vmu_handle_block_read(payload, &size);
+    head = (const uint8_t *)&pkt[1];
+    *out_words = head[3];
+    memcpy(out, &pkt[2], head[3] * 4u);
+    return head[0];
+}
+
 static unsigned put_msg(uint8_t *at, int type, const void *payload, unsigned len)
 {
     at[0] = PSP2DC_MAGIC0; at[1] = PSP2DC_MAGIC1; at[2] = (uint8_t)type; at[3] = (uint8_t)len;

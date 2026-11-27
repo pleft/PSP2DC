@@ -21,6 +21,11 @@
  * 8 a data transfer, 0xFC again, -1 none (not the companion's command). */
 int  sim_maple(const uint32_t *payload, int words, uint32_t *out, int *out_words);
 
+/* The memory card's BLOCK READ as the adapter answers it: the payload is the function word and
+ * the location word, as sim_maple's. block (512 bytes, or NULL) is put on the card there first.
+ * The reply's payload goes to out; the reply's code is returned. */
+int  sim_card_read(const uint32_t *payload, const uint8_t *block, uint32_t *out, int *out_words);
+
 /* One exchange between the adapter and the PSP: about 60 a second. */
 void sim_usb(void);
 void sim_usb_fail(void);              /* the next transfer to the PSP is lost */

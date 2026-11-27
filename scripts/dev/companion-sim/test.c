@@ -996,6 +996,28 @@ static void files_faults(void)
     printf("    %u vblanks, %u + %u lost\n", vblanks, lost_requests, lost_replies);
 }
 
+/* The memory card's BLOCK READ, checked as KallistiOS does (vmu.c, vmu_block_read: a data
+ * transfer, the memory card's function, the request's location word back unchanged) and a
+ * block's 512 bytes after them. */
+static void card_read(void)
+{
+    static const int blocks[] = { 0, 1, 127, 200, 254, 255 };
+    uint8_t data[512];
+    uint32_t request[2], reply[255];
+    unsigned i, k;
+    int words;
+    for (i = 0; i < sizeof(blocks) / sizeof(blocks[0]); i++) {
+        for (k = 0; k < sizeof(data); k++) data[k] = (uint8_t)(rand() >> 4);
+        request[0] = 0x02000000;                             /* MAPLE_FUNC_MEMCARD */
+        request[1] = (uint32_t)(blocks[i] & 0xFF) << 24;     /* KallistiOS's blkid */
+        CHECK(sim_card_read(request, data, reply, &words) == 8);
+        CHECK(words == 2 + 512 / 4);
+        CHECK(reply[0] == request[0]);
+        CHECK(reply[1] == request[1]);
+        CHECK(!memcmp(&reply[2], data, sizeof(data)));
+    }
+}
+
 static const struct { const char *name, *what; void (*run)(void); } scenarios[] = {
     { "plain",      "found; rows of text; records of every size arrive, each once and whole", plain },
     { "slow",       "a PSP that reads slowly: \"again\", and nothing lost", slow_psp },
@@ -1013,6 +1035,7 @@ static const struct { const char *name, *what; void (*run)(void); } scenarios[] 
     { "pictures-faults", "pictures through everything at once, 60000 frames", pictures_faults },
     { "focus",      "the PSP's buttons a program takes: sent, sent again, never SELECT", focus_test },
     { "leftovers",  "a program started on a PSP another has used: its rows and buttons gone", leftovers },
+    { "card-read",  "the memory card's block read, as KallistiOS checks its reply", card_read },
     { "files",      "each operation, names refused, the limits, a write cut short", files },
     { "files-faults", "files through everything at once: whole or as they were", files_faults },
 };
